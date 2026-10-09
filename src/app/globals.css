@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Neutros industriais (aço) */
+  --background: #f4f5f7;
+  --foreground: #14181f;
+
+  --card: #ffffff;
+  --card-foreground: #14181f;
+
+  --popover: #ffffff;
+  --popover-foreground: #14181f;
+
+  --primary: #c2410c;
+  --primary-foreground: #ffffff;
+
+  --secondary: #e8eaee;
+  --secondary-foreground: #1f242c;
+
+  --muted: #eceef1;
+  --muted-foreground: #5b6472;
+
+  --accent: #e2e6eb;
+  --accent-foreground: #14181f;
+
+  --destructive: #b91c1c;
+  --destructive-foreground: #ffffff;
+
+  --border: #d5d9df;
+  --input: #c9cfd7;
+  --ring: #f15a22;
+
+  --radius: 0.3rem;
+
+  /* Status de processo */
+  --status-done: #15803d;
+  --status-done-bg: #dcfce7;
+  --status-progress: #b45309;
+  --status-progress-bg: #fef3c7;
+  --status-blocked: #b91c1c;
+  --status-blocked-bg: #fee2e2;
+  --status-none: #64748b;
+  --status-none-bg: #eef1f4;
+  --status-na: #94a3b8;
+  --status-na-bg: #f8fafc;
+  --status-late: #b91c1c;
+  --status-late-bg: #fee2e2;
+}
+
+.dark {
+  --background: #0e1116;
+  --foreground: #e6e9ee;
+
+  --card: #151a21;
+  --card-foreground: #e6e9ee;
+
+  --popover: #151a21;
+  --popover-foreground: #e6e9ee;
+
+  --primary: #c2410c;
+  --primary-foreground: #ffffff;
+
+  --secondary: #1f252e;
+  --secondary-foreground: #e6e9ee;
+
+  --muted: #1c222a;
+  --muted-foreground: #98a2b3;
+
+  --accent: #232a34;
+  --accent-foreground: #e6e9ee;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+
+  --border: #2a313b;
+  --input: #333b47;
+  --ring: #f97316;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-status-done: var(--status-done);
+  --color-status-done-bg: var(--status-done-bg);
+  --color-status-progress: var(--status-progress);
+  --color-status-progress-bg: var(--status-progress-bg);
+  --color-status-blocked: var(--status-blocked);
+  --color-status-blocked-bg: var(--status-blocked-bg);
+  --color-status-none: var(--status-none);
+  --color-status-none-bg: var(--status-none-bg);
+  --color-status-na: var(--status-na);
+  --color-status-na-bg: var(--status-na-bg);
+  --color-status-late: var(--status-late);
+  --color-status-late-bg: var(--status-late-bg);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-feature-settings: "tnum" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Foco visível e acessível em todo o app */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* Scrollbar do painel operacional */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: var(--muted);
+}
+*::-webkit-scrollbar-thumb {
+  background: #b6bcc6;
+  border: 2px solid var(--muted);
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #939ba7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,295 @@
+import "server-only";
+
+import type { SessionUser } from "@/lib/auth/session";
+import type { SupabaseServer } from "@/lib/supabase/types";
+import type {
+  BuiltOf,
+  FileOrder,
+  ImportErrorEntry,
+  ImportPreview,
+  OfDecisionMap,
+  OfPreview,
+} from "@/lib/types/import";
+import { findOrderStructures } from "@/lib/repositories/orders.repository";
+import {
+  applyOfPlan,
+  completeBatch,
+  createBatch,
+  insertBatchErrors,
+} from "@/lib/repositories/import.repository";
+import { parseExcelFile } from "@/lib/import/excel-parser";
+import { buildOfStructure, orderStatusOf } from "@/lib/import/of-structure";
+import { buildOfImportPlan, computeOfDifferences } from "@/lib/import/of-plan";
+import type { OfImportPlan } from "@/lib/import/of-plan";
+import { getImportMaxFileSize } from "@/lib/env";
+import { ALLOWED_IMPORT_EXTENSIONS } from "@/lib/constants/import";
+import { assertSheetStructure, validateImportFile } from "@/lib/validators/import.schema";
+import type { Json } from "@/lib/types/database";
+import { errorMessage } from "@/lib/utils/supabase-result";
+
+/**
+ * Erro de ENTRADA (arquivo/aba/formulário/decisões): a API responde 400.
+ * Diferente de falha de gravação/RPC (500), nunca deixa lote parcial —
+ * acontece antes de qualquer escrita.
+ */
+export class ImportInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImportInputError";
+  }
+}
+
+/**
+ * Serviço da importação do layout novo (estrutura OF).
+ *
+ * O arquivo traz a árvore OF -> itens pai -> filhos -> matéria-prima;
+ * cliente e data de entrega vêm do formulário e valem para todos os
+ * registros. Não existe etapa de mapeamento: as colunas são reconhecidas
+ * pelo NOME técnico e os processos são criados pelo catálogo (a
+ * planilha não traz status de processo nem OP).
+ */
+
+export interface AnalyzeOutput {
+  fileName: string;
+  fileSize: number;
+  /** Abas no formato reconhecido (cabeçalho técnico detectado). */
+  sheets: { name: string; rowCount: number; columnCount: number }[];
+  defaultSheet: string;
+}
+
+/** Lê o arquivo validando extensão e tamanho (20 MB por padrão). */
+export async function readFileForImport(file: File): Promise<{ buffer: ArrayBuffer; fileName: string; fileSize: number }> {
+  const validation = validateImportFile(file);
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+
+  const maxFileSize = getImportMaxFileSize();
+  if (file.size > maxFileSize) {
+    const limitMb = Math.round(maxFileSize / (1024 * 1024));
+    throw new Error(`Arquivo muito grande. O limite é de ${limitMb} MB.`);
+  }
+
+  const extension = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+  if (!(ALLOWED_IMPORT_EXTENSIONS as readonly string[]).includes(extension)) {
+    throw new Error("Formato de arquivo não suportado. Envie .xlsx ou .xls.");
+  }
+
+  const buffer = await file.arrayBuffer();
+  return { buffer, fileName: file.name, fileSize: file.size };
+}
+
+/** Etapa 1: lê o arquivo e identifica as abas no formato esperado. */
+export function analyzeWorkbook(buffer: ArrayBuffer, fileName: string, fileSize: number): AnalyzeOutput {
+  const workbook = parseExcelFile(buffer, fileName, fileSize);
+  const importable = workbook.sheets.filter((sheet) => workbook.headerBySheet[sheet.name]?.detected);
+
+  if (importable.length === 0) {
+    throw new Error(
+      'O arquivo não contém nenhuma aba no formato reconhecido (colunas técnicas "of_idOF" e "ps_idPos" não encontradas). Baixe o modelo e use a planilha da fábrica.',
+    );
+  }
+
+  const first = importable[0];
+  if (!first) return { fileName, fileSize, sheets: [], defaultSheet: "" };
+  assertSheetStructure(first.headers, first.rows.length);
+
+  return {
+    fileName,
+    fileSize,
+    sheets: importable.map((sheet) => ({
+      name: sheet.name,
+      rowCount: sheet.rows.length,
+      columnCount: sheet.headers.filter((header) => header.trim() !== "").length,
+    })),
+    defaultSheet: first.name,
+  };
+}
+
+export interface PreviewInput {
+  buffer: ArrayBuffer;
+  fileName: string;
+  fileSize: number;
+  sheetName: string;
+  customerName: string;
+  deliveryDate: string;
+}
+
+/**
+ * Etapa 2: monta a estrutura hierárquica, valida e compara com o que já
+ * existe no banco (diferenças campo a campo por OF).
+ */
+export async function buildPreview(client: SupabaseServer, input: PreviewInput): Promise<ImportPreview> {
+  let orders: BuiltOf[];
+  let ignoredColumns: string[];
+  try {
+    const workbook = parseExcelFile(input.buffer, input.fileName, input.fileSize);
+    const sheet = workbook.sheets.find((entry) => entry.name === input.sheetName);
+    if (!sheet) throw new Error(`Planilha "${input.sheetName}" não encontrada.`);
+
+    const detection = workbook.headerBySheet[sheet.name];
+    if (!detection?.detected) {
+      throw new Error(`A aba "${input.sheetName}" não tem o cabeçalho técnico do layout novo.`);
+    }
+    assertSheetStructure(sheet.headers, sheet.rows.length);
+
+    const built = buildOfStructure(sheet, {
+      customerName: input.customerName,
+      deliveryDate: input.deliveryDate,
+    });
+    orders = built.orders;
+    ignoredColumns = built.ignoredColumns;
+  } catch (error) {
+    // Arquivo/aba/estrutura inválidos: entrada, não falha do sistema.
+    throw new ImportInputError(errorMessage(error, "Não foi possível processar a planilha."));
+  }
+
+  const codes = [...new Set(orders.map((order) => order.code))];
+  const existing = await findOrderStructures(client, codes);
+
+  const previews: OfPreview[] = orders.map((order) => {
+    const structure = existing.get(order.code.toUpperCase()) ?? null;
+    const { sourceRow, issues, ...fileOrder } = order;
+    return {
+      order: fileOrder as FileOrder,
+      sourceRow,
+      status: orderStatusOf(issues),
+      issues,
+      exists: structure !== null,
+      existingStatus: structure?.status ?? null,
+      differences: computeOfDifferences(order, structure),
+      counts: {
+        parents: order.parents.length,
+        children: order.parents.reduce((total, parent) => total + parent.children.length, 0),
+        materials:
+          order.parents.reduce(
+            (total, parent) =>
+              total + parent.materials.length + parent.children.reduce((sum, child) => sum + child.materials.length, 0),
+            0,
+          ),
+      },
+      requiresDecision: structure !== null && orderStatusOf(issues) !== "ERROR",
+    };
+  });
+
+  const totals = {
+    orders: previews.length,
+    importable: previews.filter((entry) => entry.status !== "ERROR").length,
+    existing: previews.filter((entry) => entry.requiresDecision).length,
+    errors: previews.filter((entry) => entry.status === "ERROR").length,
+    warnings: previews.filter((entry) => entry.status === "WARNING").length,
+    parents: previews.reduce((total, entry) => total + entry.counts.parents, 0),
+    children: previews.reduce((total, entry) => total + entry.counts.children, 0),
+    materials: previews.reduce((total, entry) => total + entry.counts.materials, 0),
+  };
+
+  return {
+    fileName: input.fileName,
+    sheetName: input.sheetName,
+    customerName: input.customerName,
+    deliveryDate: input.deliveryDate,
+    orders: previews,
+    totals,
+    ignoredColumns,
+  };
+}
+
+export interface ExecuteImportInput extends PreviewInput {
+  decisions: OfDecisionMap;
+}
+
+export interface ExecuteImportOutput {
+  batchId: string;
+  /** OFs no arquivo. */
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: number;
+  warnings: number;
+  parentsCreated: number;
+  parentsUpdated: number;
+  childrenCreated: number;
+  childrenUpdated: number;
+  itemsRemoved: number;
+}
+
+/** Erros do lote: uma entrada por ocorrência das OFs com ERRO. */
+function errorEntries(preview: ImportPreview): ImportErrorEntry[] {
+  return preview.orders
+    .filter((entry) => entry.status === "ERROR")
+    .flatMap((entry) =>
+      entry.issues
+        .filter((issue) => issue.severity === "error")
+        .map((issue) => ({
+          rowNumber: entry.sourceRow,
+          columnName: issue.column,
+          errorType: issue.type,
+          message: issue.where.startsWith("Linha") ? issue.message : `${issue.where} — ${issue.message}`,
+          rawValue: issue.rawValue,
+        })),
+    );
+}
+
+/**
+ * Etapa 3: executa a importação.
+ *
+ * Fluxo transacional: prévia -> plano (com decisões por OF) -> gravar
+ * (RPC única) -> registrar lote + erros. Em caso de falha, o rollback é
+ * automático e o lote é marcado como FALHOU.
+ */
+export async function executeImport(
+  client: SupabaseServer,
+  sessionUser: SessionUser,
+  input: ExecuteImportInput,
+): Promise<ExecuteImportOutput> {
+  const preview = await buildPreview(client, input);
+
+  let plan: OfImportPlan;
+  try {
+    plan = buildOfImportPlan(preview, input.decisions);
+  } catch (error) {
+    // Decisões ausentes/inválidas: entrada do usuário, não falha de gravação.
+    throw new ImportInputError(errorMessage(error, "Decisões de importação inválidas."));
+  }
+
+  const batchId = await createBatch(client, {
+    fileName: input.fileName,
+    fileSize: input.fileSize,
+    totalRows: preview.totals.orders,
+    validRows: preview.totals.importable,
+    errorRows: preview.totals.errors,
+    warningRows: preview.totals.warnings,
+    createdBy: sessionUser.id,
+  });
+
+  await insertBatchErrors(client, batchId, errorEntries(preview));
+
+  try {
+    const result = await applyOfPlan(client, { operations: plan.operations } as unknown as Json);
+
+    const written = result.ordersCreated + result.ordersUpdated;
+    await completeBatch(client, batchId, {
+      status: preview.totals.errors > 0 ? "COM_ERROS" : "CONCLUIDO",
+      validRows: written,
+    });
+
+    return {
+      batchId,
+      total: preview.totals.orders,
+      created: result.ordersCreated,
+      updated: result.ordersUpdated,
+      skipped: result.ordersSkipped,
+      errors: preview.totals.errors,
+      warnings: preview.totals.warnings,
+      parentsCreated: result.parentsCreated,
+      parentsUpdated: result.parentsUpdated,
+      childrenCreated: result.childrenCreated,
+      childrenUpdated: result.childrenUpdated,
+      itemsRemoved: result.itemsRemoved,
+    };
+  } catch (error) {
+    await completeBatch(client, batchId, { status: "FALHOU", validRows: 0 }).catch(() => undefined);
+    throw error;
+  }
+}

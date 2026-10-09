@@ -1,0 +1,443 @@
+"use client";
+
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { ArrowDown, ArrowUp, ArrowUpDown, Filter, Search, X } from "lucide-react";
+
+import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS } from "@/lib/constants/production";
+import { DELIVERY_FILTERS, DELIVERY_LABELS, SEARCH_DEBOUNCE_MS } from "@/lib/constants/pagination";
+import type { ProductionFilters } from "@/lib/types/production";
+import { productionQueryString } from "@/lib/utils/filters";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+/** Grava um conjunto de filtros na URL e volta para a primeira página. */
+function useApplyFilters(filters: ProductionFilters) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  return (overrides: Partial<ProductionFilters>) => {
+    const query = productionQueryString({ ...filters, ...overrides, page: 1 });
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  };
+}
+
+/** Indicador de ordenação da coluna (servidor decide a ordem via URL). */
+function SortLink({
+  label,
+  fullName,
+  columnId,
+  filters,
+}: {
+  label: string;
+  /** Nome completo da coluna (o que o leitor de tela anuncia). */
+  fullName: string;
+  columnId: string;
+  filters: ProductionFilters;
+}) {
+  const active = filters.sort === columnId;
+  const sortDir = active ? filters.sortDir : "asc";
+  const next: ProductionFilters = {
+    ...filters,
+    sort: columnId,
+    sortDir: active && filters.sortDir === "asc" ? "desc" : "asc",
+    page: 1,
+  };
+  const query = productionQueryString(next);
+  const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+
+  return (
+    <Link
+      href={query ? `/gestao-entregas?${query}` : "/gestao-entregas"}
+      className={cn(
+        "inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 transition-colors hover:text-foreground",
+        !active && "text-muted-foreground",
+      )}
+      aria-label={`Ordenar por ${fullName}${active ? `, atualmente ${sortDir === "asc" ? "crescente" : "decrescente"}` : ""}`}
+      title={fullName}
+    >
+      <span className="truncate" aria-hidden>
+        {label}
+      </span>
+      <Icon className={cn("h-3 w-3 shrink-0", active ? "opacity-100" : "opacity-40")} aria-hidden />
+    </Link>
+  );
+}
+
+interface FilterOption {
+  value: string;
+  label: string;
+}
+
+/** Aparência compartilhada do funil de filtro no cabeçalho. */
+function funnelClassName(active: boolean): string {
+  return cn(
+    "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors",
+    "hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    active ? "bg-primary/15 text-primary" : "text-muted-foreground/60",
+  );
+}
+
+function funnelTitle(context: string): string {
+  return `Filtrar por ${context}`;
+}
+
+function funnelAriaLabel(context: string, active: boolean): string {
+  return `${funnelTitle(context)}${active ? " — filtro ativo" : ""}`;
+}
+
+/** Ícone do funil — quando ativo, fica preenchido (além da cor). */
+function FunnelIcon({ active }: { active: boolean }) {
+  return <Filter className={cn("h-3 w-3", active && "fill-current")} aria-hidden />;
+}
+
+interface FilterMenuProps {
+  /** Contexto do filtro, ex.: "situação do pedido" (vai para aria-label e título). */
+  context: string;
+  value: string;
+  active: boolean;
+  options: FilterOption[];
+  onValueChange: (value: string) => void;
+}
+
+/**
+ * Funil no cabeçalho da coluna: abre as opções daquele filtro.
+ * O estado ativo não é comunicado só por cor — o ícone fica preenchido e o
+ * rótulo acessível indica "filtro ativo".
+ */
+function FilterMenu({ context, value, active, options, onValueChange }: FilterMenuProps) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          title={funnelTitle(context)}
+          aria-label={funnelAriaLabel(context, active)}
+          className={funnelClassName(active)}
+        >
+          <FunnelIcon active={active} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
+        <DropdownMenuLabel>{context}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
+          {options.map((option) => (
+            <DropdownMenuRadioItem key={option.value} value={option.value}>
+              {option.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * Cabeçalho de uma coluna: ordenação (quando existir) + filtro opcional.
+ * `label` é o texto visível (pode ser abreviado); `fullLabel` é o nome completo
+ * usado no aria-label/tooltip — leitor de tela nunca enxerga a abreviação.
+ * `children` entra à direita, junto do rótulo.
+ */
+export function ColumnHeader({
+  label,
+  fullLabel,
+  columnId,
+  filters,
+  filter,
+}: {
+  label: string;
+  fullLabel?: string;
+  columnId?: string;
+  filters: ProductionFilters;
+  filter?: ReactNode;
+}) {
+  const fullName = fullLabel ?? label;
+
+  return (
+    <span className="flex w-full items-center justify-between gap-1">
+      {columnId ? (
+        <SortLink label={label} fullName={fullName} columnId={columnId} filters={filters} />
+      ) : (
+        <span className="truncate px-1" title={fullName}>
+          <span aria-hidden>{label}</span>
+          <span className="sr-only">{fullName}</span>
+        </span>
+      )}
+      {filter}
+    </span>
+  );
+}
+
+/** Filtro da coluna "Entrega": janelas rápidas + período De/Até (014). */
+export function DeliveryFilter({ filters }: { filters: ProductionFilters }) {
+  const apply = useApplyFilters(filters);
+  const active =
+    filters.delivery !== "ALL" || filters.deliveryFrom !== null || filters.deliveryTo !== null;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title={funnelTitle("entrega")}
+          aria-label={funnelAriaLabel("entrega", active)}
+          className={funnelClassName(active)}
+        >
+          <FunnelIcon active={active} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 space-y-3">
+        <div className="space-y-1">
+          <Label htmlFor="entrega-janela" className="text-xs text-muted-foreground">
+            Janela
+          </Label>
+          <Select
+            value={filters.delivery}
+            onValueChange={(value) =>
+              apply({ delivery: value as ProductionFilters["delivery"] })
+            }
+          >
+            <SelectTrigger id="entrega-janela" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DELIVERY_FILTERS.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {DELIVERY_LABELS[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <Label htmlFor="entrega-de" className="text-xs text-muted-foreground">
+              De
+            </Label>
+            <Input
+              id="entrega-de"
+              type="date"
+              value={filters.deliveryFrom ?? ""}
+              max={filters.deliveryTo ?? undefined}
+              onChange={(event) => apply({ deliveryFrom: event.target.value || null })}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="entrega-ate" className="text-xs text-muted-foreground">
+              Até
+            </Label>
+            <Input
+              id="entrega-ate"
+              type="date"
+              value={filters.deliveryTo ?? ""}
+              min={filters.deliveryFrom ?? undefined}
+              onChange={(event) => apply({ deliveryTo: event.target.value || null })}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!active}
+            onClick={() => apply({ delivery: "ALL", deliveryFrom: null, deliveryTo: null })}
+          >
+            Limpar
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Filtro do grupo "PROCESSOS": situação em *qualquer* processo
+ * (processCode fica em ALL — o banco procura a situação em todas as etapas).
+ */
+export function ProcessGroupFilter({ filters }: { filters: ProductionFilters }) {
+  const apply = useApplyFilters(filters);
+  const active = filters.processCode === "ALL" && filters.processStatus !== "ALL";
+  const value = filters.processCode === "ALL" ? filters.processStatus : "ALL";
+
+  return (
+    <FilterMenu
+      context="situação em qualquer processo"
+      value={value}
+      active={active}
+      options={[
+        { value: "ALL", label: "Todas as situações" },
+        ...PROCESS_STATUSES.map((status) => ({
+          value: status,
+          label: `${PROCESS_STATUS_SYMBOLS[status]} ${PROCESS_STATUS_LABELS[status]}`,
+        })),
+      ]}
+      onValueChange={(next) =>
+        apply({
+          processCode: "ALL",
+          processStatus: next === "ALL" ? "ALL" : (next as ProductionFilters["processStatus"]),
+        })
+      }
+    />
+  );
+}
+
+/** Colunas de texto — filtro "contém" (valor parcial, sem diferenciar maiúsculas). */
+export type TextFilterField = "orderCode" | "customer" | "parentItem" | "description";
+
+interface TextColumnFilterProps {
+  filters: ProductionFilters;
+  field: TextFilterField;
+  /** Rótulo da coluna, ex.: "Cliente". */
+  column: string;
+  /** Contexto do título/aria, ex.: "cliente". */
+  context: string;
+}
+
+export function TextColumnFilter({ filters, field, column, context }: TextColumnFilterProps) {
+  const apply = useApplyFilters(filters);
+  const inputId = useId();
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(filters[field]);
+
+  const value = filters[field];
+  const active = value !== "";
+
+  const onOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (next) setDraft(value);
+  };
+
+  const commit = (next: string) => {
+    const trimmed = next.trim();
+    setDraft(trimmed);
+    const patch: Partial<ProductionFilters> = {};
+    patch[field] = trimmed;
+    apply(patch);
+    setOpen(false);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title={funnelTitle(context)}
+          aria-label={funnelAriaLabel(context, active)}
+          className={funnelClassName(active)}
+        >
+          <FunnelIcon active={active} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 space-y-2 p-3">
+        <Label htmlFor={inputId} className="text-xs text-muted-foreground">
+          {column} — contém
+        </Label>
+        <Input
+          id={inputId}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commit(draft);
+            }
+          }}
+          placeholder="Digite parte do valor…"
+          autoComplete="off"
+          className="h-8"
+        />
+        <div className="flex items-center justify-between gap-2">
+          <Button type="button" variant="ghost" size="sm" disabled={!active} onClick={() => commit("")}>
+            <X className="h-4 w-4" aria-hidden />
+            Limpar
+          </Button>
+          <Button type="button" size="sm" onClick={() => commit(draft)}>
+            Aplicar
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Cabeçalho do grupo "DADOS DOS PEDIDOS": título + busca (semântica do banco). */
+export function OrderGroupHeader({ filters }: { filters: ProductionFilters }) {
+  const apply = useApplyFilters(filters);
+  const [search, setSearch] = useState(filters.search);
+  const [syncedSearch, setSyncedSearch] = useState(filters.search);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sincroniza o campo com a URL quando os filtros mudam por fora
+  // (limpar filtros, navegação) — padrão de "ajuste durante a renderização".
+  if (syncedSearch !== filters.search) {
+    setSyncedSearch(filters.search);
+    setSearch(filters.search);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  const onSearchChange = (value: string) => {
+    setSearch(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => apply({ search: value }), SEARCH_DEBOUNCE_MS);
+  };
+
+  const clearSearch = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSearch("");
+    apply({ search: "" });
+  };
+
+  return (
+    <span className="flex items-center justify-center gap-2">
+      <span>DADOS DOS PEDIDOS</span>
+      <span className="relative inline-flex items-center">
+        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+        <Input
+          value={search}
+          onChange={(event) => onSearchChange(event.target.value)}
+          placeholder="Buscar OF/OS, tipo, item, descrição…"
+          aria-label="Buscar por OF/OS, tipo, item pai ou descrição"
+          autoComplete="off"
+          className="h-7 w-44 border-input bg-background pl-7 pr-7 text-xs font-normal normal-case tracking-normal shadow-none md:w-64"
+        />
+        {search ? (
+          <button
+            type="button"
+            onClick={clearSearch}
+            aria-label="Limpar busca"
+            className="absolute right-1 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        ) : null}
+      </span>
+    </span>
+  );
+}

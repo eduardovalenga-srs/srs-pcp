@@ -1,0 +1,305 @@
+# Controle de Produção — Serralheria
+
+Aplicação web para controle de produção industrial (serralheria): substitui a planilha
+de Excel por um sistema com pedidos, itens, processos configuráveis, importação de
+planilha com prévia e histórico completo de alterações.
+
+## Stack
+
+| Camada | Tecnologia |
+| --- | --- |
+| Framework | Next.js 16 (App Router) + React 19 |
+| Linguagem | TypeScript (strict) |
+| Estilos | Tailwind CSS v4 + componentes shadcn/ui |
+| Banco / Auth | Supabase (PostgreSQL + RLS + Auth) |
+| Formulários | react-hook-form + zod |
+| Planilha | xlsx (SheetJS) |
+| Testes | Vitest + PGlite (Postgres em WASM) |
+| Deploy | Vercel |
+
+## Como rodar localmente
+
+```bash
+# 1. dependências
+npm install
+
+# 2. variáveis de ambiente
+cp .env.example .env.local
+# preencha NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
+# (Supabase > Project Settings > API)
+
+# 3. banco de dados (Supabase CLI ou SQL Editor)
+#    rode as migrations em ordem:
+#    supabase/migrations/001_initial_schema.sql
+#    supabase/migrations/002_rls.sql
+#    supabase/migrations/003_indexes.sql
+#    supabase/migrations/004_seed_processes.sql
+#    supabase/migrations/005_import_tables.sql
+#    supabase/migrations/006_functions.sql
+#    supabase/migrations/007_column_filters.sql
+#    supabase/migrations/008_process_planning.sql
+#    supabase/migrations/009_process_reorder.sql
+#    supabase/migrations/010_process_backfill.sql
+#    supabase/migrations/011_order_item_materials.sql
+#    supabase/migrations/012_profiles_active.sql
+#    supabase/migrations/013_order_item_op.sql
+#    supabase/migrations/014_delivery_period.sql
+#    supabase/migrations/015_import_kg_total_metaleira.sql
+#    supabase/migrations/016_of_structure_import.sql
+#    supabase/migrations/017_weight_total.sql
+#    supabase/migrations/018_qty_total.sql
+#    supabase/migrations/019_overdue_totals.sql
+#    supabase/migrations/020_expedition_stats.sql
+#    supabase/migrations/021_mp_process.sql
+#
+#    via CLI:  supabase db push   (após `supabase link`)
+
+# 4. (opcional) dados de demonstração
+psql "$SUPABASE_DB_URL" -f supabase/seed_demo.sql
+
+# 5. desenvolvimento
+npm run dev
+# http://localhost:3000
+```
+
+### Primeiro acesso
+
+1. Crie o usuário em **Authentication > Users > Add user** (ou pela UI do Supabase).
+2. Entre na aplicação: o perfil nasce como **Operador**.
+3. O primeiro usuário da instância vira **Administrador** pelo banner exibido no painel
+   (função `claim_first_admin`, segura para múltiplas pessoas: só o primeiro conquista).
+4. A partir daí os demais usuários são criados pelo ADMIN em **Configurações > Novo
+   usuário** (com senha temporária — ver "Gestão de usuários").
+
+## Scripts
+
+| Comando | Descrição |
+| --- | --- |
+| `npm run dev` | servidor de desenvolvimento |
+| `npm run build` | build de produção |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run test` | testes (Vitest + PGlite) |
+| `npm run validate` | typecheck + lint + testes |
+
+## Estrutura
+
+```
+src/
+  app/
+    (auth)/login            tela de autenticação (com "Esqueci minha senha")
+    (auth)/redefinir-senha/ destino do link de recuperação de senha
+    (dashboard)/            casca autenticada (menu superior)
+      gestao-entregas/        tabela por item × processo (rota /gestao-entregas; /producao redireciona)
+      fabrica-1/            lista de itens filhos com matérias-primas (rota /fabrica-1)
+      pedidos/              CRUD de pedidos
+        [id]/               detalhes da OF (itens pai + filhos aninhados, processos e MP)
+        [id]/editar/        formulário de edição
+      dashboard/            KPIs, janelas de entrega, carga por processo
+      importacao/           assistente de importação de Excel
+      processos/            catálogo de processos (fluxo fabril)
+      configuracoes/        usuários e permissões
+    api/importacao/         análise / prévia / execução + modelo .xlsx
+  components/               ui (shadcn) + producao/pedidos/dashboard/fabrica1/…
+  lib/
+    actions/                Server Actions (única porta de escrita)
+    services/               regras de negócio (server-only)
+    repositories/           acesso a dados (Supabase)
+    validators/             schemas zod
+    import/                 parser/estrutura/diferenças/plano da importação (layout OF)
+    utils/                  datas, formatação, filtros, regras de produção
+    supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
+supabase/
+  migrations/               001..021 (ordem obrigatória)
+  seed_demo.sql             OF-001..OF-008 (opcional)
+tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
+```
+
+## Regras de negócio centrais
+
+- **Processos são dados**: a tabela `processes` define as colunas da tela de gestão de
+  entregas
+  (LASER, DB_CH, SERRA, DB_TB, PUNC, FICEP, KIT, PRE_MTG, SOLDA, ACAB, QUALITY, EXP).
+  Adicionar um processo é um `INSERT` — nenhuma mudança de estrutura.
+  **Invariante**: todo item possui linha em `production_processes` para todo processo
+  ativo (a ausência de linha nunca é intencional — "não se aplica" é o status
+  `NAO_APLICAVEL`), senão a célula fica "—" sem data. O **backfill** (RPC
+  `backfill_process`, migração 010) roda na própria migração e ao criar/reativar
+  processo em `/processos`; a importação nova garante o catálogo inteiro pela própria
+  RPC `apply_of_import` (nível pai e filho), e o formulário de pedidos já nasce com
+  todos os processos ativos marcados.
+- **Ordem da cadeia**: `display_order` — no cadastro o processo entra ao final
+  (máximo + 1, automático) e em `/processos` a lista reordena por arrastar-e-soltar
+  (RPC `reorder_processes`, migração 009, tudo em uma transação). A ordem define as
+  colunas da gestão de entregas e as janelas de execução previstas. O **código**
+  (LASER, SOLDA…) nunca muda: é a chave dos filtros e do histórico.
+- **Coluna MP (matéria-prima)**: a cadeia da Fábrica 1 (LASER, DB CH, SERRA, DB TB,
+  PUNC, METALEIRA, FICEP) não abre coluna na gestão de entregas — a primeira coluna de
+  processos é a **MP** (migração 021), controlada como as demais (célula clicável,
+  quantidades, observações e histórico), mas com **apenas duas situações: não iniciado
+  ou concluído**. Os demais processos seguem com coluna própria.
+- **Datas previstas**: cada processo tem `location` (ex.: Fábrica 1) e `duration_days`
+  (dias úteis — seg a sex, 1 a 365). As janelas de execução são contadas de TRÁS para
+  FRENTE da data de entrega (`lib/utils/process-schedule.ts`), somente em dias úteis:
+  a **expedição acontece no dia útil anterior à entrega** (entrega no fim de semana →
+  expedição na sexta anterior) e cada etapa anterior termina no dia útil anterior ao
+  início da seguinte — nunca agenda fim de semana (feriados ainda não são considerados).
+  Aparece como **dd/MM na célula** da gestão de entregas, janela completa no tooltip e
+  data completa na folha de detalhes. Datas já vencidas aparecem em **vermelho**: a
+  **entrega** apenas quando a expedição ainda não concluiu (a mesma regra de atraso) e
+  as datas de **processo** (MP e células), exceto o processo já concluído.
+- **Edição manual da entrega**: a data de entrega de um item pode ser alterada na
+  própria coluna **Ent.** da gestão de entregas (popover com data + Salvar) e na
+  folha do processo (campo **Entrega**, com prévia recalculando ao digitar) — sempre
+  por perfil com `orders.edit` (ADMIN/GESTOR). As janelas previstas são **derivadas
+  da data em toda leitura**, então gravar a nova data recalcula as previsões de
+  todos os processos e a regra de atraso sem nenhuma gravação extra (a ação chama
+  `updateItemDeliveryDateAction` e o refresh da página refaz a conta). Vazio limpa
+  a entrega: a linha fica "sem data de entrega — não há como calcular as datas".
+- **Situações**: `NAO_INICIADO`, `EM_ANDAMENTO`, `CONCLUIDO`, `BLOQUEADO`, `NAO_APLICAVEL`.
+  Nada avança de etapa automaticamente (regra 62). O **MP** aceita apenas
+  `NAO_INICIADO` e `CONCLUIDO`: a folha de edição lista só essas duas opções e o
+  serviço rejeita as demais (`allowedProcessStatuses`, `lib/utils/production.ts`).
+- **Ordem de Produção (OP)** (`order_items.op`, migração 013): código da OP por
+  sub-item (1–50 caracteres, `null` = em espera) — preenchido no formulário do pedido,
+  exibido no detalhe `/pedidos/[id]` e na coluna **OP** da gestão de entregas. O campo
+  **Situação** do pedido saiu do formulário: tanto o status do item quanto o da OF são
+  **derivados no servidor** e gravados em uma única transação (`apply_import`):
+  1. todos os processos aplicáveis concluídos → `CONCLUIDO` (o progresso vence);
+  2. OP em branco → `PLANEJADO` ("Em espera"), **mesmo** com processo ativo;
+  3. OP preenchida → `EM_PRODUCAO`.
+  A OF acompanha os itens (todos concluídos → Concluído; algum em produção → Em
+  produção; senão Em espera) e `CANCELADO` nunca é sobrescrito pela derivação. Na
+  gestão, o recálculo passa pela RPC `refresh_order_statuses` (SECURITY DEFINER com
+  checagem de papel) porque a RLS de `orders`/`order_items` é só ADMIN/GESTOR, enquanto
+  o OPERADOR tem `production.update_status`. **Sem backfill**: as OFs existentes ficam
+  com a OP em branco até o código ser preenchido. A numeração/gestão das OPs (módulo
+  completo, estados finais e eventos dedicados) fica para a fase 2 — a planilha de
+  importação também não tem coluna de OP (item importado nasce sem OP).
+- **Atraso**: `delivery_date < hoje` **e** processo `EXP <> CONCLUIDO`
+  ("hoje" calculado no fuso do negócio, `America/Sao_Paulo`).
+- **Importação (layout novo — estrutura OF)**: o arquivo da fábrica **substitui** a
+  planilha antiga de 22 colunas. Ele traz a árvore completa — **OF → itens pai
+  (`ps_idPos`) → itens filhos (`cp_comp`) → matéria-prima por item** — reconhecida
+  **pelo nome técnico da coluna** (`of_idOF`, `ps_Descr`, `cp_compdescr`, …), sem
+  etapa de mapeamento manual; colunas extras (obra, área, desenhos) entram na lista
+  de ignoradas e o `os_NMCliente` do arquivo é descartado: **cliente e data de entrega
+  são digitados no formulário da importação** e valem para todos os registros (OF,
+  pais e filhos). O arquivo **não traz processos**: o catálogo completo é criado em
+  `NAO_INICIADO` para pai e filho (`parent_order_item_id` liga filho ao pai — migração
+  016; posição tipo X, sem filhos, leva `ps_DesMaterial` como material direto do pai).
+  Nunca grava sem prévia e confirmação; cada OF já existente exige uma decisão —
+  **Atualizar / Manter / Ignorar** (RPC transacional `apply_of_import`: atualizar
+  preserva status e OP, troca os materiais e remove do banco o que sumiu do arquivo;
+  OF com erro fica inteira de fora, alertas não bloqueiam e qualquer falha faz
+  rollback completo). A RPC antiga `apply_import` continua no formulário de pedidos
+  (formato item único). A gestão de entregas mostra **só a OF consolidada e os itens
+  pai** — os filhos aparecem em `/pedidos/[id]` (cards aninhados com processos e MP).
+  Pesos vêm de `pos_PesoTotal`/`cp_comppesototal` (`total_weight_kg`, migração 015);
+  `METALEIRA` segue como processo próprio do catálogo (ordem 55, entre `PUNC` e
+  `FICEP`). Cada lote fica em `import_batches` com os erros linha a linha em
+  `import_batch_errors`; fixture real em `tests/fixtures/of-107482-novo-layout.xlsx`
+  (11 pais, 62 filhos, 66 materiais).
+- **Matérias-primas** (`order_item_materials`, migração 011): insumo do **sub-item**
+  (descrição, quantidade, unidade e observação) — sem processos próprios e fora da grade
+  de produção. Sempre gravadas em lote pela RPC `replace_item_materials` (troca a lista
+  do item em uma transação, máx. 50), por ADMIN/GESTOR, no formulário do pedido ou na
+  tela de detalhes.
+- **Fábrica 1** (`/fabrica-1`): lista de **todos os itens filhos** das OFs com suas
+  **matérias-primas e quantidades** — visão de insumos/compras. Colunas, nesta ordem:
+  OF (link para `/pedidos/[id]`), **item pai** (badge + descrição na própria coluna),
+  filho (badge + descrição), **matérias-primas** ("descrição — qtd UN"; **filho sem
+  material aparece sinalizado** — "Nenhum material cadastrado"), quantidade, **peso
+  unitário**, **peso total** (multiplicação simples qtd × peso unit.,
+  `calculateTotalWeight` — sem peso unitário não mostra total), entrega e **processos**
+  (`fabrica1ItemProcesses`: **MP primeiro**, depois os aplicáveis em ordem fabril **até
+  o KIT — o que vem depois dele fica oculto** (pré-montagem, solda, acabamento, qualidade
+  e expedição); cada processo exibe símbolo + código + situação, nunca só cor). Acima da
+  lista, o **card "Eventos"** no mesmo modelo da gestão (Registros, Qtd. total e Peso
+  total do **conjunto filtrado inteiro**, somados por consulta dedicada no repositório).
+  Filtros na URL: busca (descrição/código do filho), OF/OS e material (com
+  `order_item_materials!inner` — o filtro limita os itens aos que têm o material
+  casado e a célula mostra só os materiais correspondentes).
+  Ordenação fixa entrega → item pai → descrição → id (determinística para a paginação
+  de 25). Menu visível para **todos os perfis** (`menu.fabrica1`), página protegida por
+  `orders.view`; leitura 100% server-rendered (sem componentes client por linha).
+- **Gestão como hub**: o código da OF/OS na tabela de entregas (desktop e mobile) abre a
+  tela de detalhes `/pedidos/[id]` — sub-itens, processos e materiais num só lugar; a
+  criação termina lá e o menu superior não expõe "Pedidos" (a lista `/pedidos` segue como
+  apoio para editar/excluir).
+- **Filtros da gestão de entregas**: busca, situação, processos, colunas (contém/faixas),
+  janelas de entrega (Atrasado, Hoje, Próx. 7/30 dias) e **período De → Até pela data de
+  entrega** (migração 014 — inclusivo nos dois limites, lados opcionais, combina em E com
+  as janelas; item sem data fica de fora quando o período está ativo). Tudo mora na query
+  string (link compartilhável, validado no client) e vira chip em "filtros ativos", com
+  um filtro por chip e "Limpar filtros" para zerar tudo.
+- **Resumo com três números**: os cards **Eventos**, **Atrasados** e
+  **Expedição** ocupam duas colunas cada e reúnem **Registros**, **Qtd. total**
+  (soma da coluna Qtd.) e **Peso total** (soma da coluna Peso, `unit_weight_kg`):
+  - **Eventos** — a lista filtrada inteira, em qualquer página (janelas da RPC
+    `get_production_rows`, migrações 017 e 018);
+  - **Atrasados** — entrega vencida + expedição pendente (objeto `delivery` da
+    RPC `get_production_stats`, migração 019);
+  - **Expedição** — itens cuja etapa EXPEDIÇÃO está **concluída** (objeto
+    `expedition` da mesma RPC, migração 020).
+  Atrasados e Expedição são KPIs globais (escopo dos antigos chips de entrega,
+  que saíram junto com "Em produção" e "Concluídos") e são clicáveis: aplicam
+  o filtro correspondente na lista. Itens sem peso ou sem quantidade entram
+  como 0.
+- **Histórico**: toda mutação de produção gera linha em `production_events`;
+  o histórico é somente inserção (nunca é apagado).
+
+## Gestão de usuários
+
+- **Perfis** (4, inalterados): `ADMIN`, `GESTOR`, `OPERADOR`, `VISUALIZADOR` — o que cada
+  um vê/edita está em `lib/auth/permissions.ts`; `users.manage` (criar, ativar/desativar,
+  trocar perfil, gerar link) é exclusivo de `ADMIN`. **Menus por perfil** (capacidades
+  `menu.*`): ADMIN vê tudo; GESTOR vê tudo **menos Configurações**; VISUALIZADOR vê
+  **Gestão de Entregas e Fábrica 1**; OPERADOR vê **apenas a Fábrica 1** (`menu.gestao`
+  fica com ADMIN/GESTOR/VISUALIZADOR — o OPERADOR não vê o menu **nem entra por URL** na
+  gestão, que segue guardada por `production.view`; a atualização de status dele acontece
+  pela folha do processo em `/pedidos/[id]`, alcançável pelo link da OF na Fábrica 1).
+  Dashboard, Importação, Processos e Configurações negam acesso direto por URL aos demais
+  perfis. O menu do usuário (nome na barra) reúne perfil, alterar senha, configurações
+  (só ADMIN) e sair.
+- **Criação com senha temporária** (Configurações > Novo usuário): a conta nasce
+  confirmada no Auth com senha temporária de 12 caracteres (sem ambíguos, gerada por
+  CSPRNG), exibida **uma única vez** com botão de copiar — o ADMIN entrega fora do app.
+  O `must_change_password` (migração 012) obriga a troca na primeira entrada (banner
+  fixo no painel, some após a troca). Nenhum e-mail é enviado nesse fluxo (funciona sem SMTP).
+- **Ativação/desativação**: só existe desativar, **nunca excluir** (o histórico referencia
+  o usuário e `production_events.user_id` é `ON DELETE RESTRICT`). `active = false` derruba
+  o login **e** as sessões abertas (`getSessionUser` passa a devolver `null` na hora).
+- **Proteções de servidor** (serviço + gatilho da migração 012): ninguém altera o próprio
+  perfil/status; o último administrador **ativo** não é rebaixado nem desativado; colunas
+  `role`/`active`/`email` só mudam por ADMIN (ou papel `super`/`bypassrls`), bloqueando a
+  auto-promoção via API.
+- **Redefinição de senha**:
+  - autoatendimento no login ("Esqueci minha senha" → e-mail do Supabase, depende do
+    **SMTP configurado** em Authentication > SMTP Settings);
+  - fallback sem SMTP: o ADMIN gera um **link copiável** na tabela de usuários
+    (`auth.admin.generateLink`) e entrega por canal seguro; o destino é
+    `/redefinir-senha` nos dois casos;
+  - qualquer perfil troca a própria senha pelo menu do topo (ícone de chave).
+
+## Segurança
+
+- **RLS sempre ativa** — a aplicação lê e escreve dados operacionais apenas com o cliente
+  anon + RLS. A `SUPABASE_SERVICE_ROLE_KEY` é usada **só** em `lib/supabase/admin.ts`
+  (server-only) para o Auth admin de gestão de usuários: criar conta, listar último acesso
+  e gerar link de recuperação — sempre atrás de `requireCapability("users.manage")`, e
+  nunca importada por componente React.
+- Toda escrita passa por **Server Actions → serviço → repositório**, com verificação de
+  capacidade (`ADMIN`, `GESTOR`, `OPERADOR`, `VISUALIZADOR`) antes de tocar no banco.
+- Upload com validação de extensão/MIME/tamanho (20 MB), parsing apenas no servidor,
+  sem execução de macros/fórmulas.
+
+## Deploy (Vercel)
+
+1. Push do repositório para o GitHub.
+2. Import do projeto em [vercel.com](https://vercel.com) (framework: Next.js).
+3. Variáveis de ambiente no Vercel:
+   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
+4. Redirecionamentos de auth: em **Supabase > Authentication > URL Configuration**, informe
+   a URL do site (ex.: `https://seu-app.vercel.app`).
+5. Deploy — migrations são aplicadas no Supabase, não na Vercel.
