@@ -3,7 +3,7 @@ import { ORDER_STATUSES, ORDER_STATUS_LABELS, type OrderStatus } from "@/lib/con
 import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, type ProcessStatus } from "@/lib/constants/production";
 import type { ChildItemFilters, OrderFilters } from "@/lib/types/order";
 import type { ProductionFilters } from "@/lib/types/production";
-import { formatDate } from "@/lib/utils/dates";
+import { formatDate, isValidISODate } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight, toNumber } from "@/lib/utils/formatting";
 
 export type SearchParamsRecord = Record<string, string | string[] | undefined>;
@@ -70,6 +70,41 @@ function clampPageSize(value: number, fallback: number): number {
   if (!Number.isFinite(value) || value <= 0) return fallback;
   const rounded = Math.floor(value);
   return Math.min(Math.max(rounded, 1), MAX_PAGE_SIZE);
+}
+
+export type DeliveryPeriodError = "invalid" | "inverted" | null;
+
+export interface DeliveryPeriod {
+  /** Lado "de" pronto para a URL (vazio = aberto). */
+  from: string | null;
+  /** Lado "até" pronto para a URL (vazio = aberto). */
+  to: string | null;
+  /** Motivo pelo qual o período não pode ser aplicado, se houver. */
+  error: DeliveryPeriodError;
+}
+
+/**
+ * Normaliza o rascunho do período de entrega antes de ir para a URL.
+ *
+ * O `<input type="date">` devolve "" enquanto a data está incompleta (é o
+ * valor lido no meio da digitação), então o commit só pode acontecer com
+ * datas prontas: incompletas/inexistentes bloqueiam a aplicação ("invalid")
+ * e "de" posterior a "até" também ("inverted" — em ISO a comparação
+ * lexicográfica é cronológica). Vazio de propósito mantém o lado aberto.
+ */
+export function normalizeDeliveryPeriod(fromDraft: string, toDraft: string): DeliveryPeriod {
+  const from = fromDraft.trim();
+  const to = toDraft.trim();
+
+  if ((from !== "" && !isValidISODate(from)) || (to !== "" && !isValidISODate(to))) {
+    return { from: null, to: null, error: "invalid" };
+  }
+
+  if (from !== "" && to !== "" && from > to) {
+    return { from: null, to: null, error: "inverted" };
+  }
+
+  return { from: from || null, to: to || null, error: null };
 }
 
 /**

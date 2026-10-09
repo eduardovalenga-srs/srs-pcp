@@ -65,6 +65,14 @@ describe("cabeçalhos com filtro (desktop)", () => {
     expect(markup).not.toContain("fill-current");
   });
 
+  it("sinaliza o funil da Entrega como ativo quando só o período está ligado", () => {
+    const markup = html(
+      createElement(DeliveryFilter, { filters: parseProductionFilters({ entregade: "2026-10-01" }) }),
+    );
+    expect(markup).toContain('aria-label="Filtrar por entrega — filtro ativo"');
+    expect(markup).toContain("fill-current");
+  });
+
   it("mostra o funil do grupo PROCESSOS como ativo só com situação em qualquer processo", () => {
     const globalStatus = html(
       createElement(ProcessGroupFilter, { filters: parseProductionFilters({ situacao: "BLOQUEADO" }) }),

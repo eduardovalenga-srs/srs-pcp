@@ -5,6 +5,7 @@ import {
   childItemQueryString,
   isSortableColumn,
   isValidProcessSort,
+  normalizeDeliveryPeriod,
   orderQueryString,
   parseChildItemFilters,
   parseOrderFilters,
@@ -351,5 +352,56 @@ describe("activeFilterChips", () => {
 
     const soAte = activeFilterChips(parseProductionFilters({ entregaate: "2026-10-15" }));
     expect(soAte[0]?.label).toBe("Período de entrega: até 15/10/2026");
+  });
+});
+
+describe("normalizeDeliveryPeriod (rascunho do input de data)", () => {
+  it("libera o commit quando os dois lados são datas válidas", () => {
+    expect(normalizeDeliveryPeriod("2026-10-01", "2026-10-15")).toEqual({
+      from: "2026-10-01",
+      to: "2026-10-15",
+      error: null,
+    });
+  });
+
+  it("trata vazio (ou só espaços) como lado aberto", () => {
+    expect(normalizeDeliveryPeriod("", "2026-10-15")).toEqual({
+      from: null,
+      to: "2026-10-15",
+      error: null,
+    });
+    expect(normalizeDeliveryPeriod("2026-10-01", "   ")).toEqual({
+      from: "2026-10-01",
+      to: null,
+      error: null,
+    });
+    expect(normalizeDeliveryPeriod("", "")).toEqual({ from: null, to: null, error: null });
+  });
+
+  it("bloqueia o commit enquanto a data está incompleta (meio da digitação)", () => {
+    // O <input type="date"> devolve "" até o ano ser digitado — o commit
+    // nesse estado apagaria o dia/mês já digitado.
+    expect(normalizeDeliveryPeriod("", "").error).toBeNull(); // nada digitado ainda
+    expect(normalizeDeliveryPeriod("2026-02-30", "").error).toBe("invalid"); // inexistente
+    expect(normalizeDeliveryPeriod("01/10/2026", "").error).toBe("invalid"); // formato pt-BR
+    expect(normalizeDeliveryPeriod("2026-10-01", "2026-15-40").error).toBe("invalid");
+  });
+
+  it("bloqueia período invertido (de posterior a até)", () => {
+    expect(normalizeDeliveryPeriod("2026-10-15", "2026-10-01")).toEqual({
+      from: null,
+      to: null,
+      error: "inverted",
+    });
+    // Mesmo dia nos dois lados é um período válido (inclusivo).
+    expect(normalizeDeliveryPeriod("2026-10-01", "2026-10-01").error).toBeNull();
+  });
+
+  it("apara espaços das pontas antes de decidir", () => {
+    expect(normalizeDeliveryPeriod(" 2026-10-01 ", " 2026-10-15 ")).toEqual({
+      from: "2026-10-01",
+      to: "2026-10-15",
+      error: null,
+    });
   });
 });

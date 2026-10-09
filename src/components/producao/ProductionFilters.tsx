@@ -8,7 +8,8 @@ import { ORDER_STATUSES, ORDER_STATUS_LABELS } from "@/lib/constants/orders";
 import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS } from "@/lib/constants/production";
 import { DELIVERY_FILTERS, DELIVERY_LABELS, SEARCH_DEBOUNCE_MS } from "@/lib/constants/pagination";
 import type { ProcessDefinition, ProductionFilters as Filters } from "@/lib/types/production";
-import { productionQueryString } from "@/lib/utils/filters";
+import { normalizeDeliveryPeriod, productionQueryString } from "@/lib/utils/filters";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -58,6 +59,52 @@ export function ProductionFiltersBar({ filters, processes }: ProductionFiltersPr
     const next: Filters = { ...filters, ...overrides, page: 1 };
     const query = productionQueryString(next);
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  };
+
+  // --- Período de entrega (014) ---------------------------------------
+  // Rascunho local: o <input type="date"> expõe "" enquanto a data está
+  // incompleta, então aplicar a URL a cada tecla apagava dia/mês ao chegar
+  // no ano. O campo guarda o próprio rascunho e a URL só muda em
+  // "Aplicar"/Enter (ou no blur já com os dois lados preenchidos).
+  const appliedFrom = filters.deliveryFrom ?? "";
+  const appliedTo = filters.deliveryTo ?? "";
+
+  const [draftFrom, setDraftFrom] = useState(appliedFrom);
+  const [draftTo, setDraftTo] = useState(appliedTo);
+  const [syncedFrom, setSyncedFrom] = useState(appliedFrom);
+  const [syncedTo, setSyncedTo] = useState(appliedTo);
+
+  // Último período enviado à URL: o eco da navegação chega depois, com os
+  // filtros novos, e não pode reescrever o rascunho do lado que o usuário
+  // já está digitando em seguida.
+  const [sent, setSent] = useState({ from: filters.deliveryFrom, to: filters.deliveryTo });
+
+  // Sincroniza o rascunho do período com a URL quando os filtros mudam por fora
+  // (limpar filtros, chip, navegação) — padrão de "ajuste durante a renderização".
+  if (syncedFrom !== appliedFrom || syncedTo !== appliedTo) {
+    setSyncedFrom(appliedFrom);
+    setSyncedTo(appliedTo);
+    const echo = sent.from === filters.deliveryFrom && sent.to === filters.deliveryTo;
+    if (!echo) {
+      setSent({ from: filters.deliveryFrom, to: filters.deliveryTo });
+      setDraftFrom(appliedFrom);
+      setDraftTo(appliedTo);
+    }
+  }
+
+  const period = normalizeDeliveryPeriod(draftFrom, draftTo);
+
+  /**
+   * Aplica o período na URL. `completeOnly` é o caminho do blur: sair de um
+   * campo com o outro lado ainda vazio não navega (o re-render apagaria o que
+   * o usuário fosse digitar em seguida). Lado único só via Aplicar/Enter.
+   */
+  const commitPeriod = (completeOnly: boolean) => {
+    if (period.error !== null) return;
+    if (completeOnly && (period.from === null || period.to === null)) return;
+    if (sent.from === period.from && sent.to === period.to) return;
+    setSent({ from: period.from, to: period.to });
+    apply({ deliveryFrom: period.from, deliveryTo: period.to });
   };
 
   const onSearchChange = (value: string) => {
@@ -155,30 +202,63 @@ export function ProductionFiltersBar({ filters, processes }: ProductionFiltersPr
         />
 
         {/* Período de entrega (014): lados opcionais, combina com a janela acima */}
-        <div className="grid grid-cols-2 gap-3 md:col-span-2 xl:col-span-3">
-          <div className="space-y-1">
-            <Label htmlFor="producao-entrega-de" className="text-xs text-muted-foreground">
-              Entrega de
-            </Label>
-            <Input
-              id="producao-entrega-de"
-              type="date"
-              value={filters.deliveryFrom ?? ""}
-              max={filters.deliveryTo ?? undefined}
-              onChange={(event) => apply({ deliveryFrom: event.target.value || null })}
-            />
+        <div className="space-y-2 md:col-span-2 xl:col-span-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="producao-entrega-de" className="text-xs text-muted-foreground">
+                Entrega de
+              </Label>
+              <Input
+                id="producao-entrega-de"
+                type="date"
+                value={draftFrom}
+                max={draftTo || undefined}
+                onChange={(event) => setDraftFrom(event.target.value)}
+                onBlur={() => commitPeriod(true)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitPeriod(false);
+                  }
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="producao-entrega-ate" className="text-xs text-muted-foreground">
+                Entrega até
+              </Label>
+              <Input
+                id="producao-entrega-ate"
+                type="date"
+                value={draftTo}
+                min={draftFrom || undefined}
+                onChange={(event) => setDraftTo(event.target.value)}
+                onBlur={() => commitPeriod(true)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitPeriod(false);
+                  }
+                }}
+              />
+            </div>
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="producao-entrega-ate" className="text-xs text-muted-foreground">
-              Entrega até
-            </Label>
-            <Input
-              id="producao-entrega-ate"
-              type="date"
-              value={filters.deliveryTo ?? ""}
-              min={filters.deliveryFrom ?? undefined}
-              onChange={(event) => apply({ deliveryTo: event.target.value || null })}
-            />
+
+          {period.error === "inverted" ? (
+            <p className="text-xs text-destructive" role="status">
+              A data inicial é posterior à final.
+            </p>
+          ) : null}
+
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              disabled={period.error !== null || (period.from === sent.from && period.to === sent.to)}
+              onClick={() => commitPeriod(false)}
+            >
+              Aplicar
+            </Button>
           </div>
         </div>
       </div>

@@ -8,7 +8,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Filter, Search, X } from "lucide-react
 import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS } from "@/lib/constants/production";
 import { DELIVERY_FILTERS, DELIVERY_LABELS, SEARCH_DEBOUNCE_MS } from "@/lib/constants/pagination";
 import type { ProductionFilters } from "@/lib/types/production";
-import { productionQueryString } from "@/lib/utils/filters";
+import { normalizeDeliveryPeriod, productionQueryString } from "@/lib/utils/filters";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -193,8 +193,66 @@ export function DeliveryFilter({ filters }: { filters: ProductionFilters }) {
   const active =
     filters.delivery !== "ALL" || filters.deliveryFrom !== null || filters.deliveryTo !== null;
 
+  const appliedFrom = filters.deliveryFrom ?? "";
+  const appliedTo = filters.deliveryTo ?? "";
+
+  // Rascunho do período: o <input type="date"> expõe "" enquanto a data está
+  // incompleta, então aplicar a URL a cada tecla (ou no blur de um campo)
+  // apagava o dia/mês já digitado e nem deixava preencher o outro lado. O
+  // campo guarda o próprio rascunho e a URL só muda em "Aplicar"/Enter.
+  const [draftFrom, setDraftFrom] = useState(appliedFrom);
+  const [draftTo, setDraftTo] = useState(appliedTo);
+  const [syncedFrom, setSyncedFrom] = useState(appliedFrom);
+  const [syncedTo, setSyncedTo] = useState(appliedTo);
+  const [open, setOpen] = useState(false);
+
+  // Último período enviado à URL: o eco da navegação chega depois, com os
+  // filtros novos, e não pode reescrever o rascunho do lado que o usuário
+  // já está digitando em seguida.
+  const [sent, setSent] = useState({ from: filters.deliveryFrom, to: filters.deliveryTo });
+
+  // Sincroniza o rascunho com a URL quando os filtros mudam por fora
+  // (limpar filtros, chip, navegação) — padrão de "ajuste durante a renderização".
+  if (syncedFrom !== appliedFrom || syncedTo !== appliedTo) {
+    setSyncedFrom(appliedFrom);
+    setSyncedTo(appliedTo);
+    const echo = sent.from === filters.deliveryFrom && sent.to === filters.deliveryTo;
+    if (!echo) {
+      setSent({ from: filters.deliveryFrom, to: filters.deliveryTo });
+      setDraftFrom(appliedFrom);
+      setDraftTo(appliedTo);
+    }
+  }
+
+  const period = normalizeDeliveryPeriod(draftFrom, draftTo);
+
+  /**
+   * Aplica o período na URL. `completeOnly` é o caminho do blur: sair de um
+   * campo com o outro lado ainda vazio não navega (o re-render apagaria o que
+   * o usuário fosse digitar em seguida). Lado único só via Aplicar/Enter.
+   */
+  const commit = (completeOnly: boolean) => {
+    if (period.error !== null) return;
+    if (completeOnly && (period.from === null || period.to === null)) return;
+    if (sent.from === period.from && sent.to === period.to) return;
+    setSent({ from: period.from, to: period.to });
+    apply({ deliveryFrom: period.from, deliveryTo: period.to });
+  };
+
+  const onOpenChange = (next: boolean) => {
+    setOpen(next);
+    // Cada abertura parte do período vigente — descartar edições abandonadas.
+    if (next) {
+      setDraftFrom(appliedFrom);
+      setDraftTo(appliedTo);
+    }
+  };
+
+  const canApply =
+    period.error === null && (period.from !== sent.from || period.to !== sent.to);
+
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -237,9 +295,16 @@ export function DeliveryFilter({ filters }: { filters: ProductionFilters }) {
             <Input
               id="entrega-de"
               type="date"
-              value={filters.deliveryFrom ?? ""}
-              max={filters.deliveryTo ?? undefined}
-              onChange={(event) => apply({ deliveryFrom: event.target.value || null })}
+              value={draftFrom}
+              max={draftTo || undefined}
+              onChange={(event) => setDraftFrom(event.target.value)}
+              onBlur={() => commit(true)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commit(false);
+                }
+              }}
             />
           </div>
           <div className="space-y-1">
@@ -249,22 +314,43 @@ export function DeliveryFilter({ filters }: { filters: ProductionFilters }) {
             <Input
               id="entrega-ate"
               type="date"
-              value={filters.deliveryTo ?? ""}
-              min={filters.deliveryFrom ?? undefined}
-              onChange={(event) => apply({ deliveryTo: event.target.value || null })}
+              value={draftTo}
+              min={draftFrom || undefined}
+              onChange={(event) => setDraftTo(event.target.value)}
+              onBlur={() => commit(true)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commit(false);
+                }
+              }}
             />
           </div>
         </div>
 
-        <div className="flex justify-end">
+        {period.error === "inverted" ? (
+          <p className="text-xs text-destructive" role="status">
+            A data inicial é posterior à final.
+          </p>
+        ) : null}
+
+        <div className="flex items-center justify-end gap-2">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             disabled={!active}
-            onClick={() => apply({ delivery: "ALL", deliveryFrom: null, deliveryTo: null })}
+            onClick={() => {
+              setSent({ from: null, to: null });
+              setDraftFrom("");
+              setDraftTo("");
+              apply({ delivery: "ALL", deliveryFrom: null, deliveryTo: null });
+            }}
           >
             Limpar
+          </Button>
+          <Button type="button" size="sm" disabled={!canApply} onClick={() => commit(false)}>
+            Aplicar
           </Button>
         </div>
       </PopoverContent>
