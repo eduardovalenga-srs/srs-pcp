@@ -19,6 +19,11 @@ import { toNumber } from "@/lib/utils/formatting";
  *        -> material direto no pai (ps_DesMaterial — posições tipo X,
  *           sem filhos)
  *
+ * Posições tipo X de guarda-corpo (ps_Tipo = "X" com ps_Descr contendo
+ * GUARDA CORPO, em qualquer caixa/acento) são descartadas por inteiro:
+ * não viram item pai nem material direto. As linhas de continuação da
+ * mesma ps_idPos caem junto (ps_Descr em branco nelas).
+ *
  * O mapeamento é 100% pelo NOME técnico da coluna (sem posição, sem
  * etapa de mapeamento manual). Cliente e data de entrega vêm do
  * formulário da importação e valem para TODOS os registros.
@@ -87,6 +92,15 @@ export function familyFromDescription(description: string): string | null {
   return initials || null;
 }
 
+/**
+ * O item é guarda-corpo? Compara a descrição JÁ normalizada (sem acento,
+ * sem espaço/pontuação, maiúscula) — "Guarda-Côrpo 3M" -> "GUARDACORPO3M".
+ * Aceita variações de caixa, acento e hífen do arquivo da fábrica.
+ */
+export function isGuardaCorpo(description: string): boolean {
+  return normalizeHeader(description).includes("GUARDACORPO");
+}
+
 /** Código do pedido: "OF 107482" (prefere o prefixo do próprio código). */
 function buildOrderCode(id: string, typeHint: string): { code: string; type: string } {
   const prefixed = /^(OF|OS)[\s-]*(.*)$/i.exec(id);
@@ -133,6 +147,9 @@ export function buildOfStructure(
 
   const orders = new Map<string, BuiltOf>();
   const seenChildren = new Map<string, Set<string>>();
+  // Posições tipo X descartadas (guarda-corpo) — por OF, para as linhas de
+  // continuação da mesma ps_idPos caírem também (ps_Descr em branco nelas).
+  const skippedPositions = new Map<string, Set<string>>();
   const consumed = new Set(CONSUMED_COLUMNS.map(normalizeHeader));
 
   const getOrCreateOrder = (code: string, type: string, sourceRow: number): BuiltOf => {
@@ -200,6 +217,25 @@ export function buildOfStructure(
         }),
       );
       return;
+    }
+
+    // -------------------------------------------------------
+    // Posição tipo X de guarda-corpo: descartada por inteiro.
+    // A linha que abre a posição (com ps_Descr preenchido) marca o
+    // código; as demais caem pela lista — nelas ps_Descr vem em branco.
+    // Descartamos a posição só enquanto ela ainda não virou item pai,
+    // para não perder filhos de uma posição já montada.
+    // -------------------------------------------------------
+    const skippedForOrder = skippedPositions.get(orderCode);
+    if (skippedForOrder?.has(parentCode)) return;
+
+    const positionType = cellText(row, col.PSTIPO).trim().toUpperCase();
+    if (positionType === "X" && !order.parents.some((entry) => entry.code === parentCode)) {
+      if (isGuardaCorpo(cellText(row, col.PSDESCR))) {
+        if (!skippedForOrder) skippedPositions.set(orderCode, new Set([parentCode]));
+        else skippedForOrder.add(parentCode);
+        return;
+      }
     }
 
     // -------------------------------------------------------

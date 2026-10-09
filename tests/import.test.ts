@@ -10,7 +10,7 @@ import {
   normalizeHeader,
   parseExcelFile,
 } from "@/lib/import/excel-parser";
-import { buildOfStructure, familyFromDescription, orderStatusOf } from "@/lib/import/of-structure";
+import { buildOfStructure, familyFromDescription, isGuardaCorpo, orderStatusOf } from "@/lib/import/of-structure";
 import { buildOfImportPlan, computeOfDifferences, undecidedOrders } from "@/lib/import/of-plan";
 import { assertSheetStructure, importFormSchema, validateImportFile } from "@/lib/validators/import.schema";
 import { formatQuantity } from "@/lib/utils/formatting";
@@ -418,6 +418,84 @@ describe("buildOfStructure", () => {
     expect(orders[0]?.code).toBe("OS 107482");
     expect(orders[0]?.type).toBe("OS");
   });
+
+  // ---------------------------------------------------------
+  // Posição tipo X de guarda-corpo é descartada por inteiro
+  // ---------------------------------------------------------
+
+  it("descarta posição tipo X de guarda-corpo (não vira pai nem material)", () => {
+    const { orders } = buildRows([
+      makeRow({
+        of_idOF: "500001",
+        ps_idPos: "P1",
+        ps_Descr: "GUARDA CORPO",
+        ps_Tipo: "X",
+        ps_Qtde: 2,
+        ps_idMat: "T1318",
+        ps_DesMaterial: "TB42.20X3.56",
+        ps_Qualidade: "SCH40",
+      }),
+    ]);
+    const order = orders[0];
+    // Sem issue: o descarte é silencioso (decisão de negócio).
+    expect(order?.parents).toEqual([]);
+    expect(orderStatusOf(order?.issues ?? [])).toBe("ERROR");
+    // A OF fica sem itens pai — a validação existente acusa isso.
+    expect(order?.issues[0]?.message).toMatch(/sem itens pai válidos/);
+  });
+
+  it("descarta a posição inteira: linhas de continuação também caem", () => {
+    const { orders } = buildRows([
+      makeRow({ of_idOF: "500002", ps_idPos: "P1", ps_Descr: "GUARDA CORPO", ps_Tipo: "X", ps_Qtde: 2, ps_DesMaterial: "TB42" }),
+      // Continuação: ps_Descr em branco, mas mesma ps_idPos + filho.
+      makeRow({ of_idOF: "500002", ps_idPos: "P1", ps_Descr: "", cp_comp: "72-742", cp_compdescr: "MONTANTE", cp_compqtdetotal: 3, cp_DesMaterial: "TB40" }),
+      // Posição legítima na mesma OF continua entrando.
+      makeRow({ of_idOF: "500002", ps_idPos: "P2", ps_Descr: "OUTRA PEÇA", ps_Tipo: "E", ps_Qtde: 1, cp_comp: "72-743", cp_compdescr: "FIXAÇÃO", cp_compqtdetotal: 1, cp_DesMaterial: "TB20" }),
+    ]);
+    const order = orders[0];
+    expect(order?.parents.map((parent) => parent.code)).toEqual(["P2"]);
+    expect(order?.parents[0]?.children).toHaveLength(1);
+  });
+
+  it("reconhece guarda-corpo em qualquer caixa e acento", () => {
+    const { orders } = buildRows([
+      makeRow({ of_idOF: "500003", ps_idPos: "P1", ps_Descr: "Guarda-Côrpo 3M", ps_Tipo: "X", ps_Qtde: 1, ps_DesMaterial: "TB42" }),
+      makeRow({ of_idOF: "500003", ps_idPos: "P2", ps_Descr: "GUARDA-CORPO MOLDUREIRA", ps_Tipo: "X", ps_Qtde: 1, ps_DesMaterial: "TB40" }),
+    ]);
+    expect(orders[0]?.parents).toEqual([]);
+  });
+
+  it("não descarta posição tipo X que NÃO é guarda-corpo (material direto)", () => {
+    const { orders } = buildRows([
+      makeRow({ of_idOF: "500004", ps_idPos: "P1", ps_Descr: "BOTÃO PORTA", ps_Tipo: "X", ps_Qtde: 2, ps_idMat: "T1318", ps_DesMaterial: "TB42.20X3.56", ps_Qualidade: "SCH40" }),
+    ]);
+    const order = orders[0];
+    expect(order?.parents).toHaveLength(1);
+    expect(order?.parents[0]?.materials).toEqual([
+      { description: "TB42.20X3.56", quantity: 2, unit: "UN", notes: "T1318 · SCH40" },
+    ]);
+  });
+
+  it("não descarta guarda-corpo com ps_Tipo = E (é posição com filhos)", () => {
+    const { orders } = buildRows([
+      makeRow({ of_idOF: "500005", ps_idPos: "P1", ps_Descr: "GUARDA CORPO", ps_Tipo: "E", ps_Qtde: 1, cp_comp: "72-742", cp_compdescr: "MONTANTE", cp_compqtdetotal: 3, cp_DesMaterial: "TB40" }),
+    ]);
+    const order = orders[0];
+    expect(order?.parents).toHaveLength(1);
+    expect(order?.parents[0]?.children).toHaveLength(1);
+    expect(orderStatusOf(order?.issues ?? [])).toBe("VALID");
+  });
+
+  it("mantém a posição já montada mesmo que uma linha X venha depois", () => {
+    const { orders } = buildRows([
+      makeRow({ of_idOF: "500006", ps_idPos: "P1", ps_Descr: "GUARDA CORPO", ps_Tipo: "E", ps_Qtde: 1, cp_comp: "72-742", cp_compdescr: "MONTANTE", cp_compqtdetotal: 3, cp_DesMaterial: "TB40" }),
+      // Linha X da MESMA posição, com ps_Descr de guarda-corpo: não retroage.
+      makeRow({ of_idOF: "500006", ps_idPos: "P1", ps_Descr: "GUARDA CORPO", ps_Tipo: "X", ps_Qtde: 1, ps_DesMaterial: "TB42" }),
+    ]);
+    const order = orders[0];
+    expect(order?.parents).toHaveLength(1);
+    expect(order?.parents[0]?.children).toHaveLength(1);
+  });
 });
 
 describe("familyFromDescription", () => {
@@ -426,6 +504,21 @@ describe("familyFromDescription", () => {
     expect(familyFromDescription("portão de entrada")).toBe("PDE");
     expect(familyFromDescription("STR0018 - PLATAFORMA")).toBe("SP");
     expect(familyFromDescription("")).toBeNull();
+  });
+});
+
+describe("isGuardaCorpo", () => {
+  it("reconhece o termo em qualquer caixa, acento e separador", () => {
+    expect(isGuardaCorpo("GUARDA CORPO")).toBe(true);
+    expect(isGuardaCorpo("Guarda-Côrpo 3M")).toBe(true);
+    expect(isGuardaCorpo("guarda_corpo moldureira")).toBe(true);
+    expect(isGuardaCorpo("GUARDACORPO MOLDUREIRA")).toBe(true);
+  });
+
+  it("não confunde com outros itens", () => {
+    expect(isGuardaCorpo("BOTÃO PORTA")).toBe(false);
+    expect(isGuardaCorpo("CORPO DO PORTÃO")).toBe(false);
+    expect(isGuardaCorpo("")).toBe(false);
   });
 });
 
@@ -683,7 +776,7 @@ describe("arquivo real da fábrica (fixture OF 107482)", () => {
     expect(findMissingTechnicalColumns(detected[0]?.headers ?? [])).toEqual([]);
   });
 
-  it("constrói 11 itens pais, 62 filhos e 66 materiais sem erros", () => {
+  it("constrói 9 itens pais, 62 filhos e 64 materiais sem erros", () => {
     const detected = parsed.sheets.filter((entry) => parsed.headerBySheet[entry.name]?.detected);
     expect(detected[0]).toBeDefined();
 
@@ -697,9 +790,12 @@ describe("arquivo real da fábrica (fixture OF 107482)", () => {
         0,
       );
 
-    expect(parents).toHaveLength(11);
+    // 11 posições no arquivo; 2 são tipo X de guarda-corpo (72ST18-025 e
+    // 72ST18-026) e por isso descartadas — os demais 9 entram.
+    expect(parents).toHaveLength(9);
     expect(children).toHaveLength(62);
-    expect(materials).toBe(66); // 62 dos filhos + 4 materiais diretos (tipo X)
+    expect(materials).toBe(64); // 62 dos filhos + 2 materiais diretos (tipo X de LIGACAO)
+    expect(parents.map((parent) => parent.code)).not.toEqual(expect.arrayContaining(["72ST18-025", "72ST18-026"]));
 
     for (const order of orders) {
       expect(orderStatusOf(order.issues)).not.toBe("ERROR");
