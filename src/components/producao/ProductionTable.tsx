@@ -333,7 +333,7 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
     return helper.columns([
       helper.group({
         id: "order-data",
-        header: () => <OrderGroupHeader filters={filters} />,
+        header: () => <OrderGroupHeader />,
         columns: helper.columns(orderColumns),
       }),
       helper.group({

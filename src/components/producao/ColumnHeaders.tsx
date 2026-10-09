@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, ArrowUpDown, Filter, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Filter, X } from "lucide-react";
 
 import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS } from "@/lib/constants/production";
-import { DELIVERY_FILTERS, DELIVERY_LABELS, SEARCH_DEBOUNCE_MS } from "@/lib/constants/pagination";
+import { DELIVERY_FILTERS, DELIVERY_LABELS } from "@/lib/constants/pagination";
 import type { ProductionFilters } from "@/lib/types/production";
 import { normalizeDeliveryPeriod, productionQueryString } from "@/lib/utils/filters";
 import { cn } from "@/lib/utils";
@@ -468,62 +468,7 @@ export function TextColumnFilter({ filters, field, column, context }: TextColumn
   );
 }
 
-/** Cabeçalho do grupo "DADOS DOS PEDIDOS": título + busca (semântica do banco). */
-export function OrderGroupHeader({ filters }: { filters: ProductionFilters }) {
-  const apply = useApplyFilters(filters);
-  const [search, setSearch] = useState(filters.search);
-  const [syncedSearch, setSyncedSearch] = useState(filters.search);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Sincroniza o campo com a URL quando os filtros mudam por fora
-  // (limpar filtros, navegação) — padrão de "ajuste durante a renderização".
-  if (syncedSearch !== filters.search) {
-    setSyncedSearch(filters.search);
-    setSearch(filters.search);
-  }
-
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
-
-  const onSearchChange = (value: string) => {
-    setSearch(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => apply({ search: value }), SEARCH_DEBOUNCE_MS);
-  };
-
-  const clearSearch = () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    setSearch("");
-    apply({ search: "" });
-  };
-
-  return (
-    <span className="flex items-center justify-center gap-2">
-      <span>DADOS DOS PEDIDOS</span>
-      <span className="relative inline-flex items-center">
-        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
-        <Input
-          value={search}
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Buscar OF/OS, tipo, item, descrição…"
-          aria-label="Buscar por OF/OS, tipo, item pai ou descrição"
-          autoComplete="off"
-          className="h-7 w-44 border-input bg-background pl-7 pr-7 text-xs font-normal normal-case tracking-normal shadow-none md:w-64"
-        />
-        {search ? (
-          <button
-            type="button"
-            onClick={clearSearch}
-            aria-label="Limpar busca"
-            className="absolute right-1 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <X className="h-3.5 w-3.5" aria-hidden />
-          </button>
-        ) : null}
-      </span>
-    </span>
-  );
+/** Cabeçalho do grupo "DADOS DOS PEDIDOS" (a busca genérica foi removida). */
+export function OrderGroupHeader() {
+  return <span>DADOS DOS PEDIDOS</span>;
 }

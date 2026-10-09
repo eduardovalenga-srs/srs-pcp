@@ -87,11 +87,11 @@ describe("cabeçalhos com filtro (desktop)", () => {
     expect(scoped).not.toContain("filtro ativo");
   });
 
-  it("coloca a busca no grupo DADOS DOS PEDIDOS com o valor da URL", () => {
-    const markup = html(createElement(OrderGroupHeader, { filters: parseProductionFilters({ q: "OF-1234" }) }));
-    expect(markup).toContain('aria-label="Buscar por OF/OS, tipo, item pai ou descrição"');
-    expect(markup).toContain('value="OF-1234"');
+  it("mantém só o título do grupo DADOS DOS PEDIDOS (busca genérica removida)", () => {
+    const markup = html(createElement(OrderGroupHeader));
     expect(markup).toContain("DADOS DOS PEDIDOS");
+    expect(markup).not.toContain("Buscar por OF/OS");
+    expect(markup).not.toContain("<input");
   });
 
   it("abrevia o rótulo visível e mantém o nome completo no acessível", () => {
