@@ -37,7 +37,10 @@ export async function loginAction(_previousState: AuthFormState, formData: FormD
     return { error: LOGIN_ERROR_MESSAGE };
   }
 
-  // Conta desativada? (migração 012) — derruba a sessão recém-criada.
+  // Conta inválida? Sem perfil (trigger handle_new_user ausente) ou
+  // desativada (migração 012) — derruba a sessão recém-criada. Sem o
+  // signOut no caso "sem perfil", o cookie ficaria válido e o guard do
+  // dashboard entraria em loop /login ↔ painel (ERR_TOO_MANY_REDIRECTS).
   let homePath = homePathFor(null);
   const {
     data: { user },
@@ -49,10 +52,14 @@ export async function loginAction(_previousState: AuthFormState, formData: FormD
       .eq("id", user.id)
       .maybeSingle();
 
-    if (profile && !profile.active) {
+    if (!profile || !profile.active) {
       await supabase.auth.signOut();
-      console.warn(`[loginAction] tentativa de login em conta desativada: ${email}`);
-      return { error: "Usuário desativado. Contate o administrador." };
+      console.warn(`[loginAction] login bloqueado (perfil ausente ou inativo): ${email}`);
+      return {
+        error: profile
+          ? "Usuário desativado. Contate o administrador."
+          : "Usuário sem perfil cadastrado. Contate o administrador.",
+      };
     }
 
     // Destino por papel: OPERADOR (sem production.view) vai à Fábrica 1.

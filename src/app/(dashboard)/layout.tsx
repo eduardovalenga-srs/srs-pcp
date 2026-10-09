@@ -1,15 +1,16 @@
 import type { ReactNode } from "react";
-import { redirect } from "next/navigation";
-import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { hasAdmin } from "@/lib/repositories/profiles.repository";
+import { DashboardLayoutGuard } from "./layout-guard";
 import { AdminClaimBanner } from "@/components/layout/AdminClaimBanner";
 import { PasswordBanner } from "@/components/layout/PasswordBanner";
 import { TopNav } from "@/components/layout/TopNav";
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
-  const sessionUser = await getSessionUser();
-  if (!sessionUser) redirect("/login");
+  // Guard anti-loop (ver layout-guard.ts): sessão que a app rejeita cai em
+  // /acesso-negado em vez de ping-pong /login ↔ painel. Sessão ok devolve
+  // o usuário (memorizado por request via React cache).
+  const sessionUser = await DashboardLayoutGuard();
 
   const supabase = await createClient();
   const adminExists = await hasAdmin(supabase).catch(() => true);

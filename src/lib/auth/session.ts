@@ -14,10 +14,25 @@ export interface SessionUser {
 }
 
 /**
- * Usuário autenticado + perfil (role), memorizado por request.
- * Retorna null quando não há sessão válida.
+ * Estado da sessão, distinguindo os motivos de "não logado":
+ *  - "anonimo"    não há JWT válido (ou a API do Auth falhou);
+ *  - "sem-perfil" há JWT, mas nenhuma linha em `profiles` (usuário criado
+ *                  sem o trigger handle_new_user / migração ausente);
+ *  - "inativo"    há JWT e perfil, mas `active = false` (migração 012);
+ *  - "ok"         sessão plenamente válida para a app.
+ *
+ * O guard do dashboard usa os estados para NÃO entrar em loop de redirect:
+ * "anonimo" vai ao /login; "sem-perfil"/"inativo" caem numa rota terminal
+ * (/acesso-negado) com saída, em vez de ping-pong /login ↔ painel.
  */
-export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
+export type SessionState =
+  | { status: "anonimo" }
+  | { status: "sem-perfil" }
+  | { status: "inativo" }
+  | { status: "ok"; user: SessionUser };
+
+/** Estado da sessão, memorizado por request. */
+export const getSessionState = cache(async (): Promise<SessionState> => {
   const supabase = await createClient();
 
   const {
@@ -25,7 +40,7 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
     error: userError,
   } = await supabase.auth.getUser();
 
-  if (userError || !user) return null;
+  if (userError || !user) return { status: "anonimo" };
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
@@ -35,20 +50,32 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
 
   if (profileError || !profile) {
     // Sem perfil (RLS/user recém-criado): sessão inválida para a app.
-    return null;
+    return { status: "sem-perfil" };
   }
 
   if (!profile.active) {
     // Conta desativada (migração 012): a sessão deixa de valer na hora.
-    return null;
+    return { status: "inativo" };
   }
 
   return {
-    id: user.id,
-    email: user.email ?? profile.email ?? "",
-    profile,
-    role: profile.role,
+    status: "ok",
+    user: {
+      id: user.id,
+      email: user.email ?? profile.email ?? "",
+      profile,
+      role: profile.role,
+    },
   };
+});
+
+/**
+ * Usuário autenticado + perfil (role), memorizado por request.
+ * Retorna null quando não há sessão válida.
+ */
+export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
+  const state = await getSessionState();
+  return state.status === "ok" ? state.user : null;
 });
 
 /** Lança erro quando não há sessão — usado em Server Actions. */
