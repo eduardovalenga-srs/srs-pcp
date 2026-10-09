@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { can, capabilitiesFor, type Capability } from "@/lib/auth/permissions";
+import { can, capabilitiesFor, homePathFor, type Capability } from "@/lib/auth/permissions";
 import { ROLES, type Role } from "@/lib/constants/orders";
 
 const ALL_CAPABILITIES: Capability[] = [
@@ -25,6 +25,23 @@ const ALL_CAPABILITIES: Capability[] = [
   "menu.fabrica1",
   "menu.settings",
 ];
+
+describe("página inicial por papel (homePathFor)", () => {
+  it("ADMIN, GESTOR e VISUALIZADOR entram pela gestão de entregas", () => {
+    expect(homePathFor("ADMIN")).toBe("/gestao-entregas");
+    expect(homePathFor("GESTOR")).toBe("/gestao-entregas");
+    expect(homePathFor("VISUALIZADOR")).toBe("/gestao-entregas");
+  });
+
+  it("OPERADOR (sem production.view) entra pela Fábrica 1", () => {
+    expect(homePathFor("OPERADOR")).toBe("/fabrica-1");
+  });
+
+  it("sem papel definido usa o destino padrão", () => {
+    expect(homePathFor(null)).toBe("/gestao-entregas");
+    expect(homePathFor(undefined)).toBe("/gestao-entregas");
+  });
+});
 
 describe("matriz de permissões (item 40)", () => {
   it("ADMIN tem todas as capacidades", () => {

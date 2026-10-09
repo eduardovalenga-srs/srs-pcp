@@ -2,14 +2,15 @@ import { redirect } from "next/navigation";
 import Image from "next/image";
 
 import { getSessionUser } from "@/lib/auth/session";
+import { homePathFor } from "@/lib/auth/permissions";
 import { LoginForm } from "@/components/auth/LoginForm";
 
-export const metadata = { title: "Entrar · Soberana" };
+export const metadata = { title: "Entrar · Imperatriz" };
 
 export default async function LoginPage() {
   // Já autenticado? Segue direto para o painel.
   const sessionUser = await getSessionUser();
-  if (sessionUser) redirect("/gestao-entregas");
+  if (sessionUser) redirect(homePathFor(sessionUser.role));
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-white p-4">

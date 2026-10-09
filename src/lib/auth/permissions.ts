@@ -78,3 +78,13 @@ export function can(role: Role | null | undefined, capability: Capability): bool
 export function capabilitiesFor(role: Role): readonly Capability[] {
   return CAPABILITIES[role] ?? [];
 }
+
+/**
+ * Página inicial por papel (pós-login e raiz "/"): quem não tem
+ * `production.view` (OPERADOR) só enxerga a Fábrica 1 — cair fora
+ * disso derrubaria a renderização no guard da página de gestão.
+ */
+export function homePathFor(role: Role | null | undefined): string {
+  if (role && !can(role, "production.view")) return "/fabrica-1";
+  return "/gestao-entregas";
+}

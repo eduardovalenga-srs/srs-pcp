@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { homePathFor } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { forgotPasswordSchema } from "@/lib/validators/user.schema";
 
@@ -17,7 +18,7 @@ export interface ForgotPasswordState {
 
 const LOGIN_ERROR_MESSAGE = "E-mail ou senha inválidos.";
 
-/** Autentica por e-mail/senha e redireciona para a gestão de entregas. */
+/** Autentica por e-mail/senha e redireciona para a página inicial do papel. */
 export async function loginAction(_previousState: AuthFormState, formData: FormData): Promise<AuthFormState> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
@@ -37,13 +38,14 @@ export async function loginAction(_previousState: AuthFormState, formData: FormD
   }
 
   // Conta desativada? (migração 012) — derruba a sessão recém-criada.
+  let homePath = homePathFor(null);
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("active")
+      .select("active, role")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -52,9 +54,12 @@ export async function loginAction(_previousState: AuthFormState, formData: FormD
       console.warn(`[loginAction] tentativa de login em conta desativada: ${email}`);
       return { error: "Usuário desativado. Contate o administrador." };
     }
+
+    // Destino por papel: OPERADOR (sem production.view) vai à Fábrica 1.
+    homePath = homePathFor(profile?.role ?? null);
   }
 
-  redirect("/gestao-entregas");
+  redirect(homePath);
 }
 
 /**
