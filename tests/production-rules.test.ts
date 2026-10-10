@@ -8,9 +8,11 @@ import {
   deriveOrderItemStatus,
   deriveOrderStatus,
   fabrica1ItemProcesses,
+  fabrica1ProcessColumns,
   isItemOverdue,
   isProcessStartOverdue,
 } from "@/lib/utils/production";
+import { FABRICA1_EDITABLE_PROCESS_CODES } from "@/lib/constants/processes";
 import { formatDate, formatDateTime } from "@/lib/utils/dates";
 import { calculateTotalWeight, formatQuantity, formatWeight, toNumber } from "@/lib/utils/formatting";
 import type { ProcessState } from "@/lib/utils/production";
@@ -260,5 +262,71 @@ describe("processos visíveis na Fábrica 1 (MP primeiro, some depois do KIT)", 
   it("sem KIT no item a lista segue aberta (não aplicáveis continuam fora)", () => {
     const chain = [makeProcess("EXP", 130), makeProcess("LASER", 10, "NAO_APLICAVEL")];
     expect(fabrica1ItemProcesses(chain).map((process) => process.code)).toEqual(["EXP"]);
+  });
+});
+
+describe("colunas de processos da tabela da Fábrica 1", () => {
+  const catalog = [
+    { code: "MP", displayOrder: 5 },
+    { code: "LASER", displayOrder: 10 },
+    { code: "DB_CH", displayOrder: 20 },
+    { code: "SERRA", displayOrder: 30 },
+    { code: "DB_TB", displayOrder: 40 },
+    { code: "PUNC", displayOrder: 50 },
+    { code: "METALEIRA", displayOrder: 60 },
+    { code: "FICEP", displayOrder: 70 },
+    { code: "KIT", displayOrder: 80 },
+    { code: "PRE_MTG", displayOrder: 90 },
+    { code: "SOLDA", displayOrder: 100 },
+    { code: "ACAB", displayOrder: 110 },
+    { code: "QUALITY", displayOrder: 120 },
+    { code: "EXP", displayOrder: 130 },
+  ];
+
+  it("mantém só a cadeia da Fábrica 1 (MP → KIT) na ordem do catálogo", () => {
+    expect(fabrica1ProcessColumns(catalog).map((process) => process.code)).toEqual([
+      "MP",
+      "LASER",
+      "DB_CH",
+      "SERRA",
+      "DB_TB",
+      "PUNC",
+      "METALEIRA",
+      "FICEP",
+      "KIT",
+    ]);
+  });
+
+  it("abre com o MP mesmo quando o catálogo divide o display_order (MP = PUNC = 5)", () => {
+    // É o estado real do banco: a migration 021 gravou o MP com display_order 5
+    // e o catálogo já usava 5 para o PUNC — ordenar só por número o deixaria
+    // no meio da cadeia.
+    const realCatalog = [
+      { code: "LASER", displayOrder: 1 },
+      { code: "PUNC", displayOrder: 5 },
+      { code: "MP", displayOrder: 5 },
+      { code: "KIT", displayOrder: 8 },
+    ];
+    expect(fabrica1ProcessColumns(realCatalog).map((process) => process.code)).toEqual([
+      "MP",
+      "LASER",
+      "PUNC",
+      "KIT",
+    ]);
+  });
+
+  it("ignora processos de fora da cadeia (o pós-KIT fica na gestão de entregas)", () => {
+    expect(fabrica1ProcessColumns([{ code: "SOLDA", displayOrder: 100 }])).toEqual([]);
+    expect(fabrica1ProcessColumns([{ code: "EXP", displayOrder: 130 }])).toEqual([]);
+  });
+
+  it("edita nesta tela só as etapas de sub-item e o KIT — nunca o MP", () => {
+    const editable = new Set(FABRICA1_EDITABLE_PROCESS_CODES);
+    expect(editable.has("MP")).toBe(false);
+    expect(editable.has("LASER")).toBe(true);
+    expect(editable.has("METALEIRA")).toBe(true);
+    expect(editable.has("KIT")).toBe(true);
+    expect(editable.has("SOLDA")).toBe(false);
+    expect(editable.has("EXP")).toBe(false);
   });
 });

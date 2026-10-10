@@ -86,6 +86,29 @@ export const KIT_PROCESS_CODE: ProcessCode = "KIT";
  */
 export const MP_PROCESS_CODE = "MP";
 
+/**
+ * Colunas de processos da tela Fábrica 1: a cadeia da Fábrica 1 — MP primeiro,
+ * depois as etapas de sub-item (LASER…FICEP) e o KIT, que encerra a cadeia.
+ * O que vem depois do KIT (PRÉ-MTG, SOLDA, ACAB, QUALITY, EXP) acontece no
+ * kit montado e fica na gestão de entregas.
+ */
+export const FABRICA1_PROCESS_CODES: readonly string[] = [
+  MP_PROCESS_CODE,
+  ...F1_PROCESS_CODES,
+  KIT_PROCESS_CODE,
+];
+
+/**
+ * Processos da Fábrica 1 com edição de status NA TELA: as etapas de sub-item e
+ * o KIT — cada um grava a linha do próprio filho. O MP fica de fora: ele
+ * aparece nas duas telas e o valor exibido aqui é o do ITEM PAI, editado na
+ * gestão de entregas.
+ */
+export const FABRICA1_EDITABLE_PROCESS_CODES: readonly string[] = [
+  ...F1_PROCESS_CODES,
+  KIT_PROCESS_CODE,
+];
+
 export function isProcessCode(value: string): value is ProcessCode {
   return (PROCESS_CODES as readonly string[]).includes(value);
 }

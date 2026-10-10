@@ -2,8 +2,10 @@ import "server-only";
 
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type { ChildItemFilters, ChildItemMaterialsResult, OrderFilters, OrderListResult, OrderDetails, OrderItemPayload } from "@/lib/types/order";
+import type { ProcessDefinition } from "@/lib/types/production";
 import type { Json } from "@/lib/types/database";
 import type { ProcessStatus } from "@/lib/constants/production";
+import { todayISODate } from "@/lib/utils/dates";
 import {
   buildItemKey,
   deleteOrder,
@@ -24,12 +26,37 @@ export async function getOrdersPage(client: SupabaseServer, filters: OrderFilter
   return listOrders(client, filters);
 }
 
-/** Página de itens filhos com materiais (tela Fábrica 1). */
+export interface ChildItemPage extends ChildItemMaterialsResult {
+  /** Catálogo ativo (com durações) — colunas do grupo PROCESSOS e folha de edição. */
+  processes: ProcessDefinition[];
+  /** Data de referência (AAAA-MM-DD) — mesma base da regra de atraso. */
+  today: string;
+}
+
+/**
+ * Página de itens filhos com materiais (tela Fábrica 1).
+ * O catálogo é carregado antes da lista porque resolve o `processCode`
+ * do filtro para o id da linha de processo (filtro no banco).
+ */
 export async function getChildItemsPage(
   client: SupabaseServer,
   filters: ChildItemFilters,
-): Promise<ChildItemMaterialsResult> {
-  return listChildItemsWithMaterials(client, filters);
+): Promise<ChildItemPage> {
+  const processes = await getActiveProcesses(client);
+  const today = todayISODate();
+
+  const processId =
+    filters.processCode === "ALL"
+      ? null
+      : (processes.find((process) => process.code === filters.processCode)?.id ?? null);
+
+  // Processo fora do catálogo ativo não casa nenhuma linha.
+  if (filters.processCode !== "ALL" && processId === null) {
+    return { items: [], total: 0, qtyTotal: 0, weightTotal: 0, processes, today };
+  }
+
+  const result = await listChildItemsWithMaterials(client, filters, processId);
+  return { ...result, processes, today };
 }
 
 export async function getOrder(client: SupabaseServer, orderId: string): Promise<OrderDetails | null> {

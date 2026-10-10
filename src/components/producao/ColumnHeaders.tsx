@@ -1,19 +1,21 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, ArrowUpDown, Filter, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 
 import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS } from "@/lib/constants/production";
 import { DELIVERY_FILTERS, DELIVERY_LABELS } from "@/lib/constants/pagination";
 import type { ProductionFilters } from "@/lib/types/production";
-import { normalizeDeliveryPeriod, productionQueryString } from "@/lib/utils/filters";
+import { productionQueryString } from "@/lib/utils/filters";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  DeliveryPeriodPopover,
+  FilterMenu,
+  TextColumnFilter as SharedTextColumnFilter,
+} from "@/components/shared/column-filters";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -21,14 +23,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 
 /** Grava um conjunto de filtros na URL e volta para a primeira página. */
 function useApplyFilters(filters: ProductionFilters) {
@@ -83,74 +77,6 @@ function SortLink({
   );
 }
 
-interface FilterOption {
-  value: string;
-  label: string;
-}
-
-/** Aparência compartilhada do funil de filtro no cabeçalho. */
-function funnelClassName(active: boolean): string {
-  return cn(
-    "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors",
-    "hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-    active ? "bg-primary/15 text-primary" : "text-muted-foreground/60",
-  );
-}
-
-function funnelTitle(context: string): string {
-  return `Filtrar por ${context}`;
-}
-
-function funnelAriaLabel(context: string, active: boolean): string {
-  return `${funnelTitle(context)}${active ? " — filtro ativo" : ""}`;
-}
-
-/** Ícone do funil — quando ativo, fica preenchido (além da cor). */
-function FunnelIcon({ active }: { active: boolean }) {
-  return <Filter className={cn("h-3 w-3", active && "fill-current")} aria-hidden />;
-}
-
-interface FilterMenuProps {
-  /** Contexto do filtro, ex.: "situação do pedido" (vai para aria-label e título). */
-  context: string;
-  value: string;
-  active: boolean;
-  options: FilterOption[];
-  onValueChange: (value: string) => void;
-}
-
-/**
- * Funil no cabeçalho da coluna: abre as opções daquele filtro.
- * O estado ativo não é comunicado só por cor — o ícone fica preenchido e o
- * rótulo acessível indica "filtro ativo".
- */
-function FilterMenu({ context, value, active, options, onValueChange }: FilterMenuProps) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          title={funnelTitle(context)}
-          aria-label={funnelAriaLabel(context, active)}
-          className={funnelClassName(active)}
-        >
-          <FunnelIcon active={active} />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
-        <DropdownMenuLabel>{context}</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
-          {options.map((option) => (
-            <DropdownMenuRadioItem key={option.value} value={option.value}>
-              {option.label}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 /**
  * Cabeçalho de uma coluna: ordenação (quando existir) + filtro opcional.
  * `label` é o texto visível (pode ser abreviado); `fullLabel` é o nome completo
@@ -193,77 +119,15 @@ export function DeliveryFilter({ filters }: { filters: ProductionFilters }) {
   const active =
     filters.delivery !== "ALL" || filters.deliveryFrom !== null || filters.deliveryTo !== null;
 
-  const appliedFrom = filters.deliveryFrom ?? "";
-  const appliedTo = filters.deliveryTo ?? "";
-
-  // Rascunho do período: o <input type="date"> expõe "" enquanto a data está
-  // incompleta, então aplicar a URL a cada tecla (ou no blur de um campo)
-  // apagava o dia/mês já digitado e nem deixava preencher o outro lado. O
-  // campo guarda o próprio rascunho e a URL só muda em "Aplicar"/Enter.
-  const [draftFrom, setDraftFrom] = useState(appliedFrom);
-  const [draftTo, setDraftTo] = useState(appliedTo);
-  const [syncedFrom, setSyncedFrom] = useState(appliedFrom);
-  const [syncedTo, setSyncedTo] = useState(appliedTo);
-  const [open, setOpen] = useState(false);
-
-  // Último período enviado à URL: o eco da navegação chega depois, com os
-  // filtros novos, e não pode reescrever o rascunho do lado que o usuário
-  // já está digitando em seguida.
-  const [sent, setSent] = useState({ from: filters.deliveryFrom, to: filters.deliveryTo });
-
-  // Sincroniza o rascunho com a URL quando os filtros mudam por fora
-  // (limpar filtros, chip, navegação) — padrão de "ajuste durante a renderização".
-  if (syncedFrom !== appliedFrom || syncedTo !== appliedTo) {
-    setSyncedFrom(appliedFrom);
-    setSyncedTo(appliedTo);
-    const echo = sent.from === filters.deliveryFrom && sent.to === filters.deliveryTo;
-    if (!echo) {
-      setSent({ from: filters.deliveryFrom, to: filters.deliveryTo });
-      setDraftFrom(appliedFrom);
-      setDraftTo(appliedTo);
-    }
-  }
-
-  const period = normalizeDeliveryPeriod(draftFrom, draftTo);
-
-  /**
-   * Aplica o período na URL. `completeOnly` é o caminho do blur: sair de um
-   * campo com o outro lado ainda vazio não navega (o re-render apagaria o que
-   * o usuário fosse digitar em seguida). Lado único só via Aplicar/Enter.
-   */
-  const commit = (completeOnly: boolean) => {
-    if (period.error !== null) return;
-    if (completeOnly && (period.from === null || period.to === null)) return;
-    if (sent.from === period.from && sent.to === period.to) return;
-    setSent({ from: period.from, to: period.to });
-    apply({ deliveryFrom: period.from, deliveryTo: period.to });
-  };
-
-  const onOpenChange = (next: boolean) => {
-    setOpen(next);
-    // Cada abertura parte do período vigente — descartar edições abandonadas.
-    if (next) {
-      setDraftFrom(appliedFrom);
-      setDraftTo(appliedTo);
-    }
-  };
-
-  const canApply =
-    period.error === null && (period.from !== sent.from || period.to !== sent.to);
-
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          title={funnelTitle("entrega")}
-          aria-label={funnelAriaLabel("entrega", active)}
-          className={funnelClassName(active)}
-        >
-          <FunnelIcon active={active} />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-3">
+    <DeliveryPeriodPopover
+      active={active}
+      from={filters.deliveryFrom}
+      to={filters.deliveryTo}
+      idPrefix="entrega"
+      onApply={(from, to) => apply({ deliveryFrom: from, deliveryTo: to })}
+      onClear={() => apply({ delivery: "ALL", deliveryFrom: null, deliveryTo: null })}
+      extra={
         <div className="space-y-1">
           <Label htmlFor="entrega-janela" className="text-xs text-muted-foreground">
             Janela
@@ -286,75 +150,8 @@ export function DeliveryFilter({ filters }: { filters: ProductionFilters }) {
             </SelectContent>
           </Select>
         </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <Label htmlFor="entrega-de" className="text-xs text-muted-foreground">
-              De
-            </Label>
-            <Input
-              id="entrega-de"
-              type="date"
-              value={draftFrom}
-              max={draftTo || undefined}
-              onChange={(event) => setDraftFrom(event.target.value)}
-              onBlur={() => commit(true)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  commit(false);
-                }
-              }}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="entrega-ate" className="text-xs text-muted-foreground">
-              Até
-            </Label>
-            <Input
-              id="entrega-ate"
-              type="date"
-              value={draftTo}
-              min={draftFrom || undefined}
-              onChange={(event) => setDraftTo(event.target.value)}
-              onBlur={() => commit(true)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  commit(false);
-                }
-              }}
-            />
-          </div>
-        </div>
-
-        {period.error === "inverted" ? (
-          <p className="text-xs text-destructive" role="status">
-            A data inicial é posterior à final.
-          </p>
-        ) : null}
-
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={!active}
-            onClick={() => {
-              setSent({ from: null, to: null });
-              setDraftFrom("");
-              setDraftTo("");
-              apply({ delivery: "ALL", deliveryFrom: null, deliveryTo: null });
-            }}
-          >
-            Limpar
-          </Button>
-          <Button type="button" size="sm" disabled={!canApply} onClick={() => commit(false)}>
-            Aplicar
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
+      }
+    />
   );
 }
 
@@ -403,68 +200,18 @@ interface TextColumnFilterProps {
 
 export function TextColumnFilter({ filters, field, column, context }: TextColumnFilterProps) {
   const apply = useApplyFilters(filters);
-  const inputId = useId();
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(filters[field]);
-
-  const value = filters[field];
-  const active = value !== "";
-
-  const onOpenChange = (next: boolean) => {
-    setOpen(next);
-    if (next) setDraft(value);
-  };
-
-  const commit = (next: string) => {
-    const trimmed = next.trim();
-    setDraft(trimmed);
-    const patch: Partial<ProductionFilters> = {};
-    patch[field] = trimmed;
-    apply(patch);
-    setOpen(false);
-  };
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          title={funnelTitle(context)}
-          aria-label={funnelAriaLabel(context, active)}
-          className={funnelClassName(active)}
-        >
-          <FunnelIcon active={active} />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 space-y-2 p-3">
-        <Label htmlFor={inputId} className="text-xs text-muted-foreground">
-          {column} — contém
-        </Label>
-        <Input
-          id={inputId}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commit(draft);
-            }
-          }}
-          placeholder="Digite parte do valor…"
-          autoComplete="off"
-          className="h-8"
-        />
-        <div className="flex items-center justify-between gap-2">
-          <Button type="button" variant="ghost" size="sm" disabled={!active} onClick={() => commit("")}>
-            <X className="h-4 w-4" aria-hidden />
-            Limpar
-          </Button>
-          <Button type="button" size="sm" onClick={() => commit(draft)}>
-            Aplicar
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
+    <SharedTextColumnFilter
+      value={filters[field]}
+      column={column}
+      context={context}
+      onApply={(value) => {
+        const patch: Partial<ProductionFilters> = {};
+        patch[field] = value;
+        apply(patch);
+      }}
+    />
   );
 }
 

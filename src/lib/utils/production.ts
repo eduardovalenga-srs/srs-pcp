@@ -1,4 +1,9 @@
-import { KIT_PROCESS_CODE, MP_PROCESS_CODE, SHIPMENT_PROCESS_CODE } from "@/lib/constants/processes";
+import {
+  FABRICA1_PROCESS_CODES,
+  KIT_PROCESS_CODE,
+  MP_PROCESS_CODE,
+  SHIPMENT_PROCESS_CODE,
+} from "@/lib/constants/processes";
 import { PROCESS_STATUSES, type ProcessStatus } from "@/lib/constants/production";
 import { todayISODate } from "@/lib/utils/dates";
 
@@ -141,6 +146,28 @@ export function fabrica1ItemProcesses<
   const limit = kitOrder ?? Number.POSITIVE_INFINITY;
   return applicableProcesses(processes)
     .filter((process) => process.displayOrder <= limit)
+    .sort((left, right) => {
+      if (left.code === MP_PROCESS_CODE) return -1;
+      if (right.code === MP_PROCESS_CODE) return 1;
+      return left.displayOrder - right.displayOrder;
+    });
+}
+
+/**
+ * Colunas de processos da tabela da Fábrica 1: a cadeia F1 (MP primeiro,
+ * depois LASER…FICEP e o KIT) na ordem do catálogo. O que vem depois do KIT
+ * continua oculto nesta tela — mora na gestão de entregas.
+ *
+ * O MP abre a lista SEM depender do `displayOrder`: no banco ele divide o
+ * mesmo número (5) com o PUNC, então ordenar só por número o deixaria no
+ * meio da cadeia. Mesma regra de `fabrica1ItemProcesses` (badges mobile).
+ */
+export function fabrica1ProcessColumns<T extends { code: string; displayOrder: number }>(
+  processes: readonly T[],
+): T[] {
+  const codes = new Set(FABRICA1_PROCESS_CODES);
+  return processes
+    .filter((process) => codes.has(process.code))
     .sort((left, right) => {
       if (left.code === MP_PROCESS_CODE) return -1;
       if (right.code === MP_PROCESS_CODE) return 1;

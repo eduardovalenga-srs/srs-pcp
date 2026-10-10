@@ -4,24 +4,24 @@ import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getChildItemsPage } from "@/lib/services/orders.service";
-import type { ChildItemMaterialsResult } from "@/lib/types/order";
 import { parseChildItemFilters } from "@/lib/utils/filters";
 import { pluralize } from "@/lib/utils/formatting";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
-import { EmptyState } from "@/components/shared/EmptyState";
 import { Header } from "@/components/layout/Header";
 import { Fabrica1Filters } from "@/components/fabrica1/Fabrica1Filters";
 import { Fabrica1Summary } from "@/components/fabrica1/Fabrica1Summary";
-import { ChildItemsList } from "@/components/fabrica1/ChildItemsList";
+import { Fabrica1Table } from "@/components/fabrica1/Fabrica1Table";
+import { Fabrica1ActiveFilters } from "@/components/fabrica1/Fabrica1ColumnHeaders";
 import { ChildItemsPagination } from "@/components/fabrica1/ChildItemsPagination";
 
 export const metadata = { title: "Fábrica 1" };
 
 /**
  * Fábrica 1: lista de itens FILHOS das OFs com suas matérias-primas e
- * quantidades — visão de insumos/compras. Cada linha abre a OF de
- * origem; filhos sem material aparecem sinalizados.
+ * quantidades — visão de insumos/compras. Uma linha por filho e uma coluna
+ * por processo da cadeia da Fábrica 1 (MP herdado do pai; sub-item e KIT
+ * editáveis aqui).
  */
 export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica-1">) {
   const sessionUser = await getSessionUser();
@@ -41,7 +41,7 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
     );
   }
 
-  let data: ChildItemMaterialsResult;
+  let data: Awaited<ReturnType<typeof getChildItemsPage>>;
   try {
     const client = await createClient();
     data = await getChildItemsPage(client, filters);
@@ -60,8 +60,12 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
     );
   }
 
-  const hasFilters =
-    filters.search !== "" || filters.orderCode !== "" || filters.material !== "";
+  const capabilities = {
+    canUpdateStatus: can(sessionUser.role, "production.update_status"),
+    canEditQuantities: can(sessionUser.role, "production.edit"),
+    canViewHistory: can(sessionUser.role, "production.view_history"),
+    canEditDelivery: can(sessionUser.role, "orders.edit"),
+  };
 
   return (
     <>
@@ -71,7 +75,10 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
       />
 
       <div className="space-y-3">
-        <Fabrica1Filters filters={filters} />
+        {/* Mobile: barra de filtros (no desktop os filtros ficam nos cabeçalhos). */}
+        <div className="lg:hidden">
+          <Fabrica1Filters filters={filters} processes={data.processes} />
+        </div>
 
         <Fabrica1Summary
           total={data.total}
@@ -79,21 +86,18 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
           weightTotal={data.weightTotal}
         />
 
-        {data.items.length === 0 ? (
-          <EmptyState
-            title="Nenhum item filho encontrado"
-            description={
-              hasFilters
-                ? "Ajuste os filtros para encontrar a peça ou o material que você procura."
-                : "Importe uma OF com a nova estrutura (itens filhos) para começar."
-            }
-          />
-        ) : (
-          <>
-            <ChildItemsList items={data.items} />
-            <ChildItemsPagination filters={filters} total={data.total} />
-          </>
-        )}
+        {/* Chips de filtros ativos: removem um a um ou limpam tudo. */}
+        <Fabrica1ActiveFilters filters={filters} />
+
+        <Fabrica1Table
+          items={data.items}
+          processes={data.processes}
+          filters={filters}
+          capabilities={capabilities}
+          today={data.today}
+        />
+
+        <ChildItemsPagination filters={filters} total={data.total} />
       </div>
     </>
   );

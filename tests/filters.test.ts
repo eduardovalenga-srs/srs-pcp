@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   activeFilterChips,
+  childItemFilterChips,
   childItemQueryString,
   isSortableColumn,
   isValidProcessSort,
@@ -193,28 +194,62 @@ describe("parseOrderFilters", () => {
 });
 
 describe("parseChildItemFilters", () => {
-  it("aplica os valores padrão quando a URL está vazia", () => {
+  it("aplica os valores padrões quando a URL está vazia", () => {
     expect(parseChildItemFilters({})).toEqual({
       search: "",
       orderCode: "",
+      customer: "",
+      parentItem: "",
+      childItem: "",
+      description: "",
       material: "",
+      deliveryFrom: null,
+      deliveryTo: null,
+      processCode: "ALL",
+      processStatus: "ALL",
       page: 1,
       pageSize: CHILD_ITEMS_PAGE_SIZE,
     });
   });
 
-  it("lê os três filtros de texto, aparando espaços e limitando o tamanho", () => {
+  it("lê os filtros de texto das colunas, aparando espaços e limitando o tamanho", () => {
     const filters = parseChildItemFilters({
       q: "  palheta  ",
       of: "107482",
+      cliente: "ACME",
+      itempai: "72ST18",
+      filho: "72ST18-025",
+      descricao: " barra ",
       material: "chapa 3mm",
     });
     expect(filters.search).toBe("palheta");
     expect(filters.orderCode).toBe("107482");
+    expect(filters.customer).toBe("ACME");
+    expect(filters.parentItem).toBe("72ST18");
+    expect(filters.childItem).toBe("72ST18-025");
+    expect(filters.description).toBe("barra");
     expect(filters.material).toBe("chapa 3mm");
 
     // URL absurda é cortada (não vira payload infinito).
     expect(parseChildItemFilters({ material: "x".repeat(200) }).material).toHaveLength(80);
+  });
+
+  it("lê o período de entrega e o filtro de processo/situação", () => {
+    const filters = parseChildItemFilters({
+      entregade: "2026-10-01",
+      entregaate: "2026-10-31",
+      processo: "laser",
+      situacao: "concluido",
+    });
+    expect(filters.deliveryFrom).toBe("2026-10-01");
+    expect(filters.deliveryTo).toBe("2026-10-31");
+    expect(filters.processCode).toBe("LASER");
+    expect(filters.processStatus).toBe("CONCLUIDO");
+
+    // Data impossível e situação desconhecida caem no padrão.
+    const invalid = parseChildItemFilters({ entregade: "2026-02-31", situacao: "QUALQUER" });
+    expect(invalid.deliveryFrom).toBeNull();
+    expect(invalid.processStatus).toBe("ALL");
   });
 
   it("descarta página inválida e limita o tamanho da página", () => {
@@ -227,17 +262,34 @@ describe("parseChildItemFilters", () => {
   it("monta a query string omitindo padrões e faz roundtrip", () => {
     expect(childItemQueryString(parseChildItemFilters({}))).toBe("");
 
-    const filters = parseChildItemFilters({ q: "palheta", of: "107482", pagina: "3" });
+    const filters = parseChildItemFilters({
+      q: "palheta",
+      of: "107482",
+      cliente: "ACME",
+      filho: "72ST18-025",
+      entregade: "2026-10-01",
+      situacao: "BLOQUEADO",
+      pagina: "3",
+    });
     const params = new URLSearchParams(childItemQueryString(filters));
     expect(params.get("q")).toBe("palheta");
     expect(params.get("of")).toBe("107482");
+    expect(params.get("cliente")).toBe("ACME");
+    expect(params.get("filho")).toBe("72ST18-025");
+    expect(params.get("entregade")).toBe("2026-10-01");
+    expect(params.get("situacao")).toBe("BLOQUEADO");
     expect(params.get("pagina")).toBe("3");
     expect(params.has("material")).toBe(false);
+    expect(params.has("processo")).toBe(false);
     expect(params.has("porpagina")).toBe(false);
 
     const roundtrip = parseChildItemFilters(Object.fromEntries(params));
     expect(roundtrip.search).toBe("palheta");
     expect(roundtrip.orderCode).toBe("107482");
+    expect(roundtrip.customer).toBe("ACME");
+    expect(roundtrip.childItem).toBe("72ST18-025");
+    expect(roundtrip.deliveryFrom).toBe("2026-10-01");
+    expect(roundtrip.processStatus).toBe("BLOQUEADO");
     expect(roundtrip.page).toBe(3);
   });
 
@@ -248,6 +300,36 @@ describe("parseChildItemFilters", () => {
     const params = new URLSearchParams(childItemQueryString(next));
     expect(params.get("material")).toBe("chapa");
     expect(params.has("pagina")).toBe(false);
+  });
+});
+
+describe("childItemFilterChips", () => {
+  it("retorna vazio quando nenhum filtro está ativo", () => {
+    expect(childItemFilterChips(parseChildItemFilters({}))).toEqual([]);
+  });
+
+  it("gera um chip por filtro ligado e sabe remover cada um sem afetar os demais", () => {
+    const filters = parseChildItemFilters({ cliente: "ACME", filho: "72ST18-025", material: "chapa" });
+    const chips = childItemFilterChips(filters);
+    expect(chips.map((chip) => chip.label)).toEqual([
+      "Cliente: ACME",
+      "Filho: 72ST18-025",
+      "Matérias-primas: chapa",
+    ]);
+
+    const cliente = chips.find((chip) => chip.key === "customer");
+    expect(childItemQueryString({ ...filters, ...cliente?.clear })).not.toContain("cliente=");
+    expect(childItemQueryString({ ...filters, ...cliente?.clear })).toContain("filho=");
+  });
+
+  it("descreve o período de entrega e o filtro de processo", () => {
+    const chips = childItemFilterChips(
+      parseChildItemFilters({ entregade: "2026-10-01", entregaate: "2026-10-31", situacao: "EM_ANDAMENTO" }),
+    );
+    expect(chips.map((chip) => chip.label)).toEqual([
+      "Período de entrega: 01/10/2026 – 31/10/2026",
+      "Em andamento (qualquer processo)",
+    ]);
   });
 });
 

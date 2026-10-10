@@ -73,24 +73,54 @@ export interface OrderListResult {
   total: number;
 }
 
-/** Filtros da tela Fábrica 1 (itens filhos com matérias-primas). */
+/**
+ * Filtros da tela Fábrica 1 (itens filhos com matérias-primas).
+ * Mesmos nomes de coluna da gestão de entregas — cada filtro mora no
+ * cabeçalho da coluna correspondente (a barra mobile cuida dos principais).
+ */
 export interface ChildItemFilters {
-  /** Descrição ou código do item filho. */
+  /** Busca genérica (descrição ou código do filho) — barra mobile. */
   search: string;
   /** Código da OF/OS (parcial). */
   orderCode: string;
+  /** Nome do cliente (parcial). */
+  customer: string;
+  /** Código do item pai (parcial). */
+  parentItem: string;
+  /** Código do próprio filho (parcial). */
+  childItem: string;
+  /** Descrição do filho (parcial). */
+  description: string;
   /** Descrição da matéria-prima (parcial). */
   material: string;
+  /**
+   * Período de entrega (AAAA-MM-DD ou null = lado aberto), aplicado sobre a
+   * data do FILHO (itens sem data própria ficam de fora, como na gestão).
+   */
+  deliveryFrom: string | null;
+  deliveryTo: string | null;
+  /** Processo aplicado às linhas do filho (coluna do grupo PROCESSOS). */
+  processCode: string | "ALL";
+  /** Situação do processo (combinável com o código ou sozinha). */
+  processStatus: ProcessStatus | "ALL";
   page: number;
   pageSize: number;
 }
 
-/** Processo de um item filho — catálogo + situação (linha da Fábrica 1). */
+/**
+ * Processo de um item filho — catálogo + situação (linha da Fábrica 1).
+ * Carrega o id da linha em `production_processes`: é ele que a folha de
+ * edição grava quando o usuário atualiza a situação na tabela.
+ */
 export interface ChildItemProcess {
+  id: string;
   code: string;
   name: string;
   displayOrder: number;
   status: ProcessStatus;
+  quantityPlanned: number | null;
+  quantityCompleted: number | null;
+  notes: string | null;
 }
 
 /** Item FILHO de uma OF com seus materiais — linha da tela Fábrica 1. */
@@ -111,6 +141,12 @@ export interface ChildItemWithMaterials {
   deliveryDate: string | null;
   status: OrderStatus;
   processes: ChildItemProcess[];
+  /**
+   * Situação dos processos do item PAI — a coluna MP da Fábrica 1 mostra o
+   * valor do pai (editado na gestão de entregas) e nunca é editável aqui.
+   * Chave = código do processo (ex.: "MP").
+   */
+  parentProcessStatuses: Readonly<Record<string, ProcessStatus>>;
   materials: OrderItemMaterial[];
 }
 

@@ -200,7 +200,23 @@ export function parseOrderFilters(params: SearchParamsRecord): OrderFilters {
 export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilters {
   const search = textParam(params, "q");
   const orderCode = textParam(params, "of");
+  const customer = textParam(params, "cliente");
+  const parentItem = textParam(params, "itempai");
+  const childItem = textParam(params, "filho");
+  const description = textParam(params, "descricao");
   const material = textParam(params, "material");
+
+  const deliveryFrom = dateParam(params, "entregade");
+  const deliveryTo = dateParam(params, "entregaate");
+
+  const processCodeRaw = firstValue(params.processo).toUpperCase();
+  const processCode =
+    processCodeRaw && /^[A-Z][A-Z0-9_]{1,11}$/.test(processCodeRaw) ? processCodeRaw : "ALL";
+
+  const processStatusRaw = firstValue(params.situacao).toUpperCase();
+  const processStatus = (PROCESS_STATUSES as readonly string[]).includes(processStatusRaw)
+    ? (processStatusRaw as ProcessStatus)
+    : "ALL";
 
   const pageRaw = Number.parseInt(firstValue(params.pagina), 10);
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
@@ -208,7 +224,21 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
   const pageSizeRaw = Number.parseInt(firstValue(params.porpagina), 10);
   const pageSize = clampPageSize(pageSizeRaw, CHILD_ITEMS_PAGE_SIZE);
 
-  return { search, orderCode, material, page, pageSize };
+  return {
+    search,
+    orderCode,
+    customer,
+    parentItem,
+    childItem,
+    description,
+    material,
+    deliveryFrom,
+    deliveryTo,
+    processCode,
+    processStatus,
+    page,
+    pageSize,
+  };
 }
 
 type PartialParams = Record<string, string | number | undefined>;
@@ -269,10 +299,94 @@ export function childItemQueryString(
   return toSearchParams({
     q: next.search || undefined,
     of: next.orderCode || undefined,
+    cliente: next.customer || undefined,
+    itempai: next.parentItem || undefined,
+    filho: next.childItem || undefined,
+    descricao: next.description || undefined,
     material: next.material || undefined,
+    entregade: next.deliveryFrom || undefined,
+    entregaate: next.deliveryTo || undefined,
+    processo: next.processCode === "ALL" ? undefined : next.processCode,
+    situacao: next.processStatus === "ALL" ? undefined : next.processStatus,
     pagina: next.page === 1 ? undefined : next.page,
     porpagina: next.pageSize === CHILD_ITEMS_PAGE_SIZE ? undefined : next.pageSize,
   });
+}
+
+export interface ChildItemFilterChip {
+  key:
+    | "search"
+    | "orderCode"
+    | "customer"
+    | "parentItem"
+    | "childItem"
+    | "description"
+    | "material"
+    | "deliveryPeriod"
+    | "process";
+  label: string;
+  /** Como desligar só este filtro, mantendo os demais. */
+  clear: Partial<ChildItemFilters>;
+}
+
+/**
+ * Chips de "filtros ativos" da tela Fábrica 1 — um chip por filtro ligado,
+ * com o ajuste exato para removê-lo individualmente.
+ */
+export function childItemFilterChips(filters: ChildItemFilters): ChildItemFilterChip[] {
+  const chips: ChildItemFilterChip[] = [];
+
+  const textColumns: {
+    key: ChildItemFilterChip["key"];
+    column: string;
+    value: string;
+    clear: Partial<ChildItemFilters>;
+  }[] = [
+    { key: "search", column: "Busca", value: filters.search, clear: { search: "" } },
+    { key: "orderCode", column: "OF/OS", value: filters.orderCode, clear: { orderCode: "" } },
+    { key: "customer", column: "Cliente", value: filters.customer, clear: { customer: "" } },
+    { key: "parentItem", column: "Item pai", value: filters.parentItem, clear: { parentItem: "" } },
+    { key: "childItem", column: "Filho", value: filters.childItem, clear: { childItem: "" } },
+    {
+      key: "description",
+      column: "Descrição",
+      value: filters.description,
+      clear: { description: "" },
+    },
+    { key: "material", column: "Matérias-primas", value: filters.material, clear: { material: "" } },
+  ];
+  for (const text of textColumns) {
+    if (text.value) {
+      chips.push({ key: text.key, label: `${text.column}: ${text.value}`, clear: text.clear });
+    }
+  }
+
+  if (filters.deliveryFrom || filters.deliveryTo) {
+    chips.push({
+      key: "deliveryPeriod",
+      label: deliveryPeriodLabel(filters.deliveryFrom, filters.deliveryTo),
+      clear: { deliveryFrom: null, deliveryTo: null },
+    });
+  }
+
+  if (filters.processCode !== "ALL") {
+    chips.push({
+      key: "process",
+      label:
+        filters.processStatus === "ALL"
+          ? `Processo: ${filters.processCode}`
+          : `${filters.processCode}: ${PROCESS_STATUS_LABELS[filters.processStatus]}`,
+      clear: { processCode: "ALL", processStatus: "ALL" },
+    });
+  } else if (filters.processStatus !== "ALL") {
+    chips.push({
+      key: "process",
+      label: `${PROCESS_STATUS_LABELS[filters.processStatus]} (qualquer processo)`,
+      clear: { processCode: "ALL", processStatus: "ALL" },
+    });
+  }
+
+  return chips;
 }
 
 export interface ActiveFilterChip {
