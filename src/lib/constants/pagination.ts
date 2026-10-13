@@ -6,7 +6,9 @@ export const PRODUCTION_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
 export const ORDERS_PAGE_SIZE = 20;
 export const IMPORT_HISTORY_PAGE_SIZE = 20;
 /** Tela Fábrica 1 (itens filhos + materiais): menos linhas, célula de materiais é alta. */
-export const CHILD_ITEMS_PAGE_SIZE = 25;
+export const CHILD_ITEMS_PAGE_SIZE = 50;
+/** Opções do seletor "Por página" da Fábrica 1 (mesmas da gestão). */
+export const CHILD_ITEMS_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
 
 export const MAX_PAGE_SIZE = 200;
 

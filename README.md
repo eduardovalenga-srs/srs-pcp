@@ -241,8 +241,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   Filtros na URL: busca (descrição/código do filho), OF/OS e material (com
   `order_item_materials!inner` — o filtro limita os itens aos que têm o material
   casado e a célula mostra só os materiais correspondentes).
-  Ordenação fixa entrega → item pai → descrição → id (determinística para a paginação
-  de 25). Menu visível para **todos os perfis** (`menu.fabrica1`), página protegida por
+  Ordenação fixa entrega → item pai → descrição → id (determinística para a paginação);
+  no rodapé, **"Por página"** (25 padrão; opções 25/50/100/200) — trocar o tamanho ou o
+  filtro preserva o restante da URL e volta para a página 1. Menu visível para **todos os
+  perfis** (`menu.fabrica1`), página protegida por
   `orders.view`; leitura 100% server-rendered (sem componentes client por linha).
 - **Gestão como hub**: o código da OF/OS na tabela de entregas (desktop e mobile) abre a
   tela de detalhes `/pedidos/[id]` — sub-itens, processos e materiais num só lugar; a

@@ -291,6 +291,18 @@ describe("parseChildItemFilters", () => {
     expect(roundtrip.deliveryFrom).toBe("2026-10-01");
     expect(roundtrip.processStatus).toBe("BLOQUEADO");
     expect(roundtrip.page).toBe(3);
+    expect(roundtrip.pageSize).toBe(25);
+  });
+
+  it("mantém o tamanho da página escolhido no roundtrip da URL", () => {
+    const filters = parseChildItemFilters({ cliente: "ACME", porpagina: "100" });
+    const params = new URLSearchParams(childItemQueryString(filters));
+    expect(params.get("porpagina")).toBe("100");
+
+    const roundtrip = parseChildItemFilters(Object.fromEntries(params));
+    expect(roundtrip.customer).toBe("ACME");
+    expect(roundtrip.pageSize).toBe(100);
+    expect(roundtrip.page).toBe(1);
   });
 
   it("volta à página 1 quando o filtro muda (reset aplicado como no componente)", () => {
