@@ -257,7 +257,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
 - **Gestão como hub**: o código da OF/OS na tabela de entregas (desktop e mobile) abre a
   tela de detalhes `/pedidos/[id]` — sub-itens, processos e materiais num só lugar; a
   criação termina lá e o menu superior não expõe "Pedidos" (a lista `/pedidos` segue como
-  apoio para editar/excluir).
+  apoio para editar/excluir). O **cliente é obrigatório** no cadastro manual (validação
+  zod no client e no servidor — `orderSchema`; já era obrigatório na importação). Pedido
+  antigo salvo sem cliente exige preencher o cliente ao reabrir o formulário para edição.
 - **Filtros da gestão de entregas**: busca, situação, processos, colunas (contém/faixas),
   janelas de entrega (Atrasado, Hoje, Próx. 7/30 dias) e **período De → Até pela data de
   entrega** (migração 014 — inclusivo nos dois limites, lados opcionais, combina em E com

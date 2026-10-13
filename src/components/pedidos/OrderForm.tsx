@@ -254,7 +254,7 @@ export function OrderForm({ processes, initialOrder }: OrderFormProps) {
             <Label htmlFor="pedido-cliente">Cliente</Label>
             <Input
               id="pedido-cliente"
-              placeholder="Nome do cliente (opcional)"
+              placeholder="Nome do cliente"
               {...register("customerName")}
               aria-invalid={!!errors.customerName}
               aria-describedby="pedido-cliente-erro"

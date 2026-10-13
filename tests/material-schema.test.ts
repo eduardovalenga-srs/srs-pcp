@@ -81,7 +81,7 @@ describe("material.schema", () => {
     const parsed = orderWithItemsSchema.safeParse({
       type: "OF",
       code: "OF-777",
-      customerName: "",
+      customerName: "Metalúrgica Alfa",
       description: "",
       orderDate: "",
       deliveryDate: "",
@@ -110,7 +110,7 @@ describe("material.schema", () => {
     const parsed = orderWithItemsSchema.safeParse({
       type: "OF",
       code: "OF-777",
-      customerName: "",
+      customerName: "Metalúrgica Alfa",
       description: "",
       orderDate: "",
       deliveryDate: "",

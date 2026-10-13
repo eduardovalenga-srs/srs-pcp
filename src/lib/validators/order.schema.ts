@@ -17,7 +17,11 @@ export const orderSchema = z.object({
     .min(1, "Informe o número do pedido")
     .max(60, "Máximo de 60 caracteres")
     .transform((value) => value.toUpperCase()),
-  customerName: nullableText(200),
+  customerName: z
+    .string()
+    .trim()
+    .min(1, "Informe o nome do cliente")
+    .max(200, "Máximo de 200 caracteres"),
   description: nullableText(1000),
   orderDate: nullableDate,
   deliveryDate: nullableDate,

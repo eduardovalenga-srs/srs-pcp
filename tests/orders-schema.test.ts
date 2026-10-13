@@ -294,6 +294,25 @@ describe("orderWithItemsSchema", () => {
     expect(firstZodMessage(error)).toBe("Quantidade é obrigatório");
   });
 
+  it("exige o cliente (obrigatório no pedido manual, como já era na importação)", () => {
+    const vazio = expectError(orderWithItemsSchema.safeParse({ ...ORDER, customerName: "" }));
+    expect(firstZodMessage(vazio)).toBe("Informe o nome do cliente");
+
+    const espacos = expectError(orderWithItemsSchema.safeParse({ ...ORDER, customerName: "   " }));
+    expect(firstZodMessage(espacos)).toBe("Informe o nome do cliente");
+
+    const nulo = expectError(
+      orderWithItemsSchema.safeParse({ ...ORDER, customerName: null as unknown as string }),
+    );
+    expect(firstZodMessage(nulo)).toBe("Cliente: valor inválido (esperado texto)");
+
+    // Trimming: só espaços ao redor não invalidam um nome preenchido.
+    const ok = expectOk<OrderWithItemsOutput>(
+      orderWithItemsSchema.safeParse({ ...ORDER, customerName: "  ACME  " }),
+    );
+    expect(ok.customerName).toBe("ACME");
+  });
+
   it("aceita o payload com campos vazios virando null (edição/re-salvamento)", () => {
     const data = expectOk<OrderWithItemsOutput>(
       orderWithItemsSchema.safeParse({
