@@ -22,6 +22,7 @@ import { orderWithItemsSchema, type OrderWithItemsOutput } from "@/lib/validator
 import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import { firstZodMessage } from "@/lib/validators/common";
 import { deriveOrderItemStatus, deriveOrderStatus } from "@/lib/utils/production";
+import { calculateTotalWeight } from "@/lib/utils/formatting";
 
 export async function getOrdersPage(client: SupabaseServer, filters: OrderFilters): Promise<OrderListResult> {
   return listOrders(client, filters);
@@ -104,10 +105,28 @@ export async function saveOrder(
   }
 
   // Detecta itens duplicados antes de gravar (nunca duplicar silenciosamente)
-  const existingByKey = await findItemsByOrderCodes(client, [payload.code]);
-  const existingOrder = (await findOrdersByCodes(client, [payload.code])).get(payload.code);
+  const [existingByKey, ordersByCode] = await Promise.all([
+    findItemsByOrderCodes(client, [payload.code]),
+    findOrdersByCodes(client, [payload.code]),
+  ]);
+  const existingOrder = ordersByCode.get(payload.code);
   const operations: Record<string, unknown>[] = [];
   const itemStatuses: string[] = [];
+
+  // 024: busca dos itens existentes em UMA passada (antes era 1 consulta
+  // por item no meio do loop — N+1 no salvamento de pedidos grandes).
+  const existingItemIds = payload.items
+    .map((item) => item.id)
+    .filter((id): id is string => Boolean(id));
+  const existingItemsById = new Map<string, Awaited<ReturnType<typeof getOrderItemWithProcesses>>>();
+  if (existingItemIds.length > 0) {
+    const existingItems = await Promise.all(
+      existingItemIds.map((id) => getOrderItemWithProcesses(client, id)),
+    );
+    existingItemIds.forEach((id, index) => {
+      existingItemsById.set(id, existingItems[index] ?? null);
+    });
+  }
 
   for (const item of payload.items) {
     const key = buildItemKey(payload.code, item.parentItem, item.description);
@@ -127,7 +146,7 @@ export async function saveOrder(
       selected.add(MP_PROCESS_CODE);
     }
 
-    const existingItem = item.id ? await getOrderItemWithProcesses(client, item.id) : null;
+    const existingItem = item.id ? existingItemsById.get(item.id) ?? null : null;
 
     // Plano cobre TODO o catálogo ativo (invariante 010): sempre há uma
     // linha por processo — selecionado mantém o status que já roda (ou
@@ -180,6 +199,10 @@ export async function saveOrder(
         description: item.description,
         quantity: item.quantity,
         unitWeightKg: item.unitWeightKg,
+        // 023: o plano envia o total DERIVADO (qtd × peso unit.) — antes o
+        // formulário não enviava nada e a RPC gravava null. O banco ainda
+        // recalcula por trigger; aqui o valor já sai correto para a prévia.
+        totalWeightKg: calculateTotalWeight(item.quantity, item.unitWeightKg),
         // Item sem entrega própria herda a do pedido (mesma regra da
         // importação, que grava entrega em todo registro): sem data não
         // existe janela prevista calculada na leitura (022).
@@ -203,13 +226,13 @@ export async function saveOrder(
   // Matérias-primas (011): resolve os ids gravados e substitui a lista
   // de cada item do payload (mesma chave lógica da duplicidade).
   const savedItems = await findItemsByOrderCodes(client, [payload.code]);
-  for (const item of payload.items) {
-    const key = buildItemKey(payload.code, item.parentItem, item.description);
-    const saved = savedItems.get(key);
-    if (saved) {
-      await replaceItemMaterials(client, saved.id, item.materials ?? []);
-    }
-  }
+  // 024: substituições em paralelo — cada uma é independente.
+  await Promise.all(
+    payload.items.map((item) => {
+      const saved = savedItems.get(buildItemKey(payload.code, item.parentItem, item.description));
+      return saved ? replaceItemMaterials(client, saved.id, item.materials ?? []) : Promise.resolve();
+    }),
+  );
 
   // Devolve o id para a UI ir direto à tela de detalhes do pedido.
   const savedOrders = await findOrdersByCodes(client, [payload.code]);

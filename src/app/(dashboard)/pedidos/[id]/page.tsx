@@ -10,7 +10,7 @@ import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import type { OrderItemDetails } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
 import { formatDate } from "@/lib/utils/dates";
-import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
+import { calculateTotalWeight, formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { Header } from "@/components/layout/Header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,16 @@ function itemCountsLabel(parentCount: number, childCount: number): string {
 
 function byCode(left: OrderItemDetails, right: OrderItemDetails): number {
   return (left.parentItem ?? "").localeCompare(right.parentItem ?? "");
+}
+
+/**
+ * Peso total exibido: usa a coluna gravada (023: derivada de qtd × peso
+ * unit. por trigger) com fallback de cálculo para linhas antigas ainda
+ * não migradas — o card nunca aparece vazio ("—") quando os dois
+ * números existem.
+ */
+function displayTotalWeight(item: OrderItemDetails): number | null {
+  return item.totalWeightKg ?? calculateTotalWeight(item.quantity, item.unitWeightKg);
 }
 
 /**
@@ -59,8 +69,14 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
   let processCatalog: ProcessDefinition[] = [];
   try {
     const client = await createClient();
-    order = await getOrder(client, id);
-    processCatalog = order ? await getActiveProcesses(client) : [];
+    // 024: pedido e catálogo em paralelo (catálogo só é usado se o pedido
+    // existir, mas o custo é menor que o round-trip sequencial).
+    const [loadedOrder, loadedCatalog] = await Promise.all([
+      getOrder(client, id),
+      getActiveProcesses(client),
+    ]);
+    order = loadedOrder;
+    processCatalog = loadedOrder ? loadedCatalog : [];
   } catch (error) {
     return (
       <>
@@ -251,7 +267,7 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">Peso total</dt>
-                      <dd className="tabular-nums">{formatWeight(item.totalWeightKg)}</dd>
+                      <dd className="tabular-nums">{formatWeight(displayTotalWeight(item))}</dd>
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">Entrega</dt>
@@ -333,7 +349,7 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
                             </div>
                             <div>
                               <dt className="text-muted-foreground">Peso total</dt>
-                              <dd className="tabular-nums">{formatWeight(child.totalWeightKg)}</dd>
+                              <dd className="tabular-nums">{formatWeight(displayTotalWeight(child))}</dd>
                             </div>
                             <div>
                               <dt className="text-muted-foreground">Ordem de Produção (OP)</dt>

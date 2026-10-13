@@ -5,6 +5,7 @@ vi.mock("server-only", () => ({}));
 
 const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
+  getClaims: vi.fn(),
   maybeSingle: vi.fn(),
   signInWithPassword: vi.fn(),
   signOut: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
     auth: {
       getUser: mocks.getUser,
+      getClaims: mocks.getClaims,
       signInWithPassword: mocks.signInWithPassword,
       signOut: mocks.signOut,
     },
@@ -57,33 +59,41 @@ function loginFormData(email = "ana@srsterceiros.com.br", password = "segura123"
   return formData;
 }
 
+/** Resposta de auth.getClaims (forma { data: { claims }, error } — 024). */
+function mockClaims(user: { id: string; email?: string } | null): void {
+  mocks.getClaims.mockResolvedValue({
+    data: user ? { claims: { sub: user.id, email: user.email ?? null } } : null,
+    error: null,
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("getSessionState (guard de sessão)", () => {
   it("é anonimo quando não há JWT", async () => {
-    mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    mockClaims(null);
 
     expect(await getSessionState()).toEqual({ status: "anonimo" });
   });
 
   it("é sem-perfil quando o usuário não tem linha em profiles", async () => {
-    mocks.getUser.mockResolvedValue({ data: { user: AUTH_USER }, error: null });
+    mockClaims(AUTH_USER);
     mocks.maybeSingle.mockResolvedValue({ data: null, error: null });
 
     expect(await getSessionState()).toEqual({ status: "sem-perfil" });
   });
 
   it("é inativo quando o perfil existe com active=false", async () => {
-    mocks.getUser.mockResolvedValue({ data: { user: AUTH_USER }, error: null });
+    mockClaims(AUTH_USER);
     mocks.maybeSingle.mockResolvedValue({ data: profile({ active: false }), error: null });
 
     expect(await getSessionState()).toEqual({ status: "inativo" });
   });
 
   it("é ok quando o perfil existe e está ativo", async () => {
-    mocks.getUser.mockResolvedValue({ data: { user: AUTH_USER }, error: null });
+    mockClaims(AUTH_USER);
     mocks.maybeSingle.mockResolvedValue({ data: profile(), error: null });
 
     const state = await getSessionState();
@@ -97,7 +107,7 @@ describe("getSessionState (guard de sessão)", () => {
 
 describe("getSessionUser (compatibilidade)", () => {
   it("devolve null para estados não-ok e o usuário para ok", async () => {
-    mocks.getUser.mockResolvedValue({ data: { user: AUTH_USER }, error: null });
+    mockClaims(AUTH_USER);
     mocks.maybeSingle.mockResolvedValue({ data: null, error: null });
     expect(await getSessionUser()).toBeNull();
 

@@ -10,7 +10,6 @@ import type {
 } from "@/lib/types/order";
 import type { ProcessStatus } from "@/lib/constants/production";
 import { assertOk } from "@/lib/utils/supabase-result";
-import { calculateTotalWeight } from "@/lib/utils/formatting";
 
 function toNumber(value: number | string | null): number | null {
   if (value === null || value === undefined) return null;
@@ -257,67 +256,50 @@ export async function listChildItemsWithMaterials(
     .from("order_items")
     .select(pageColumns, { count: "exact" })
     .not("parent_order_item_id", "is", null);
-  let totalsQuery = client
-    .from("order_items")
-    .select(
-      `quantity, unit_weight_kg, orders!inner ( id ), ${materialEmbed} ( id )${
-        processFilter ? ", pp_filter:production_processes!inner ( process_id, status )" : ""
-      }`,
-    )
-    .not("parent_order_item_id", "is", null);
 
   if (searchOr) {
     pageQuery = pageQuery.or(searchOr);
-    totalsQuery = totalsQuery.or(searchOr);
   }
   if (orderCode) {
     pageQuery = pageQuery.ilike("orders.code", `%${orderCode}%`);
-    totalsQuery = totalsQuery.ilike("orders.code", `%${orderCode}%`);
   }
   if (customer) {
     pageQuery = pageQuery.ilike("orders.customer_name", `%${customer}%`);
-    totalsQuery = totalsQuery.ilike("orders.customer_name", `%${customer}%`);
   }
   if (childItem) {
     pageQuery = pageQuery.ilike("parent_item", `%${childItem}%`);
-    totalsQuery = totalsQuery.ilike("parent_item", `%${childItem}%`);
   }
   if (description) {
     pageQuery = pageQuery.ilike("description", `%${description}%`);
-    totalsQuery = totalsQuery.ilike("description", `%${description}%`);
   }
   if (materialIlike) {
     pageQuery = pageQuery.ilike("order_item_materials.description", materialIlike);
-    totalsQuery = totalsQuery.ilike("order_item_materials.description", materialIlike);
   }
   if (parentIds !== null) {
     // Lista vazia = nenhum pai casou: sentinel mantém o filtro honesto.
     const ids = parentIds.length > 0 ? parentIds : [NIL_UUID];
     pageQuery = pageQuery.in("parent_order_item_id", ids);
-    totalsQuery = totalsQuery.in("parent_order_item_id", ids);
   }
   // Período sobre a data do próprio filho (itens sem data ficam de fora,
   // mesma semântica do filtro de período da gestão de entregas).
   if (filters.deliveryFrom) {
     pageQuery = pageQuery.gte("delivery_date", filters.deliveryFrom);
-    totalsQuery = totalsQuery.gte("delivery_date", filters.deliveryFrom);
   }
   if (filters.deliveryTo) {
     pageQuery = pageQuery.lte("delivery_date", filters.deliveryTo);
-    totalsQuery = totalsQuery.lte("delivery_date", filters.deliveryTo);
   }
   if (processFilter) {
     if (processId !== null) {
       pageQuery = pageQuery.eq("pp_filter.process_id", processId);
-      totalsQuery = totalsQuery.eq("pp_filter.process_id", processId);
     }
     if (filters.processStatus !== "ALL") {
       pageQuery = pageQuery.eq("pp_filter.status", filters.processStatus);
-      totalsQuery = totalsQuery.eq("pp_filter.status", filters.processStatus);
     }
   }
 
-  // Página (com embeds) + soma do conjunto filtrado inteiro (card Eventos).
+  // 024: página (com embeds) + contagem/soma do conjunto filtrado inteiro
+  // em UMA RPC — antes a tela baixava TODAS as linhas filtradas (com
+  // embeds de materiais e processos) só para somar no JavaScript.
   const from = (filters.page - 1) * filters.pageSize;
   const [pageResult, totalsResult] = await Promise.all([
     pageQuery
@@ -326,7 +308,23 @@ export async function listChildItemsWithMaterials(
       .order("description", { ascending: true })
       .order("id", { ascending: true })
       .range(from, from + filters.pageSize - 1),
-    totalsQuery,
+    client.rpc("get_child_items_totals", {
+      p_search: search || null,
+      p_order_code: orderCode || null,
+      p_customer: customer || null,
+      p_child_item: childItem || null,
+      p_description: description || null,
+      p_material: materialFilter || null,
+      p_parent_ids: parentIds !== null
+        ? parentIds.length > 0
+          ? parentIds
+          : [NIL_UUID]
+        : null,
+      p_delivery_from: filters.deliveryFrom || null,
+      p_delivery_to: filters.deliveryTo || null,
+      p_process_id: processId,
+      p_process_status: filters.processStatus !== "ALL" ? filters.processStatus : null,
+    }),
   ]);
 
   assertOk(pageResult.error, "Não foi possível carregar os itens filhos");
@@ -442,17 +440,19 @@ export async function listChildItemsWithMaterials(
     },
   );
 
-  // Soma de TODO o conjunto filtrado (todas as páginas) — Qtd. total e
-  // Peso total (qtd × peso unit.) do card "Eventos".
-  let qtyTotal = 0;
-  let weightTotal = 0;
-  type TotalRow = { quantity: number | string; unit_weight_kg: number | string | null };
-  for (const row of (totalsResult.data ?? []) as unknown as TotalRow[]) {
-    const quantity = toNumber(row.quantity) ?? 0;
-    qtyTotal += quantity;
-    weightTotal += calculateTotalWeight(quantity, toNumber(row.unit_weight_kg)) ?? 0;
-  }
-  weightTotal = Math.round(weightTotal * 1000) / 1000;
+  // Contagem e soma de TODO o conjunto filtrado (todas as páginas) —
+  // total, Qtd. total e Peso total (qtd × peso unit., 023) do card.
+  type TotalsRow = {
+    total: number | string;
+    qtyTotal: number | string;
+    weightTotal: number | string;
+  };
+  const totals = (totalsResult.data ?? {}) as unknown as TotalsRow;
 
-  return { items, total: pageResult.count ?? 0, qtyTotal, weightTotal };
+  return {
+    items,
+    total: toNumber(totals.total) ?? 0,
+    qtyTotal: toNumber(totals.qtyTotal) ?? 0,
+    weightTotal: toNumber(totals.weightTotal) ?? 0,
+  };
 }

@@ -14,9 +14,7 @@ import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getDashboardData } from "@/lib/services/production.service";
-import { getOrdersForDashboard } from "@/lib/repositories/orders.repository";
-import { computeOrderAging, computeTopCustomers } from "@/lib/utils/dashboard";
-import { todayISODate } from "@/lib/utils/dates";
+import { getDashboardOrders } from "@/lib/repositories/orders.repository";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -29,6 +27,15 @@ const DELIVERY_WINDOWS = [
   { key: "TODAY", label: "Entrega hoje", field: "today" as const },
   { key: "NEXT_7_DAYS", label: "Próx. 7 dias", field: "next7" as const },
   { key: "NEXT_30_DAYS", label: "Próx. 30 dias", field: "next30" as const },
+];
+
+/** Faixas de envelhecimento — a contagem vem do banco (get_dashboard_orders). */
+const AGING_BUCKETS = [
+  { key: "0-7", label: "0 a 7 dias" },
+  { key: "8-15", label: "8 a 15 dias" },
+  { key: "16-30", label: "16 a 30 dias" },
+  { key: "31-60", label: "31 a 60 dias" },
+  { key: "60+", label: "Mais de 60 dias" },
 ];
 
 export default async function DashboardPage() {
@@ -45,10 +52,10 @@ export default async function DashboardPage() {
   }
 
   let stats: Awaited<ReturnType<typeof getDashboardData>>;
-  let orders: Awaited<ReturnType<typeof getOrdersForDashboard>>;
+  let orders: Awaited<ReturnType<typeof getDashboardOrders>>;
   try {
     const client = await createClient();
-    [stats, orders] = await Promise.all([getDashboardData(client), getOrdersForDashboard(client)]);
+    [stats, orders] = await Promise.all([getDashboardData(client), getDashboardOrders(client)]);
   } catch (error) {
     return (
       <>
@@ -61,8 +68,13 @@ export default async function DashboardPage() {
     );
   }
 
-  const topCustomers = computeTopCustomers(orders);
-  const aging = computeOrderAging(orders, todayISODate());
+  const topCustomers = orders.topCustomers;
+  const aging = [
+    ...AGING_BUCKETS.map((bucket) => ({ ...bucket, count: orders.aging[bucket.key] ?? 0 })),
+    ...(orders.aging["sem-data"]
+      ? [{ key: "sem-data", label: "Sem data de pedido", count: orders.aging["sem-data"] }]
+      : []),
+  ];
   const agingTotal = aging.reduce((sum, bucket) => sum + bucket.count, 0);
   const agingMax = Math.max(1, ...aging.map((bucket) => bucket.count));
 

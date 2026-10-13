@@ -5,7 +5,7 @@ import type {
   ParsedSheet,
   StructureIssue,
 } from "@/lib/types/import";
-import { toNumber } from "@/lib/utils/formatting";
+import { calculateTotalWeight, formatWeight, toNumber } from "@/lib/utils/formatting";
 
 /**
  * Construção da estrutura hierárquica do arquivo novo:
@@ -111,6 +111,36 @@ function buildOrderCode(id: string, typeHint: string): { code: string; type: str
 
 function issue(partial: StructureIssue): StructureIssue {
   return partial;
+}
+
+/**
+ * Aviso quando o peso total da planilha diverge de quantidade × peso
+ * unitário (023): o banco grava a fórmula por trigger, então o número
+ * do arquivo vira apenas um sinal de planilha desatualizada.
+ */
+function pushTotalWeightDivergence(
+  order: BuiltOf,
+  where: string,
+  column: "pos_PesoTotal" | "cp_comppesototal",
+  spreadsheet: { value: number | null; raw: string },
+  derived: number | null,
+): void {
+  if (spreadsheet.value === null || derived === null) return;
+  // Tolerância de 0,001 kg: arredondamento de 2 casas na planilha não é divergência.
+  if (Math.abs(spreadsheet.value - derived) < 0.001) return;
+
+  order.issues.push(
+    issue({
+      type: "NUMBER",
+      severity: "warning",
+      where,
+      column,
+      message:
+        `Peso total da planilha (${formatWeight(spreadsheet.value)}) difere de ` +
+        `quantidade × peso unitário (${formatWeight(derived)}) — o sistema grava a fórmula.`,
+      rawValue: spreadsheet.raw,
+    }),
+  );
 }
 
 /** Material válido? "SEM MATERIAL" (e variantes) significa ausência. */
@@ -246,7 +276,11 @@ export function buildOfStructure(
       const description = cellText(row, col.PSDESCR);
       const quantity = cellNumber(row, col.PSQTDE);
       const unitWeight = cellNumber(row, col.PSPESO);
-      const totalWeight = cellNumber(row, col.POSPESETOTAL);
+      const totalWeight = cellNumber(row, col.POSPESOTOTAL);
+      // 023: o peso total do sistema é SEMPRE quantidade × peso unitário
+      // (o banco recalcula por trigger). O pos_PesoTotal da planilha só
+      // serve para AVISAR quando diverge da fórmula.
+      const totalWeightKg = calculateTotalWeight(quantity.value ?? 0, unitWeight.value);
 
       parent = {
         code: parentCode,
@@ -254,7 +288,7 @@ export function buildOfStructure(
         family: familyFromDescription(description),
         quantity: quantity.value ?? 0,
         unitWeightKg: unitWeight.value,
-        totalWeightKg: totalWeight.value,
+        totalWeightKg,
         deliveryDate: form.deliveryDate,
         materials: [],
         children: [],
@@ -285,6 +319,7 @@ export function buildOfStructure(
           }),
         );
       }
+      pushTotalWeightDivergence(order, parentCode, "pos_PesoTotal", totalWeight, totalWeightKg);
     }
 
     // -------------------------------------------------------
@@ -315,7 +350,9 @@ export function buildOfStructure(
       const description = cellText(row, col.CPCOMPDESCR) || childCode;
       const quantity = cellNumber(row, col.CPCOMPQTDETOTAL);
       const unitWeight = cellNumber(row, col.CPCOMPPESO);
-      const totalWeight = cellNumber(row, col.CPCOMPPESETOTAL);
+      const totalWeight = cellNumber(row, col.CPCOMPPESOTOTAL);
+      // 023: total derivado (mesma regra do item pai).
+      const totalWeightKg = calculateTotalWeight(quantity.value ?? 0, unitWeight.value);
 
       const child: FileChild = {
         code: childCode,
@@ -323,7 +360,7 @@ export function buildOfStructure(
         family: familyFromDescription(description),
         quantity: quantity.value ?? 0,
         unitWeightKg: unitWeight.value,
-        totalWeightKg: totalWeight.value,
+        totalWeightKg,
         deliveryDate: form.deliveryDate,
         materials: [],
       };
@@ -377,6 +414,13 @@ export function buildOfStructure(
           }),
         );
       }
+      pushTotalWeightDivergence(
+        order,
+        `${parentCode} / ${childCode}`,
+        "cp_comppesototal",
+        totalWeight,
+        totalWeightKg,
+      );
 
       parent.children.push(child);
       return;

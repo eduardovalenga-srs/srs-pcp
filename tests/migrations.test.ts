@@ -663,20 +663,26 @@ describe("migrations", () => {
   it("015: order_items ganha total_weight_kg e o catálogo ganha METALEIRA", async () => {
     await asSuperUser(db);
 
-    // Coluna nova: aceita >= 0, recusa negativo.
+    // Coluna nova: hoje DERIVADA (023) — o valor enviado é ignorado.
     const { rows: orderRows } = await db.query<{ id: string }>(
       `insert into public.orders (code, type) values ('OF-KG-1', 'OF') returning id`,
     );
     const orderId = orderRows[0]?.id as string;
     const { rows: itemRows } = await db.query<{ id: string }>(
-      `insert into public.order_items (order_id, description, quantity, total_weight_kg)
-       values ($1, 'Item com peso total', 2, 25.5) returning id`,
+      `insert into public.order_items (order_id, description, quantity, unit_weight_kg, total_weight_kg)
+       values ($1, 'Item com peso total', 2, 12.75, 25.5) returning id`,
       [orderId],
     );
     const itemId = itemRows[0]?.id as string;
-    await expect(
-      db.query(`update public.order_items set total_weight_kg = -1 where id = $1`, [itemId]),
-    ).rejects.toThrow();
+
+    // Tentar gravar negativo não estoura mais: o trigger (023) recalcula
+    // a partir de qtd × peso unit. antes do check constraint.
+    await db.query(`update public.order_items set total_weight_kg = -1 where id = $1`, [itemId]);
+    const { rows: afterNegative } = await db.query<{ total_weight_kg: string | null }>(
+      `select total_weight_kg::text as total_weight_kg from public.order_items where id = $1`,
+      [itemId],
+    );
+    expect(afterNegative[0]?.total_weight_kg).toBe("25.5");
 
     // Processo METALEIRA cadastrado, ativo e na posição 55 (entre PUNC e FICEP).
     const { rows: processes } = await db.query<{
@@ -771,6 +777,151 @@ describe("migrations", () => {
       [childId],
     );
     expect(child).toHaveLength(0);
+  });
+
+  it("023: peso total é DERIVADO (qtd × peso unit.) em insert e update", async () => {
+    await asSuperUser(db);
+
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-023', 'OF') returning id`,
+    );
+    const orderId = orderRows[0]?.id as string;
+
+    // INSERT manual (pedido criado no formulário): nenhum total é enviado.
+    const { rows: manual } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, description, quantity, unit_weight_kg)
+       values ($1, 'Manual', 4, 12.5) returning id`,
+      [orderId],
+    );
+    const manualId = manual[0]?.id as string;
+
+    // INSERT com valor divergente (pos_PesoTotal da planilha): prevalece a fórmula.
+    await db.query(
+      `insert into public.order_items (order_id, description, quantity, unit_weight_kg, total_weight_kg)
+       values ($1, 'Planilha', 2, 3, 999)`,
+      [orderId],
+    );
+
+    // Item sem peso unitário fica com o total nulo (exibição: "—").
+    await db.query(
+      `insert into public.order_items (order_id, description, quantity) values ($1, 'Sem peso', 1)`,
+      [orderId],
+    );
+
+    const { rows: afterInsert } = await db.query<{ description: string; total_weight_kg: string | null }>(
+      `select description, total_weight_kg::text as total_weight_kg
+         from public.order_items where order_id = $1 order by description`,
+      [orderId],
+    );
+    expect(afterInsert).toEqual([
+      { description: "Manual", total_weight_kg: "50" },
+      { description: "Planilha", total_weight_kg: "6" },
+      { description: "Sem peso", total_weight_kg: null },
+    ]);
+
+    // UPDATE de quantidade recalcula (antes o coalesce mantinha o valor antigo).
+    await db.query(`update public.order_items set quantity = 10 where id = $1`, [manualId]);
+    const { rows: afterUpdate } = await db.query<{ total_weight_kg: string | null }>(
+      `select total_weight_kg::text as total_weight_kg from public.order_items where id = $1`,
+      [manualId],
+    );
+    expect(afterUpdate[0]?.total_weight_kg).toBe("125");
+
+    // UPDATE do peso unitário também recalcula.
+    await db.query(`update public.order_items set unit_weight_kg = 1.5 where id = $1`, [manualId]);
+    const { rows: afterWeight } = await db.query<{ total_weight_kg: string | null }>(
+      `select total_weight_kg::text as total_weight_kg from public.order_items where id = $1`,
+      [manualId],
+    );
+    expect(afterWeight[0]?.total_weight_kg).toBe("15");
+
+    // Índices de performance (itens raiz + FK de pai) existem.
+    const { rows: indexes } = await db.query<{ indexname: string }>(
+      `select indexname from pg_indexes
+        where schemaname = 'public' and tablename = 'order_items'
+          and indexname in ('idx_order_items_root', 'idx_order_items_parent_item_id')`,
+    );
+    expect(indexes.map((row) => row.indexname).sort()).toEqual([
+      "idx_order_items_parent_item_id",
+      "idx_order_items_root",
+    ]);
+
+    await db.query(`delete from public.orders where id = $1`, [orderId]);
+  });
+
+  it("024: get_production_rows soma PESO TOTAL (qtd × peso unit.)", async () => {
+    await asSuperUser(db);
+
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-024', 'OF') returning id`,
+    );
+    const orderId = orderRows[0]?.id as string;
+    // 3 × 10 kg = 30 kg  +  2 × 5 kg = 10 kg  =>  40 kg no card.
+    await db.query(
+      `insert into public.order_items (order_id, parent_item, description, quantity, unit_weight_kg)
+       values ($1, 'P-1', 'OF-024 pai 1', 3, 10),
+              ($1, 'P-2', 'OF-024 pai 2', 2, 5)`,
+      [orderId],
+    );
+
+    const { rows } = await db.query<{ weight_total: string; qty_total: string; total_count: string }>(
+      `select * from public.get_production_rows(p_search => 'OF-024')`,
+    );
+    expect(rows).toHaveLength(2);
+    expect(Number(rows[0]?.weight_total)).toBe(40);
+    expect(Number(rows[0]?.qty_total)).toBe(5);
+    expect(Number(rows[0]?.total_count)).toBe(2);
+
+    // Filtro estreito: só o item 1 (30 kg).
+    const { rows: filtrado } = await db.query<{ weight_total: string }>(
+      `select * from public.get_production_rows(p_search => 'OF-024 pai 1')`,
+    );
+    expect(Number(filtrado[0]?.weight_total)).toBe(30);
+
+    await db.query(`delete from public.orders where id = $1`, [orderId]);
+  });
+
+  it("024: get_production_stats usa peso total e get_dashboard_orders agrega no banco", async () => {
+    await asSuperUser(db);
+
+    type Stats = { delivery: { overdue: number; overdueQty: number; overdueWeight: number } };
+    const readStats = async (): Promise<Stats> => {
+      const { rows } = await db.query<{ stats: Stats | string }>(`select public.get_production_stats() as stats`);
+      const raw = rows[0]?.stats;
+      return (typeof raw === "string" ? JSON.parse(raw) : raw) as Stats;
+    };
+
+    const before = await readStats();
+
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type, status, order_date)
+       values ('OF-STATS', 'OF', 'PLANEJADO', current_date) returning id`,
+    );
+    const orderId = orderRows[0]?.id as string;
+    await db.query(
+      `insert into public.order_items (order_id, parent_item, description, quantity, unit_weight_kg, delivery_date)
+       values ($1, 'P-STATS', 'Item de stats', 4, 12.5, current_date - 2)`,
+      [orderId],
+    );
+
+    // Card "Atrasados" soma o PESO TOTAL do item (4 × 12,5 = 50 kg),
+    // não o peso unitário (12,5 kg).
+    const after = await readStats();
+    expect(Number(after.delivery.overdue) - Number(before.delivery.overdue)).toBe(1);
+    expect(Number(after.delivery.overdueQty) - Number(before.delivery.overdueQty)).toBe(4);
+    expect(Number(after.delivery.overdueWeight) - Number(before.delivery.overdueWeight)).toBe(50);
+
+    // Dashboard: agregação no banco (top clientes + envelhecimento).
+    const { rows: dashRows } = await db.query<{ data: { topCustomers: unknown[]; aging: Record<string, number> } }>(
+      `select public.get_dashboard_orders() as data`,
+    );
+    const dash = dashRows[0]?.data;
+    expect(Array.isArray(dash?.topCustomers)).toBe(true);
+    expect(dash?.topCustomers.length).toBeGreaterThan(0);
+    // O pedido de hoje (em aberto) cai na faixa "0 a 7 dias".
+    expect(Number(dash?.aging["0-7"])).toBeGreaterThan(0);
+
+    await db.query(`delete from public.orders where id = $1`, [orderId]);
   });
 });
 

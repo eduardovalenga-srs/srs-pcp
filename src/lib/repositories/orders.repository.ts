@@ -37,37 +37,55 @@ function mapOrderSummary(row: OrderRow): OrderSummary {
   };
 }
 
+/** Aplica os filtros de listagem em qualquer query builder de orders. */
+function applyOrderFilters<T>(query: T, filters: OrderFilters): T {
+  const builder = query as unknown as {
+    or: (filter: string) => unknown;
+    eq: (column: string, value: string) => unknown;
+  };
+  const term = filters.search.trim();
+  if (term) {
+    builder.or(`code.ilike.%${term}%,customer_name.ilike.%${term}%,description.ilike.%${term}%`);
+  }
+  if (filters.status !== "ALL") {
+    builder.eq("status", filters.status);
+  }
+  return query;
+}
+
 /** Lista paginada de pedidos com filtros no banco. */
 export async function listOrders(
   client: SupabaseServer,
   filters: OrderFilters,
 ): Promise<{ orders: OrderSummary[]; total: number }> {
-  let query = client
-    .from("orders")
-    .select("id, code, type, customer_name, description, order_date, delivery_date, status, order_items(id)", {
-      count: "exact",
-    });
-
-  if (filters.search.trim()) {
-    const term = filters.search.trim();
-    query = query.or(
-      `code.ilike.%${term}%,customer_name.ilike.%${term}%,description.ilike.%${term}%`,
-    );
-  }
-  if (filters.status !== "ALL") {
-    query = query.eq("status", filters.status);
-  }
+  // 024: a contagem sai de uma consulta própria, SEM o embed de itens —
+  // `count: exact` sobre o join varria a tabela filha e podia inflar o
+  // número (uma linha por item em vez de uma por pedido).
+  const pageQuery = applyOrderFilters(
+    client
+      .from("orders")
+      .select("id, code, type, customer_name, description, order_date, delivery_date, status, order_items(id)"),
+    filters,
+  );
+  const countQuery = applyOrderFilters(
+    client.from("orders").select("id", { count: "exact", head: true }),
+    filters,
+  );
 
   const from = (filters.page - 1) * filters.pageSize;
-  const { data, error, count } = await query
-    .order("delivery_date", { ascending: true, nullsFirst: false })
-    .order("code", { ascending: true })
-    .range(from, from + filters.pageSize - 1);
+  const [pageResult, countResult] = await Promise.all([
+    pageQuery
+      .order("delivery_date", { ascending: true, nullsFirst: false })
+      .order("code", { ascending: true })
+      .range(from, from + filters.pageSize - 1),
+    countQuery,
+  ]);
 
-  assertOk(error, "Não foi possível carregar os pedidos");
+  assertOk(pageResult.error, "Não foi possível carregar os pedidos");
+  assertOk(countResult.error, "Não foi possível carregar os pedidos");
   return {
-    orders: (data ?? []).map((row) => mapOrderSummary(row as OrderRow)),
-    total: count ?? 0,
+    orders: (pageResult.data ?? []).map((row) => mapOrderSummary(row as OrderRow)),
+    total: countResult.count ?? 0,
   };
 }
 
@@ -364,22 +382,32 @@ export async function deleteOrder(client: SupabaseServer, orderId: string): Prom
   assertOk(error, "Não foi possível excluir o pedido");
 }
 
-export interface DashboardOrderRow {
-  customerName: string | null;
-  orderDate: string | null;
-  status: OrderStatus;
+export interface DashboardOrdersSummary {
+  /** Top clientes (nome + nº de pedidos), já agregados no banco. */
+  topCustomers: { name: string; count: number }[];
+  /** Pedidos em aberto por faixa de envelhecimento (0-7 … 60+, sem-data). */
+  aging: Record<string, number>;
 }
 
 /**
- * Pedidos para os blocos calculados do dashboard
- * (top clientes e envelhecimento) — agregação acontece na camada de utilidades.
+ * Agregados do dashboard (top clientes + envelhecimento) calculados NO
+ * BANCO pela RPC get_dashboard_orders (024). Antes a página varria a
+ * tabela orders INTEIRA (sem limite) para contar no JavaScript.
  */
-export async function getOrdersForDashboard(client: SupabaseServer): Promise<DashboardOrderRow[]> {
-  const { data, error } = await client.from("orders").select("customer_name, order_date, status");
-  assertOk(error, "Não foi possível carregar os pedidos do dashboard");
-  return (data ?? []).map((row) => ({
-    customerName: row.customer_name,
-    orderDate: row.order_date,
-    status: row.status as OrderStatus,
-  }));
+export async function getDashboardOrders(client: SupabaseServer): Promise<DashboardOrdersSummary> {
+  const { data, error } = await client.rpc("get_dashboard_orders");
+  assertOk(error, "Não foi possível carregar o dashboard");
+
+  const raw = (data ?? {}) as { topCustomers?: unknown; aging?: unknown };
+  const aging = (raw.aging ?? {}) as Record<string, unknown>;
+
+  return {
+    topCustomers: ((raw.topCustomers ?? []) as { name?: unknown; count?: unknown }[]).map((entry) => ({
+      name: String(entry.name ?? ""),
+      count: Number(entry.count ?? 0),
+    })),
+    aging: Object.fromEntries(
+      Object.entries(aging).map(([key, value]) => [key, Number(value ?? 0)]),
+    ),
+  };
 }

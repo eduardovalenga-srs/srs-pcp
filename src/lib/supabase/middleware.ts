@@ -31,21 +31,24 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     },
   });
 
-  // IMPORTANTE: não execute código entre createServerClient e auth.getUser()
+  // IMPORTANTE: não execute código entre createServerClient e auth.getClaims()
+  // (024: getClaims lê/valida o JWT localmente em vez de bater com o servidor
+  // de auth a cada request — mesmo resultado, um round-trip a menos no proxy).
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: claimsData,
+  } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims.sub;
 
   const { pathname } = request.nextUrl;
 
-  if (!user && !isPublicRoute(pathname)) {
+  if (!userId && !isPublicRoute(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirectedFrom", pathname);
     return NextResponse.redirect(url);
   }
 
-  if (user && pathname === "/login") {
+  if (userId && pathname === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/gestao-entregas";
     url.search = "";

@@ -332,6 +332,34 @@ describe("buildOfStructure", () => {
     ]);
   });
 
+  it("deriva o peso total (qtd × peso unit.) e avisa quando a planilha diverge", () => {
+    const [divergente] = fullHierarchyRows();
+    if (!divergente) return;
+
+    // pai: ps_Qtde 5 × ps_Peso 10 = 50, mas pos_PesoTotal = 999.
+    const values: Record<string, unknown> = {};
+    TECH_HEADERS.forEach((header, index) => {
+      values[header] = divergente[index];
+    });
+    values.ps_Qtde = 5;
+    values.ps_Peso = 10;
+    values.pos_PesoTotal = 999;
+    // filho 72-742: 3 × 4,16 = 12,48 (planilha 12,48 — sem divergência).
+    values.cp_comppesototal = 999;
+
+    const { orders } = buildRows([makeRow(values)]);
+    const order = orders[0];
+    if (!order) return;
+
+    expect(order.parents[0]?.totalWeightKg).toBe(50);
+    expect(order.parents[0]?.children[0]?.totalWeightKg).toBe(12.48);
+    // Dois avisos (pai e filho), apontando a coluna pos_PesoTotal/cp_comppesototal.
+    const avisos = order.issues.filter((entry) => entry.rawValue === "999");
+    expect(avisos).toHaveLength(2);
+    expect(avisos[0]?.column).toBe("pos_PesoTotal");
+    expect(avisos[0]?.message).toContain("quantidade × peso unitário");
+  });
+
   it("mapeia colunas pelo NOME, mesmo fora de ordem", () => {
     const reversed = [...TECH_HEADERS].reverse();
     const rows = fullHierarchyRows().map((original) => {

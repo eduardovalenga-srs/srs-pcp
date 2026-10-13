@@ -213,7 +213,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   rollback completo). A RPC antiga `apply_import` continua no formulário de pedidos
   (formato item único). A gestão de entregas mostra **só a OF consolidada e os itens
   pai** — os filhos aparecem em `/pedidos/[id]` (cards aninhados com processos e MP).
-  Pesos vêm de `pos_PesoTotal`/`cp_comppesototal` (`total_weight_kg`, migração 015);
+  Pesos são **derivados**: `total_weight_kg` = quantidade × peso unitário, gravado por
+  trigger (migração 023); `pos_PesoTotal`/`cp_comppesototal` da planilha só serve para
+  **avisar na prévia** quando divergir da fórmula (migração 015);
   `METALEIRA` segue como processo próprio do catálogo (ordem 55, entre `PUNC` e
   `FICEP`). Cada lote fica em `import_batches` com os erros linha a linha em
   `import_batch_errors`; fixture real em `tests/fixtures/of-107482-novo-layout.xlsx`
@@ -228,13 +230,14 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   OF (link para `/pedidos/[id]`), **item pai** (badge + descrição na própria coluna),
   filho (badge + descrição), **matérias-primas** ("descrição — qtd UN"; **filho sem
   material aparece sinalizado** — "Nenhum material cadastrado"), quantidade, **peso
-  unitário**, **peso total** (multiplicação simples qtd × peso unit.,
-  `calculateTotalWeight` — sem peso unitário não mostra total), entrega e **processos**
+  unitário**, **peso total** (qtd × peso unit. — coluna derivada `total_weight_kg`,
+  migração 023; sem peso unitário não mostra total), entrega e **processos**
   (`fabrica1ItemProcesses`: **MP primeiro**, depois os aplicáveis em ordem fabril **até
   o KIT — o que vem depois dele fica oculto** (pré-montagem, solda, acabamento, qualidade
   e expedição); cada processo exibe símbolo + código + situação, nunca só cor). Acima da
   lista, o **card "Eventos"** no mesmo modelo da gestão (Registros, Qtd. total e Peso
-  total do **conjunto filtrado inteiro**, somados por consulta dedicada no repositório).
+  total do **conjunto filtrado inteiro**, somados pela RPC `get_child_items_totals` —
+  migração 024, uma única consulta agregada no banco).
   Filtros na URL: busca (descrição/código do filho), OF/OS e material (com
   `order_item_materials!inner` — o filtro limita os itens aos que têm o material
   casado e a célula mostra só os materiais correspondentes).
@@ -253,7 +256,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   um filtro por chip e "Limpar filtros" para zerar tudo.
 - **Resumo com três números**: os cards **Eventos**, **Atrasados** e
   **Expedição** ocupam duas colunas cada e reúnem **Registros**, **Qtd. total**
-  (soma da coluna Qtd.) e **Peso total** (soma da coluna Peso, `unit_weight_kg`):
+  (soma da coluna Qtd.) e **Peso total** (soma do **peso total** — qtd × peso unit.,
+  coluna derivada `total_weight_kg`, migrações 023 e 024):
   - **Eventos** — a lista filtrada inteira, em qualquer página (janelas da RPC
     `get_production_rows`, migrações 017 e 018);
   - **Atrasados** — entrega vencida + expedição pendente (objeto `delivery` da

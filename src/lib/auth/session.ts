@@ -35,17 +35,20 @@ export type SessionState =
 export const getSessionState = cache(async (): Promise<SessionState> => {
   const supabase = await createClient();
 
+  // 024: getClaims valida o JWT localmente (sem round-trip ao servidor de
+  // auth, como fazia auth.getUser) e devolve o mesmo sub/email do token.
   const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+    data,
+    error: claimsError,
+  } = await supabase.auth.getClaims();
 
-  if (userError || !user) return { status: "anonimo" };
+  if (claimsError || !data?.claims.sub) return { status: "anonimo" };
+  const claims = data.claims;
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("*")
-    .eq("id", user.id)
+    .eq("id", claims.sub)
     .maybeSingle();
 
   if (profileError || !profile) {
@@ -61,8 +64,8 @@ export const getSessionState = cache(async (): Promise<SessionState> => {
   return {
     status: "ok",
     user: {
-      id: user.id,
-      email: user.email ?? profile.email ?? "",
+      id: claims.sub,
+      email: (typeof claims.email === "string" ? claims.email : null) ?? profile.email ?? "",
       profile,
       role: profile.role,
     },

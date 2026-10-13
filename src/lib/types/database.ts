@@ -504,6 +504,28 @@ export type Database = {
         Args: { p_today?: string | null };
         Returns: Json;
       };
+      get_dashboard_orders: {
+        // top clientes + envelhecimento agregados no banco (024)
+        Args: Record<string, never>;
+        Returns: Json;
+      };
+      get_child_items_totals: {
+        // contagem + qtd/peso total da Fábrica 1 em 1 consulta (024)
+        Args: {
+          p_search?: string | null;
+          p_order_code?: string | null;
+          p_customer?: string | null;
+          p_child_item?: string | null;
+          p_description?: string | null;
+          p_material?: string | null;
+          p_parent_ids?: string[] | null;
+          p_delivery_from?: string | null;
+          p_delivery_to?: string | null;
+          p_process_id?: string | null;
+          p_process_status?: string | null;
+        };
+        Returns: Json;
+      };
       reorder_processes: {
         Args: { p_ids: string[] };
         Returns: undefined;

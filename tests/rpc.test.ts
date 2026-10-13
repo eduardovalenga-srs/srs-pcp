@@ -344,16 +344,17 @@ describe("get_production_rows", () => {
     expect(vazia).toHaveLength(0);
   });
 
-  it("soma o peso unitário de toda a lista filtrada, antes da paginação (017)", async () => {
-    // 4 itens raiz × 12,5 kg = 50 kg, independentemente da página exibida.
+  it("soma o peso TOTAL (qtd × peso unit.) de toda a lista filtrada, antes da paginação (017/023)", async () => {
+    // 4 itens raiz: 10 + 4 + 25 + 12 = 51 peças × 12,5 kg = 637,5 kg,
+    // independentemente da página exibida.
     const page1 = await callRows({ p_limit: 1, p_offset: 0 });
     const page2 = await callRows({ p_limit: 1, p_offset: 3 });
-    expect(Number(page1[0]?.weight_total)).toBe(50);
-    expect(Number(page2[0]?.weight_total)).toBe(50);
+    expect(Number(page1[0]?.weight_total)).toBe(637.5);
+    expect(Number(page2[0]?.weight_total)).toBe(637.5);
 
-    // Filtro estreita: só o ITEM-001 (12,5 kg).
+    // Filtro estreita: só o ITEM-001 (10 × 12,5 = 125 kg).
     const filtrado = await callRows({ p_search: "ITEM-001", p_limit: 1 });
-    expect(Number(filtrado[0]?.weight_total)).toBe(12.5);
+    expect(Number(filtrado[0]?.weight_total)).toBe(125);
 
     // Lista vazia não devolve linha (nem soma).
     expect(await callRows({ p_search: "inexistente" })).toHaveLength(0);
@@ -415,16 +416,17 @@ describe("get_production_stats", () => {
     expect(stats.itemsOverdue).toBe(1);
     expect(stats.itemsInProduction).toBe(4);
     expect(stats.delivery.overdue).toBe(1);
-    // 019: o card "Atrasados" também soma peças e peso do MESMO conjunto
-    // (ITEM-001: 10 peças × 12,5 kg de peso unitário).
+    // 019/023: o card "Atrasados" soma peças e PESO TOTAL (qtd × peso
+    // unit.) do MESMO conjunto (ITEM-001: 10 × 12,5 kg = 125 kg).
     expect(stats.delivery.overdueQty).toBe(10);
-    expect(stats.delivery.overdueWeight).toBe(12.5);
+    expect(stats.delivery.overdueWeight).toBe(125);
     expect(stats.delivery.next30).toBeGreaterThan(0);
 
-    // 020: card "Expedição" — só itens com EXP concluído (ITEM-002: 4 × 12,5 kg).
+    // 020/023: card "Expedição" — só itens com EXP concluído
+    // (ITEM-002: 4 × 12,5 kg = 50 kg).
     expect(stats.expedition.count).toBe(1);
     expect(stats.expedition.qty).toBe(4);
-    expect(stats.expedition.weight).toBe(12.5);
+    expect(stats.expedition.weight).toBe(50);
 
     const laser = stats.processes.find((process) => process.code === "LASER");
     expect(laser?.done).toBe(3);
@@ -609,7 +611,7 @@ describe("apply_import", () => {
     await asSuperUser(db);
   });
 
-  it("grava o peso total (KG TOTAL) e preserva quando a chave vem nula (015)", async () => {
+  it("peso total é SEMPRE derivado (qtd × peso unit.) mesmo via planilha (015/023)", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const { rows: itemRows } = await db.query<{ id: string }>(
@@ -619,6 +621,9 @@ describe("apply_import", () => {
     );
     const itemId = itemRows[0]?.id as string;
 
+    // A planilha envia 483,5 mas o sistema grava a fórmula (12 × 80,5 = 966,
+    // a quantidade veio do teste anterior): o trigger (023) recalcula todo
+    // total gravado.
     const withTotal = {
       operations: [
         {
@@ -634,9 +639,9 @@ describe("apply_import", () => {
       `select total_weight_kg::text as total_weight_kg from public.order_items where id = $1`,
       [itemId],
     );
-    expect(withValue[0]?.total_weight_kg).toBe("483.5");
+    expect(withValue[0]?.total_weight_kg).toBe("966");
 
-    // Célula vazia (chave nula): preserva o valor atual — mesma regra do KG UND.
+    // Célula vazia (chave nula): o total continua derivado — mesma regra.
     const keepTotal = {
       operations: [
         {
@@ -652,7 +657,7 @@ describe("apply_import", () => {
       `select total_weight_kg::text as total_weight_kg from public.order_items where id = $1`,
       [itemId],
     );
-    expect(kept[0]?.total_weight_kg).toBe("483.5");
+    expect(kept[0]?.total_weight_kg).toBe("966");
 
     await asSuperUser(db);
   });
