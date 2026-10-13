@@ -52,11 +52,18 @@ cp .env.example .env.local
 #    supabase/migrations/020_expedition_stats.sql
 #    supabase/migrations/021_mp_process.sql
 #    supabase/migrations/022_order_process_defaults.sql
+#    supabase/migrations/023_weight_total_derived.sql
+#    supabase/migrations/024_totals_and_performance.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
 # 4. (opcional) dados de demonstração
 psql "$SUPABASE_DB_URL" -f supabase/seed_demo.sql
+
+# 4b. (opcional) limpar TODO o movimento para reimportar/testar
+#     (apaga pedidos, itens, materiais, produção e histórico de importação;
+#      preserva usuários e catálogo de processos — ver "Limpar a base")
+psql "$SUPABASE_DB_URL" -f supabase/clear_data.sql
 
 # 5. desenvolvimento
 npm run dev
@@ -111,8 +118,9 @@ src/
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..021 (ordem obrigatória)
+  migrations/               001..024 (ordem obrigatória)
   seed_demo.sql             OF-001..OF-008 (opcional)
+  clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
 ```
 
@@ -242,7 +250,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   `order_item_materials!inner` — o filtro limita os itens aos que têm o material
   casado e a célula mostra só os materiais correspondentes).
   Ordenação fixa entrega → item pai → descrição → id (determinística para a paginação);
-  no rodapé, **"Por página"** (25 padrão; opções 25/50/100/200) — trocar o tamanho ou o
+  no rodapé, **"Por página"** (50 padrão; opções 25/50/100/200) — trocar o tamanho ou o
   filtro preserva o restante da URL e volta para a página 1. Menu visível para **todos os
   perfis** (`menu.fabrica1`), página protegida por
   `orders.view`; leitura 100% server-rendered (sem componentes client por linha).
@@ -317,6 +325,27 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   capacidade (`ADMIN`, `GESTOR`, `OPERADOR`, `VISUALIZADOR`) antes de tocar no banco.
 - Upload com validação de extensão/MIME/tamanho (20 MB), parsing apenas no servidor,
   sem execução de macros/fórmulas.
+
+## Limpar a base para reimportar/testar
+
+Para zerar o movimento (reimportar planilhas do zero ou testar o fluxo completo de
+pedidos manuais — quantidades, pesos etc.) existe o script manual
+`supabase/clear_data.sql`:
+
+```bash
+psql "$SUPABASE_DB_URL" -f supabase/clear_data.sql
+# ou: colar o conteúdo no SQL Editor do Supabase
+```
+
+- **Apaga** (irreversível): pedidos (`orders`) e, em cascata, itens filhos,
+  matérias-primas, processos de produção e eventos; além do histórico de importação
+  (`import_batches` → `import_errors`).
+- **Preserva**: usuários (`profiles`), catálogo de processos (`processes`), RLS e RPCs.
+- É **manual por design** (fora de `migrations/`, como o `seed_demo.sql`) — rode no
+  banco de desenvolvimento para testar; em produção só quando for de fato zerar o
+  movimento. Em ambos os casos, aponte `SUPABASE_DB_URL`/projeto para o banco alvo.
+- Depois da limpeza, refaça as importações e crie pedidos novos pela UI (ou rode
+  `supabase/seed_demo.sql` para o demo de volta). Testado em `tests/clear_data.test.ts`.
 
 ## Deploy (Vercel)
 

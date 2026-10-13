@@ -3,7 +3,7 @@ import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { ChildItemsPagination } from "@/components/fabrica1/ChildItemsPagination";
-import { CHILD_ITEMS_PAGE_SIZE_OPTIONS } from "@/lib/constants/pagination";
+import { CHILD_ITEMS_PAGE_SIZE, CHILD_ITEMS_PAGE_SIZE_OPTIONS } from "@/lib/constants/pagination";
 import { parseChildItemFilters } from "@/lib/utils/filters";
 
 vi.mock("next/navigation", () => ({
@@ -32,16 +32,16 @@ describe("ChildItemsPagination", () => {
     expect(markup).toContain("Página 1 de 5");
   });
 
-  it("resume à página 1 quando o total não cabe mais na página atual", () => {
+  it("resume à última página quando o total não cabe mais na página atual", () => {
     const markup = html(
       createElement(ChildItemsPagination, {
         filters: parseChildItemFilters({ pagina: "99" }),
-        total: 60,
+        total: CHILD_ITEMS_PAGE_SIZE + 10,
       }),
     );
-    // 60 itens / 25 por página = 3 páginas; a página 99 é limitada a 3.
-    expect(markup).toContain("Página 3 de 3");
-    expect(markup).toContain("51–60");
+    // Página 99 com pageSize padrão e total = padrão + 10: cabe na página 2.
+    expect(markup).toContain(`Página 2 de 2`);
+    expect(markup).toContain(`${CHILD_ITEMS_PAGE_SIZE + 1}–${CHILD_ITEMS_PAGE_SIZE + 10}`);
     // Última página não avança mais.
     expect(markup).toContain("disabled");
   });

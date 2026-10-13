@@ -291,7 +291,7 @@ describe("parseChildItemFilters", () => {
     expect(roundtrip.deliveryFrom).toBe("2026-10-01");
     expect(roundtrip.processStatus).toBe("BLOQUEADO");
     expect(roundtrip.page).toBe(3);
-    expect(roundtrip.pageSize).toBe(25);
+    expect(roundtrip.pageSize).toBe(CHILD_ITEMS_PAGE_SIZE);
   });
 
   it("mantém o tamanho da página escolhido no roundtrip da URL", () => {
