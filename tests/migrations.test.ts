@@ -259,12 +259,14 @@ describe("migrations", () => {
     );
     expect(Number(first[0]?.created)).toBe(1);
 
+    // 022: linha nova nasce NAO_APLICAVEL — processo de catálogo não
+    // atravessa sozinho todos os itens; quem marca é o pedido.
     const { rows: status } = await db.query<{ status: string }>(
       `select status from public.production_processes
         where order_item_id = $1 and process_id = $2`,
       [itemId, processId],
     );
-    expect(status[0]?.status).toBe("NAO_INICIADO");
+    expect(status[0]?.status).toBe("NAO_APLICAVEL");
 
     // …status já avançado nunca é sobrescrito…
     await db.query(
@@ -304,6 +306,64 @@ describe("migrations", () => {
       [itemId, processId],
     );
     expect(preserved[0]?.status).toBe("CONCLUIDO");
+
+    await asSuperUser(db);
+  });
+
+  it("MP nasce NAO_INICIADO no backfill — os demais nascem desmarcados (022)", async () => {
+    await asSuperUser(db);
+
+    const { rows: order } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-BACKFILL-2', 'OF') returning id`,
+    );
+    const { rows: item } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, description, quantity)
+       values ($1, 'Item backfill 022', 1) returning id`,
+      [order[0]?.id],
+    );
+    const itemId = item[0]?.id as string;
+
+    // Processo novo no catálogo: entra como "não se aplica" no item.
+    const { rows: novo } = await db.query<{ id: string }>(
+      `insert into public.processes (code, name, display_order, active)
+       values ('BF_NOVO', 'BF_NOVO', 902, true) returning id`,
+    );
+    await db.query(`select public.backfill_process($1)`, [novo[0]?.id]);
+
+    const { rows: novoStatus } = await db.query<{ status: string }>(
+      `select status from public.production_processes
+        where order_item_id = $1 and process_id = $2`,
+      [itemId, novo[0]?.id],
+    );
+    expect(novoStatus[0]?.status).toBe("NAO_APLICAVEL");
+
+    // MP (021) é pré-requisito para iniciar a produção: é o único que
+    // nasce aplicável, mesmo no backfill global.
+    await db.query(`select public.backfill_process(null)`);
+
+    const { rows: porProcesso } = await db.query<{ code: string; status: string }>(
+      `select p.code, pp.status
+         from public.production_processes pp
+         join public.processes p on p.id = pp.process_id
+        where pp.order_item_id = $1
+          and p.code in ('MP', 'LASER', 'BF_NOVO')
+        order by p.code`,
+      [itemId],
+    );
+    expect(porProcesso).toEqual([
+      { code: "BF_NOVO", status: "NAO_APLICAVEL" },
+      { code: "LASER", status: "NAO_APLICAVEL" },
+      { code: "MP", status: "NAO_INICIADO" },
+    ]);
+
+    // Limpeza: catálogo de teste não pode vazar (o FK para processes é
+    // restrict — as linhas criadas nos demais itens saem primeiro).
+    await db.query(
+      `delete from public.production_processes
+        where process_id = (select id from public.processes where code = 'BF_NOVO')`,
+    );
+    await db.query(`delete from public.production_processes where order_item_id = $1`, [itemId]);
+    await db.query(`delete from public.processes where code = 'BF_NOVO'`);
 
     await asSuperUser(db);
   });

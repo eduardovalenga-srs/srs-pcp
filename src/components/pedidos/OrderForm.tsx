@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { saveOrderAction } from "@/lib/actions/orders.actions";
 import type { MaterialInput } from "@/lib/validators/material.schema";
 import { ORDER_TYPES } from "@/lib/constants/orders";
+import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { OrderDetails } from "@/lib/types/order";
 import {
   orderWithItemsSchema,
@@ -45,6 +46,11 @@ interface OrderFormProps {
 
 type OrderItemInput = OrderWithItemsInput["items"][number];
 
+/**
+ * Item em branco: só o MP nasce marcado (021 — pré-requisito para
+ * iniciar a produção); os demais processos ficam a cargo do usuário,
+ * que marca pelo que o item realmente passa.
+ */
 function emptyItem(activeCodes: Set<string>): OrderItemInput {
   return {
     op: "",
@@ -54,9 +60,7 @@ function emptyItem(activeCodes: Set<string>): OrderItemInput {
     quantity: "",
     unitWeightKg: "",
     deliveryDate: "",
-    // Todo processo ativo nasce marcado (invariante 010): o usuário
-    // só desmarca os que não se aplicam ao item.
-    processCodes: [...activeCodes],
+    processCodes: activeCodes.has(MP_PROCESS_CODE) ? [MP_PROCESS_CODE] : [],
     materials: [],
   };
 }
@@ -86,10 +90,20 @@ function buildDefaultValues(
     orderDate: initialOrder.orderDate ?? "",
     deliveryDate: initialOrder.deliveryDate ?? "",
     items: initialOrder.items.map((item) => {
-      // Status por processo do item: NAO_APLICAVEL explícito nasce
-      // desmarcado; sem registro (órfão de processo novo) nasce marcado —
-      // ao salvar vira NAO_INICIADO (backfill 010).
       const statusByCode = new Map(item.processes.map((process) => [process.code, process.status]));
+
+      // Marcado = existe linha E ela não é "não aplicável". Linha ausente
+      // também nasce desmarcada: era essa a leitura que fazia o desmarcar
+      // "não salvar" (processo sem linha não tinha o que gravar e voltava
+      // marcado na próxima abertura).
+      const selectedCodes = [...activeCodes].filter((code) => {
+        const status = statusByCode.get(code);
+        return status !== undefined && status !== "NAO_APLICAVEL";
+      });
+      // MP é pré-requisito da produção: marcado em todo item (021).
+      if (activeCodes.has(MP_PROCESS_CODE) && !selectedCodes.includes(MP_PROCESS_CODE)) {
+        selectedCodes.push(MP_PROCESS_CODE);
+      }
 
       return {
         id: item.id,
@@ -99,10 +113,11 @@ function buildDefaultValues(
         description: item.description,
         quantity: String(item.quantity),
         unitWeightKg: item.unitWeightKg === null ? "" : String(item.unitWeightKg),
-        deliveryDate: item.deliveryDate ?? "",
-        // Todo processo ativo vem marcado por padrão; códigos desativados
-        // ficam de fora (não passam na validação do servidor).
-        processCodes: [...activeCodes].filter((code) => statusByCode.get(code) !== "NAO_APLICAVEL"),
+        // Item sem entrega própria herda a do pedido — mesma regra da
+        // importação (entrega em todo registro) e da grade (022).
+        deliveryDate: item.deliveryDate ?? initialOrder.deliveryDate ?? "",
+        // Códigos desativados ficam de fora (não passam na validação do servidor).
+        processCodes: selectedCodes,
         // Matérias-primas já cadastradas (011) nascem carregadas.
         materials: item.materials.map((material) => ({
           description: material.description,
@@ -456,25 +471,42 @@ export function OrderForm({ processes, initialOrder }: OrderFormProps) {
                         >
                           {processes.map((process) => {
                             const checkboxId = `item-${index}-processo-${process.code}`;
+                            // MP (021) é pré-requisito para iniciar a
+                            // produção: vem marcado e não é removível —
+                            // os demais processos ficam a cargo do usuário.
+                            const isMp = process.code === MP_PROCESS_CODE;
+                            const hint = isMp
+                              ? `${process.name} — pré-requisito para iniciar a produção (sempre aplicável)`
+                              : process.name;
                             return (
                               <label
                                 key={process.code}
                                 htmlFor={checkboxId}
-                                className="flex cursor-pointer items-center gap-2 rounded border px-2 py-1.5 text-sm transition-colors hover:bg-accent has-[data-state=checked]:border-primary has-[data-state=checked]:bg-primary/5"
+                                title={hint}
+                                className={`flex items-center gap-2 rounded border px-2 py-1.5 text-sm transition-colors has-[data-state=checked]:border-primary has-[data-state=checked]:bg-primary/5 ${
+                                  isMp ? "cursor-default" : "cursor-pointer hover:bg-accent"
+                                }`}
                               >
                                 <Checkbox
                                   id={checkboxId}
-                                  checked={field.value.includes(process.code)}
-                                  onCheckedChange={(checked) =>
+                                  checked={isMp || field.value.includes(process.code)}
+                                  disabled={isMp}
+                                  onCheckedChange={(checked) => {
+                                    if (isMp) return;
                                     field.onChange(
                                       checked === true
                                         ? [...field.value, process.code]
                                         : field.value.filter((code) => code !== process.code),
-                                    )
-                                  }
+                                    );
+                                  }}
                                 />
-                                <span className="truncate" title={process.name}>
+                                <span className="truncate">
                                   {process.name}
+                                  {isMp ? (
+                                    <span className="ml-1 text-xs text-muted-foreground">
+                                      (obrigatório)
+                                    </span>
+                                  ) : null}
                                 </span>
                               </label>
                             );
@@ -483,6 +515,10 @@ export function OrderForm({ processes, initialOrder }: OrderFormProps) {
                       )}
                     />
                     <FieldError id={processErrorId} message={processMessage} />
+                    <p className="text-xs text-muted-foreground">
+                      Desmarcado = não se aplica ao item (sem janela prevista na gestão de
+                      entregas). Selecione ao menos um processo além do MP.
+                    </p>
                   </div>
 
                   <div className="space-y-2">

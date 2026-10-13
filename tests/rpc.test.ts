@@ -295,18 +295,29 @@ describe("get_production_rows", () => {
     expect(soAte.map((row) => row.parent_item).sort()).toEqual(["ITEM-001", "ITEM-101"]);
   });
 
-  it("item sem data de entrega fica fora do período (014)", async () => {
+  it("item sem entrega própria herda a do pedido no período (014/022)", async () => {
     await db.query(
       `update public.order_items set delivery_date = null where parent_item = 'ITEM-101'`,
     );
 
+    // 022: a gestão de entregas passou a ler coalesce(entrega do item,
+    // entrega do pedido) — mesma regra da Fábrica 1 e do detalhe da OF.
+    // É o que faz a janela prevista existir também no pedido manual,
+    // onde o formulário deixa a entrega do item em branco.
     const comPeriodo = await callRows({
       p_delivery_from: "2026-10-01",
       p_delivery_to: "2026-10-31",
     });
-    expect(comPeriodo.map((row) => row.parent_item).sort()).toEqual(["ITEM-001", "ITEM-002"]);
+    expect(comPeriodo.map((row) => row.parent_item).sort()).toEqual([
+      "ITEM-001",
+      "ITEM-002",
+      "ITEM-101",
+    ]);
+    expect(comPeriodo.find((row) => row.parent_item === "ITEM-101")?.delivery_date).toBe(
+      "2026-10-20",
+    );
 
-    // Sem período o item sem data continua aparecendo normalmente.
+    // Sem período o item continua aparecendo normalmente.
     const semPeriodo = await callRows();
     expect(semPeriodo).toHaveLength(4);
 

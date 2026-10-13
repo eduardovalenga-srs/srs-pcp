@@ -51,6 +51,7 @@ cp .env.example .env.local
 #    supabase/migrations/019_overdue_totals.sql
 #    supabase/migrations/020_expedition_stats.sql
 #    supabase/migrations/021_mp_process.sql
+#    supabase/migrations/022_order_process_defaults.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -124,10 +125,19 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   **Invariante**: todo item possui linha em `production_processes` para todo processo
   ativo (a ausência de linha nunca é intencional — "não se aplica" é o status
   `NAO_APLICAVEL`), senão a célula fica "—" sem data. O **backfill** (RPC
-  `backfill_process`, migração 010) roda na própria migração e ao criar/reativar
-  processo em `/processos`; a importação nova garante o catálogo inteiro pela própria
-  RPC `apply_of_import` (nível pai e filho), e o formulário de pedidos já nasce com
-  todos os processos ativos marcados.
+  `backfill_process`, migração 010/022) roda na própria migração e ao criar/reativar
+  processo em `/processos`, sempre cobrindo o catálogo inteiro; a importação nova
+  garante o catálogo pela própria RPC `apply_of_import` (nível pai e filho).
+- **Seleção de processos no pedido** (migração 022): no formulário os processos nascem
+  **desmarcados** e quem marca é o usuário — só o **MP** vem marcado (é pré-requisito
+  para iniciar a produção). Ao salvar, o plano grava **uma linha por processo ativo**:
+  o marcado mantém o status que já roda (ou nasce `NAO_INICIADO`, e um `NAO_APLICAVEL`
+  re-marcado volta para `NAO_INICIADO`) e o desmarcado vira `NAO_APLICAVEL` — criado
+  inclusive quando a linha ainda não existia. Na edição, marcado = linha existente e
+  não `NAO_APLICAVEL`. Ao reabrir, o que foi desmarcado continua desmarcado.
+  Processo **novo no catálogo** entra como `NAO_APLICAVEL` nos itens existentes (MP
+  é a exceção: nasce `NAO_INICIADO`). Cada item precisa de ao menos um processo
+  aplicável, senão o status derivado dele seria `CONCLUIDO`.
 - **Ordem da cadeia**: `display_order` — no cadastro o processo entra ao final
   (máximo + 1, automático) e em `/processos` a lista reordena por arrastar-e-soltar
   (RPC `reorder_processes`, migração 009, tudo em uma transação). A ordem define as
@@ -137,13 +147,21 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   PUNC, METALEIRA, FICEP) não abre coluna na gestão de entregas — a primeira coluna de
   processos é a **MP** (migração 021), controlada como as demais (célula clicável,
   quantidades, observações e histórico), mas com **apenas duas situações: não iniciado
-  ou concluído**. Os demais processos seguem com coluna própria.
+  ou concluído**. Os demais processos seguem com coluna própria. Como é o **pré-requisito
+  para iniciar a produção**, o MP vem sempre marcado no formulário do pedido (caixa
+  desabilitada), o `saveOrder` o força como selecionado e o "Nec." da folha do processo
+  fica travado (migração 022).
 - **Datas previstas**: cada processo tem `location` (ex.: Fábrica 1) e `duration_days`
   (dias úteis — seg a sex, 1 a 365). As janelas de execução são contadas de TRÁS para
-  FRENTE da data de entrega (`lib/utils/process-schedule.ts`), somente em dias úteis:
+  FRENTE da **entrega efetiva do item — a do pedido quando o item não tem própria**
+  (`lib/utils/process-schedule.ts`; mesma regra da Fábrica 1, do detalhe da OF e da
+  migração 022 na gestão de entregas), somente em dias úteis:
   a **expedição acontece no dia útil anterior à entrega** (entrega no fim de semana →
   expedição na sexta anterior) e cada etapa anterior termina no dia útil anterior ao
   início da seguinte — nunca agenda fim de semana (feriados ainda não são considerados).
+  Nada é gravado: as janelas são calculadas na leitura, então valem igual para pedido
+  manual e para OF importada (a importação grava entrega em todo registro; o formulário
+  grava no item a data do pedido quando ele vem em branco).
   Aparece como **dd/MM na célula** da gestão de entregas, janela completa no tooltip e
   data completa na folha de detalhes. Datas já vencidas aparecem em **vermelho**: a
   **entrega** apenas quando a expedição ainda não concluiu (a mesma regra de atraso) e

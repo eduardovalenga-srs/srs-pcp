@@ -15,21 +15,35 @@ import type { ProcessDefinition } from "@/lib/types/production";
 // O código de servidor usa `server-only` (que lança fora do RSC).
 vi.mock("server-only", () => ({}));
 
-const mocks = vi.hoisted(() => ({
-  catalog: [
-    { id: "1", code: "LASER", name: "LASER", displayOrder: 10, active: true, location: null, durationDays: 1 },
-    { id: "2", code: "SOLDA", name: "SOLDA", displayOrder: 90, active: true, location: null, durationDays: 1 },
-    { id: "3", code: "EXP", name: "EXP", displayOrder: 120, active: true, location: null, durationDays: 1 },
-  ] as ProcessDefinition[],
-  applyPlan: vi.fn<(client: unknown, plan: unknown) => Promise<void>>(async () => {}),
-  findItemsByOrderCodes: vi.fn(async (): Promise<Map<string, unknown>> => new Map()),
-  // Pós-save: devolve o id do pedido para o redirect à tela de detalhes.
-  findOrdersByCodes: vi.fn(
-    async (_client: unknown, codes: string[]): Promise<Map<string, { id: string }>> =>
-      new Map(codes.map((code) => [code, { id: "order-id-123" }])),
-  ),
-  getOrderItemWithProcesses: vi.fn(async (): Promise<null> => null),
-}));
+const mocks = vi.hoisted(() => {
+  // Linha de processo já gravada do item (edição) — o serviço lê
+  // code/status/quantidades/notas para montar o plano.
+  interface ExistingProcess {
+    code: string;
+    status: string;
+    quantityPlanned?: number | null;
+    quantityCompleted?: number | null;
+    notes?: string | null;
+  }
+
+  return {
+    catalog: [
+      { id: "1", code: "LASER", name: "LASER", displayOrder: 10, active: true, location: null, durationDays: 1 },
+      { id: "2", code: "SOLDA", name: "SOLDA", displayOrder: 90, active: true, location: null, durationDays: 1 },
+      { id: "3", code: "EXP", name: "EXP", displayOrder: 120, active: true, location: null, durationDays: 1 },
+    ] as ProcessDefinition[],
+    applyPlan: vi.fn<(client: unknown, plan: unknown) => Promise<void>>(async () => {}),
+    findItemsByOrderCodes: vi.fn(async (): Promise<Map<string, unknown>> => new Map()),
+    // Pós-save: devolve o id do pedido para o redirect à tela de detalhes.
+    findOrdersByCodes: vi.fn(
+      async (_client: unknown, codes: string[]): Promise<Map<string, { id: string }>> =>
+        new Map(codes.map((code) => [code, { id: "order-id-123" }])),
+    ),
+    getOrderItemWithProcesses: vi.fn(
+      async (): Promise<{ id: string; processes: ExistingProcess[] } | null> => null,
+    ),
+  };
+});
 
 vi.mock("@/lib/repositories/production.repository", () => ({
   getActiveProcesses: vi.fn(async () => mocks.catalog),
@@ -343,16 +357,22 @@ describe("fluxo real do formulário (zodResolver -> saveOrder)", () => {
       description: "Viga 100x50",
       quantity: 5,
       unitWeightKg: null,
+      // 022: item sem entrega própria grava a do pedido — é o que faz a
+      // janela prevista existir também no pedido manual.
+      deliveryDate: "2026-10-15",
       status: "PLANEJADO", // derivado: sem OP e processos não concluídos
       op: null,
     });
-    // Só os processos selecionados entram (EXP fica de fora).
-    expect(operation.item.processes.map((process) => process.code)).toEqual(["LASER", "SOLDA"]);
+    // O plano cobre o catálogo inteiro (022): os selecionados nascem
+    // NAO_INICIADO e o desmarcado (EXP) entra como NAO_APLICAVEL — era
+    // essa linha que faltava e fazia o processo voltar marcado na abertura.
+    expect(operation.item.processes.map((process) => process.code)).toEqual(["LASER", "SOLDA", "EXP"]);
     expect(operation.item.processes[0]).toMatchObject({
       status: "NAO_INICIADO",
       quantityPlanned: null,
       quantityCompleted: null,
     });
+    expect(operation.item.processes[2]).toMatchObject({ code: "EXP", status: "NAO_APLICAVEL" });
   });
 
   it("mostra erro em português quando o campo é inválido", async () => {
@@ -411,6 +431,116 @@ describe("saveOrder -> applyPlan", () => {
     await expect(saveOrder(client, ORDER)).rejects.toThrow(/Já existe um item/);
 
     expect(mocks.applyPlan).not.toHaveBeenCalled();
+  });
+});
+
+describe("persistência da seleção de processos (022)", () => {
+  const MP_CATALOG = {
+    id: "9",
+    code: "MP",
+    name: "MP",
+    displayOrder: 5,
+    active: true,
+    location: null,
+    durationDays: 1,
+  } as ProcessDefinition;
+
+  function processByCode(code: string) {
+    return readPlan().operations[0]?.item.processes.find((process) => process.code === code);
+  }
+
+  it("desmarcar sem linha prévia grava NAO_APLICAVEL (antes sumia do plano)", async () => {
+    // Item novo: só LASER é selecionado — os demais precisam nascer
+    // explicitamente "não aplicável" para não voltarem marcados na abertura.
+    await saveOrder(client, payload({ processCodes: ["LASER"] }));
+
+    expect(processByCode("LASER")).toMatchObject({ status: "NAO_INICIADO" });
+    expect(processByCode("SOLDA")).toMatchObject({ status: "NAO_APLICAVEL" });
+    expect(processByCode("EXP")).toMatchObject({ status: "NAO_APLICAVEL" });
+  });
+
+  it("desmarcar em item existente preserva quantidades e notas", async () => {
+    mocks.getOrderItemWithProcesses.mockResolvedValueOnce({
+      id: "item-1",
+      processes: [
+        {
+          code: "LASER",
+          status: "EM_ANDAMENTO",
+          quantityPlanned: 10,
+          quantityCompleted: 4,
+          notes: "lote A",
+        },
+        {
+          code: "SOLDA",
+          status: "NAO_INICIADO",
+          quantityPlanned: 8,
+          quantityCompleted: 0,
+          notes: null,
+        },
+      ],
+    });
+
+    await saveOrder(client, {
+      ...ORDER,
+      items: [{ ...ITEM, id: "item-1", processCodes: ["LASER"] }],
+    });
+
+    expect(readPlan().operations[0]?.action).toBe("UPDATE");
+    expect(processByCode("LASER")).toMatchObject({
+      status: "EM_ANDAMENTO",
+      quantityPlanned: 10,
+      quantityCompleted: 4,
+      notes: "lote A",
+    });
+    expect(processByCode("SOLDA")).toMatchObject({
+      status: "NAO_APLICAVEL",
+      quantityPlanned: 8,
+      quantityCompleted: 0,
+    });
+  });
+
+  it("re-marcar processo NAO_APLICAVEL volta para NAO_INICIADO", async () => {
+    mocks.getOrderItemWithProcesses.mockResolvedValueOnce({
+      id: "item-1",
+      processes: [
+        {
+          code: "LASER",
+          status: "CONCLUIDO",
+          quantityPlanned: 5,
+          quantityCompleted: 5,
+          notes: null,
+        },
+        {
+          code: "SOLDA",
+          status: "NAO_APLICAVEL",
+          quantityPlanned: null,
+          quantityCompleted: null,
+          notes: null,
+        },
+      ],
+    });
+
+    await saveOrder(client, {
+      ...ORDER,
+      items: [{ ...ITEM, id: "item-1", processCodes: ["LASER", "SOLDA"] }],
+    });
+
+    // O avanço já gravado não se perde…
+    expect(processByCode("LASER")).toMatchObject({ status: "CONCLUIDO" });
+    // …e a remarcação finalmente grava (antes reenviava NAO_APLICAVEL).
+    expect(processByCode("SOLDA")).toMatchObject({ status: "NAO_INICIADO" });
+  });
+
+  it("MP é selecionado mesmo fora do payload (pré-requisito da produção)", async () => {
+    mocks.catalog.push(MP_CATALOG);
+    try {
+      await saveOrder(client, payload({ processCodes: ["LASER"] }));
+
+      expect(processByCode("MP")).toMatchObject({ status: "NAO_INICIADO" });
+      expect(processByCode("SOLDA")).toMatchObject({ status: "NAO_APLICAVEL" });
+    } finally {
+      mocks.catalog.pop();
+    }
   });
 });
 

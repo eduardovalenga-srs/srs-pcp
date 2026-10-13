@@ -19,6 +19,7 @@ import { getOrderItemWithProcesses, listChildItemsWithMaterials } from "@/lib/re
 import { applyPlan } from "@/lib/repositories/import.repository";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { orderWithItemsSchema, type OrderWithItemsOutput } from "@/lib/validators/order-item.schema";
+import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import { firstZodMessage } from "@/lib/validators/common";
 import { deriveOrderItemStatus, deriveOrderStatus } from "@/lib/utils/production";
 
@@ -119,36 +120,41 @@ export async function saveOrder(
       );
     }
 
+    // MP (021) é pré-requisito para iniciar a produção: o item nunca
+    // fica sem a linha de matéria-prima, mesmo que o cliente não a envie.
     const selected = new Set(item.processCodes);
+    if (activeCodes.has(MP_PROCESS_CODE)) {
+      selected.add(MP_PROCESS_CODE);
+    }
+
     const existingItem = item.id ? await getOrderItemWithProcesses(client, item.id) : null;
 
-    const processes: PlanProcess[] = [];
-    for (const process of catalog) {
+    // Plano cobre TODO o catálogo ativo (invariante 010): sempre há uma
+    // linha por processo — selecionado mantém o status que já roda (ou
+    // nasce NAO_INICIADO) e desmarcado vira NAO_APLICAVEL, criado inclusive
+    // quando o item ainda não tinha linha. Antes, o desmarcado sem linha
+    // simplesmente sumia do plano e o processo voltava marcado na abertura.
+    const processes: PlanProcess[] = catalog.map((process) => {
       const current = existingItem?.processes.find((entry) => entry.code === process.code);
       const isSelected = selected.has(process.code);
 
-      if (!isSelected) {
-        // item selecionável desmarcado -> mantém registro histórico como não aplicável
-        if (current) {
-          processes.push({
-            code: process.code,
-            status: "NAO_APLICAVEL",
-            quantityPlanned: current.quantityPlanned,
-            quantityCompleted: current.quantityCompleted,
-            notes: current.notes,
-          });
-        }
-        continue;
-      }
+      // Re-marcar um processo que estava NAO_APLICAVEL volta a
+      // NAO_INICIADO — senão a remarcação também não era gravada.
+      const status: ProcessStatus =
+        !isSelected
+          ? "NAO_APLICAVEL"
+          : current && current.status !== "NAO_APLICAVEL"
+            ? current.status
+            : "NAO_INICIADO";
 
-      processes.push({
+      return {
         code: process.code,
-        status: current?.status ?? "NAO_INICIADO",
+        status,
         quantityPlanned: current?.quantityPlanned ?? null,
         quantityCompleted: current?.quantityCompleted ?? null,
         notes: current?.notes ?? null,
-      });
-    }
+      };
+    });
 
     // Status do item é DERIVADO no servidor (013): processos + OP.
     const itemStatus = deriveOrderItemStatus(
@@ -174,7 +180,10 @@ export async function saveOrder(
         description: item.description,
         quantity: item.quantity,
         unitWeightKg: item.unitWeightKg,
-        deliveryDate: item.deliveryDate,
+        // Item sem entrega própria herda a do pedido (mesma regra da
+        // importação, que grava entrega em todo registro): sem data não
+        // existe janela prevista calculada na leitura (022).
+        deliveryDate: item.deliveryDate ?? payload.deliveryDate,
         status: itemStatus,
         op: item.op,
         processes,

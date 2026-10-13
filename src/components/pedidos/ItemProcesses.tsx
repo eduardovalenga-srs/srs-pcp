@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { updateProcessAction } from "@/lib/actions/production.actions";
 import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, type ProcessStatus } from "@/lib/constants/production";
+import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { ItemProcess } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
 import { formatDate } from "@/lib/utils/dates";
@@ -120,6 +121,14 @@ export function ItemProcesses({
           const window = schedule.get(row.code);
           const busy = busyId === row.id;
           const applies = row.status !== "NAO_APLICAVEL";
+          // MP é pré-requisito da produção (021): o serviço rejeita
+          // NAO_APLICAVEL para ele, então a marcação não é toggleável.
+          const isMp = row.code === MP_PROCESS_CODE;
+          const necessityTitle = isMp
+            ? "MP é pré-requisito para iniciar a produção — sempre aplicável."
+            : applies
+              ? "Necessário neste item — desmarcar para marcar como não aplicável."
+              : "Não se aplica a este item — marcar para voltar a não iniciado.";
 
           return (
             <li
@@ -127,17 +136,13 @@ export function ItemProcesses({
               className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded border bg-muted/20 px-2 py-1.5"
             >
               <label
-                className="flex cursor-pointer items-center gap-1.5 text-xs"
-                title={
-                  applies
-                    ? "Necessário neste item — desmarcar para marcar como não aplicável."
-                    : "Não se aplica a este item — marcar para voltar a não iniciado."
-                }
+                className={`flex items-center gap-1.5 text-xs ${isMp ? "cursor-default" : "cursor-pointer"}`}
+                title={necessityTitle}
               >
                 <input
                   type="checkbox"
                   checked={applies}
-                  disabled={busy || !capabilities.canUpdateStatus}
+                  disabled={busy || isMp || !capabilities.canUpdateStatus}
                   onChange={(event) => void toggleNecessity(row, event.target.checked)}
                   className="h-4 w-4 accent-primary"
                   aria-label={`Necessário: ${row.name} em ${itemDescription}`}
