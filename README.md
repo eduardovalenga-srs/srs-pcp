@@ -119,7 +119,7 @@ src/
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
   migrations/               001..024 (ordem obrigatória)
-  seed_demo.sql             OF-001..OF-008 (opcional)
+  seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
 ```
@@ -260,6 +260,12 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   apoio para editar/excluir). O **cliente é obrigatório** no cadastro manual (validação
   zod no client e no servidor — `orderSchema`; já era obrigatório na importação). Pedido
   antigo salvo sem cliente exige preencher o cliente ao reabrir o formulário para edição.
+  O **código é normalizado** para o padrão da importação — `<TIPO> <número>` com espaço
+  (ex.: digitando `107482`, `of-1234` ou `OF1234` sai `OF 107482`/`OF 1234`; o prefixo
+  digitado vence o tipo do select). É a mesma regra do `buildOrderCode` da importação,
+  agora centralizada em `lib/utils/order-code.ts` (`normalizeOrderCode`) — o formulário
+  mostra "Será salvo como: OF 1234" antes de salvar. Assim o código manual casa com a
+  chave de dedupe da reimportação.
 - **Filtros da gestão de entregas**: busca, situação, processos, colunas (contém/faixas),
   janelas de entrega (Atrasado, Hoje, Próx. 7/30 dias) e **período De → Até pela data de
   entrega** (migração 014 — inclusivo nos dois limites, lados opcionais, combina em E com

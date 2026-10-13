@@ -62,10 +62,10 @@ describe("seed de demonstração", () => {
     );
 
     const codes = rows.map((row) => row.code);
-    expect(codes).toContain("OF-001"); // entrega vencida, expedição pendente
-    expect(codes).not.toContain("OF-002"); // entrega hoje (janela TODAY, não OVERDUE)
-    expect(codes).not.toContain("OF-006"); // concluído, expedição ok
-    expect(codes).not.toContain("OF-003"); // entrega futura
+    expect(codes).toContain("OF 001"); // entrega vencida, expedição pendente
+    expect(codes).not.toContain("OF 002"); // entrega hoje (janela TODAY, não OVERDUE)
+    expect(codes).not.toContain("OF 006"); // concluído, expedição ok
+    expect(codes).not.toContain("OF 003"); // entrega futura
     expect(rows.every((row) => row.overdue)).toBe(true);
   });
 
@@ -77,7 +77,7 @@ describe("seed de demonstração", () => {
        )`,
       [null, null, null, null, "TODAY", null, "delivery_date", "asc", 0, 50],
     );
-    expect(rows.map((row) => row.code)).toContain("OF-002");
+    expect(rows.map((row) => row.code)).toContain("OF 002");
   });
 
   it("expõe os KPIs do dashboard a partir do seed", async () => {

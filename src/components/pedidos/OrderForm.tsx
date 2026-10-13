@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Controller, useFieldArray, useForm } from "react-hook-form";
+import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ import type { MaterialInput } from "@/lib/validators/material.schema";
 import { ORDER_TYPES } from "@/lib/constants/orders";
 import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { OrderDetails } from "@/lib/types/order";
+import { normalizeOrderCode } from "@/lib/utils/order-code";
 import {
   orderWithItemsSchema,
   type OrderWithItemsInput,
@@ -192,6 +193,15 @@ export function OrderForm({ processes, initialOrder }: OrderFormProps) {
     keyName: "rowId",
   });
 
+  // Prévia da normalização do código (mesma regra do salvamento): o usuário
+  // vê "OF 1234" antes de salvar, sem depender do placeholder.
+  const watchedCode = useWatch({ control, name: "code" });
+  const watchedType = useWatch({ control, name: "type" });
+  const trimmedCode = watchedCode?.trim() ?? "";
+  const codePreview = trimmedCode
+    ? normalizeOrderCode(trimmedCode.toUpperCase(), watchedType).code
+    : "";
+
   const onSubmit = handleSubmit(async (values) => {
     const result = await saveOrderAction(values);
     if (!result.success) {
@@ -241,13 +251,18 @@ export function OrderForm({ processes, initialOrder }: OrderFormProps) {
             <Label htmlFor="pedido-codigo">Número do pedido</Label>
             <Input
               id="pedido-codigo"
-              placeholder="EX: OF-1234"
+              placeholder="EX: OF 1234"
               autoCapitalize="characters"
               {...register("code")}
               aria-invalid={!!errors.code}
-              aria-describedby="pedido-codigo-erro"
+              aria-describedby={codePreview ? "pedido-codigo-normalizado" : "pedido-codigo-erro"}
             />
             <FieldError id="pedido-codigo-erro" message={errors.code?.message} />
+            {codePreview ? (
+              <p id="pedido-codigo-normalizado" className="text-xs text-muted-foreground">
+                Será salvo como: <span className="font-medium text-foreground">{codePreview}</span>
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-1 sm:col-span-2">

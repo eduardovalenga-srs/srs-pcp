@@ -6,6 +6,7 @@ import type {
   StructureIssue,
 } from "@/lib/types/import";
 import { calculateTotalWeight, formatWeight, toNumber } from "@/lib/utils/formatting";
+import { normalizeOrderCode } from "@/lib/utils/order-code";
 
 /**
  * Construção da estrutura hierárquica do arquivo novo:
@@ -99,14 +100,6 @@ export function familyFromDescription(description: string): string | null {
  */
 export function isGuardaCorpo(description: string): boolean {
   return normalizeHeader(description).includes("GUARDACORPO");
-}
-
-/** Código do pedido: "OF 107482" (prefere o prefixo do próprio código). */
-function buildOrderCode(id: string, typeHint: string): { code: string; type: string } {
-  const prefixed = /^(OF|OS)[\s-]*(.*)$/i.exec(id);
-  const type = prefixed ? prefixed[1].toUpperCase() : typeHint.toUpperCase() === "OS" ? "OS" : "OF";
-  const rawId = (prefixed ? prefixed[2] : id).trim();
-  return { code: `${type} ${rawId}`.trim(), type };
 }
 
 function issue(partial: StructureIssue): StructureIssue {
@@ -228,7 +221,7 @@ export function buildOfStructure(
       return;
     }
 
-    const { code: orderCode, type: orderType } = buildOrderCode(rawId, cellText(row, col.OFTIPO));
+    const { code: orderCode, type: orderType } = normalizeOrderCode(rawId, cellText(row, col.OFTIPO));
     const order = getOrCreateOrder(orderCode, orderType, excelRow);
 
     const orderDescription = cellText(row, col.OFDESCR);

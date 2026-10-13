@@ -100,7 +100,7 @@ type ItemInput = OrderWithItemsInput["items"][number];
  */
 const RAW_FORM: OrderWithItemsInput = {
   type: "OF",
-  code: "of-1234",
+  code: "of-1234", // normalizado para "OF 1234" (padrão da importação)
   customerName: "Metalúrgica Alfa",
   description: "",
   orderDate: "2026-10-01",
@@ -273,7 +273,7 @@ describe("orderWithItemsSchema", () => {
   it("aceita quantidade e peso unitário como number", () => {
     const data = expectOk<OrderWithItemsOutput>(orderWithItemsSchema.safeParse(ORDER));
 
-    expect(data.code).toBe("OF-1234"); // normalizado para maiúsculas
+    expect(data.code).toBe("OF 1234"); // normalizado para maiúsculas + prefixo com espaço
     expect(data.items[0].quantity).toBe(5);
     expect(data.items[0].unitWeightKg).toBe(12.5);
     expect(data.customerName).toBe("Metalúrgica Alfa");
@@ -311,6 +311,28 @@ describe("orderWithItemsSchema", () => {
       orderWithItemsSchema.safeParse({ ...ORDER, customerName: "  ACME  " }),
     );
     expect(ok.customerName).toBe("ACME");
+  });
+
+  it("normaliza o código para o padrão da importação (<TIPO> <número> com espaço)", () => {
+    // Sem prefixo: o tipo do select vira o prefixo.
+    const semPrefixo = expectOk<OrderWithItemsOutput>(
+      orderWithItemsSchema.safeParse({ ...ORDER, type: "OF", code: "107482" }),
+    );
+    expect(semPrefixo.code).toBe("OF 107482");
+    expect(semPrefixo.type).toBe("OF");
+
+    // Hífen ou colado: separador vira espaço (chave de dedupe da reimportação).
+    const comHifen = expectOk<OrderWithItemsOutput>(
+      orderWithItemsSchema.safeParse({ ...ORDER, code: "OF-1234" }),
+    );
+    expect(comHifen.code).toBe("OF 1234");
+
+    // O prefixo digitado vence o tipo selecionado (mesma regra da importação).
+    const prefixoOs = expectOk<OrderWithItemsOutput>(
+      orderWithItemsSchema.safeParse({ ...ORDER, type: "OF", code: "os 99" }),
+    );
+    expect(prefixoOs.code).toBe("OS 99");
+    expect(prefixoOs.type).toBe("OS");
   });
 
   it("aceita o payload com campos vazios virando null (edição/re-salvamento)", () => {
@@ -356,7 +378,7 @@ describe("fluxo real do formulário (zodResolver -> saveOrder)", () => {
     // 3) A Server Action revalida e grava em uma única transação (apply_import).
     const result = await saveOrder(client, values);
 
-    expect(result.code).toBe("OF-1234");
+    expect(result.code).toBe("OF 1234");
     expect(mocks.applyPlan).toHaveBeenCalledTimes(1);
 
     const plan = readPlan();
@@ -365,7 +387,7 @@ describe("fluxo real do formulário (zodResolver -> saveOrder)", () => {
     const [operation] = plan.operations;
     expect(operation.action).toBe("CREATE");
     expect(operation.order).toMatchObject({
-      code: "OF-1234",
+      code: "OF 1234",
       type: "OF",
       customerName: "Metalúrgica Alfa",
       status: "PLANEJADO",
@@ -410,7 +432,7 @@ describe("saveOrder -> applyPlan", () => {
   it("grava o pedido montado pelo formulário (regressão do bug de tipos)", async () => {
     const result = await saveOrder(client, ORDER);
 
-    expect(result.code).toBe("OF-1234");
+    expect(result.code).toBe("OF 1234");
     expect(mocks.applyPlan).toHaveBeenCalledTimes(1);
     expect(readPlan().operations[0].item.quantity).toBe(5);
   });
@@ -441,8 +463,8 @@ describe("saveOrder -> applyPlan", () => {
     mocks.findItemsByOrderCodes.mockResolvedValueOnce(
       new Map([
         [
-          "OF-1234::#VIGA 100X50",
-          { id: "item-1", orderCode: "OF-1234", parentItem: "", description: "Viga 100x50" },
+          "OF 1234::#VIGA 100X50",
+          { id: "item-1", orderCode: "OF 1234", parentItem: "", description: "Viga 100x50" },
         ],
       ]),
     );
@@ -586,8 +608,8 @@ describe("derivação de status pela OP (013)", () => {
     mocks.findOrdersByCodes.mockResolvedValueOnce(
       new Map([
         [
-          "OF-1234",
-          { id: "order-id-123", code: "OF-1234", status: "CANCELADO", deliveryDate: null },
+          "OF 1234",
+          { id: "order-id-123", code: "OF 1234", status: "CANCELADO", deliveryDate: null },
         ],
       ]),
     );

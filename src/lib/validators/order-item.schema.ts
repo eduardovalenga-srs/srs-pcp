@@ -3,6 +3,7 @@ import { z } from "zod";
 import { decimalInput, nullableDate, nullableText, optionalDecimalInput } from "@/lib/validators/common";
 import { materialsSchema } from "@/lib/validators/material.schema";
 import { orderSchema } from "@/lib/validators/order.schema";
+import { normalizeOrderCode } from "@/lib/utils/order-code";
 
 export const orderItemSchema = z.object({
   id: z.string().optional(),
@@ -26,9 +27,21 @@ export const orderItemSchema = z.object({
   materials: materialsSchema.default([]),
 });
 
-export const orderWithItemsSchema = orderSchema.extend({
-  items: z.array(orderItemSchema).min(1, "Adicione ao menos um item"),
-});
+/**
+ * Pedido + itens (formulário manual e salvamento no servidor).
+ *
+ * O código é normalizado para o padrão da importação — "<TIPO> <número>"
+ * (ex.: "OF 107482", sempre com espaço): digitado "107482" ou "of-1234",
+ * sai "OF 107482"/"OF 1234" e casa com a chave de dedupe da reimportação.
+ */
+export const orderWithItemsSchema = orderSchema
+  .extend({
+    items: z.array(orderItemSchema).min(1, "Adicione ao menos um item"),
+  })
+  .transform((value) => {
+    const { code, type } = normalizeOrderCode(value.code, value.type);
+    return { ...value, code, type };
+  });
 
 export type OrderItemInput = z.input<typeof orderItemSchema>;
 export type OrderItemOutput = z.output<typeof orderItemSchema>;
