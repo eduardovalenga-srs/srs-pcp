@@ -1,3 +1,4 @@
+import type { ProcessStatus } from "@/lib/constants/production";
 import { isValidISODate, previousBusinessDay, subBusinessDays } from "@/lib/utils/dates";
 
 /** Janela prevista de execução de um processo (YYYY-MM-DD). */
@@ -13,11 +14,37 @@ export interface ScheduleProcess {
   code: string;
   displayOrder: number;
   durationDays: number;
+  /**
+   * Situação do processo NO ITEM. `NAO_APLICAVEL` (desmarcado no pedido)
+   * fica de fora do cálculo: não ocupa dias e não ganha janela — antes o
+   * processo desmarcado ainda consumia `durationDays` na contagem regressiva
+   * e empurrava as janelas dos processos anteriores para datas antigas.
+   */
+  status?: ProcessStatus;
 }
 
 /** Sem duração cadastrada (ou valor inválido), o processo vale 1 dia útil. */
 function normalizeDuration(days: number): number {
   return Number.isFinite(days) && days >= 1 ? Math.floor(days) : 1;
+}
+
+/**
+ * Monta a entrada de cálculo de UM item: o catálogo fornece `displayOrder` e
+ * `durationDays`, e `statusOf` diz a situação daquele processo NAQUELE item.
+ *
+ * É o cruzamento que permite o cálculo pular processos `NAO_APLICAVEL`
+ * (desmarcados) — o catálogo sozinho não tem essa informação.
+ */
+export function scheduleProcessesForItem(
+  catalog: readonly { code: string; displayOrder: number; durationDays: number }[],
+  statusOf: (code: string) => ProcessStatus | undefined,
+): ScheduleProcess[] {
+  return catalog.map((process) => ({
+    code: process.code,
+    displayOrder: process.displayOrder,
+    durationDays: process.durationDays,
+    status: statusOf(process.code),
+  }));
 }
 
 /**
@@ -33,8 +60,9 @@ function normalizeDuration(days: number): number {
  *    (start + durationDays - 1 em dias úteis = end).
  *
  * Feriados não são considerados (não há calendário de feriados).
- * Retorna um mapa `code -> janela`; sem data de entrega válida, o mapa
- * vem vazio (não há como planejar).
+ * Processos com status `NAO_APLICAVEL` (desmarcados no pedido) são ignorados:
+ * não ocupam dias na contagem e não recebem janela. Sem data de entrega
+ * válida (ou sem nenhum processo aplicável), o mapa vem vazio.
  */
 export function computeProcessSchedule(
   deliveryDate: string | null | undefined,
@@ -44,9 +72,11 @@ export function computeProcessSchedule(
   if (!deliveryDate || !isValidISODate(deliveryDate)) return schedule;
 
   // Ordena por ordem de exibição (desempate pelo código para ser determinístico).
-  const sorted = [...processes].sort(
-    (a, b) => a.displayOrder - b.displayOrder || a.code.localeCompare(b.code),
-  );
+  // O filtro de não aplicáveis acontece ANTES da cadeia: um processo fora não
+  // deve "reservar" dias que nunca serão usados.
+  const sorted = processes
+    .filter((process) => process.status !== "NAO_APLICAVEL")
+    .sort((a, b) => a.displayOrder - b.displayOrder || a.code.localeCompare(b.code));
 
   let nextStart: string | null = null;
   for (let i = sorted.length - 1; i >= 0; i -= 1) {

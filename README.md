@@ -167,6 +167,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   a **expedição acontece no dia útil anterior à entrega** (entrega no fim de semana →
   expedição na sexta anterior) e cada etapa anterior termina no dia útil anterior ao
   início da seguinte — nunca agenda fim de semana (feriados ainda não são considerados).
+  Processos **desmarcados no pedido** (`NAO_APLICAVEL`) ficam de fora do cálculo: não
+  ocupam dias na contagem regressiva (senão empurravam as janelas dos demais para datas
+  antigas, como se o trabalho fosse acontecer) e **não ganham data prevista** na célula.
   Nada é gravado: as janelas são calculadas na leitura, então valem igual para pedido
   manual e para OF importada (a importação grava entrega em todo registro; o formulário
   grava no item a data do pedido quando ele vem em branco).

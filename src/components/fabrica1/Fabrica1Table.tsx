@@ -11,7 +11,11 @@ import type { ChildItemFilters, ChildItemProcess, ChildItemWithMaterials, OrderI
 import type { ProcessDefinition } from "@/lib/types/production";
 import { formatDate, formatDayMonth } from "@/lib/utils/dates";
 import { calculateTotalWeight, formatQuantity, formatWeight, truncate } from "@/lib/utils/formatting";
-import { computeProcessSchedule, type ProcessWindow } from "@/lib/utils/process-schedule";
+import {
+  computeProcessSchedule,
+  scheduleProcessesForItem,
+  type ProcessWindow,
+} from "@/lib/utils/process-schedule";
 import { fabrica1ItemProcesses, fabrica1ProcessColumns, isProcessStartOverdue } from "@/lib/utils/production";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -209,12 +213,21 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
   const processColumns = useMemo(() => fabrica1ProcessColumns(processes), [processes]);
 
   // Datas previstas por item: janela de cada processo contada da entrega.
+  // O status do processo NO ITEM entra no cálculo: desmarcado (NAO_APLICAVEL)
+  // não ocupa dias nem ganha janela (senão empurrava as datas anteriores).
   const scheduleByItem = useMemo(
     () =>
       new Map(
-        items.map(
-          (item) => [item.id, computeProcessSchedule(item.deliveryDate, processes)] as const,
-        ),
+        items.map((item) => {
+          const byCode = new Map(item.processes.map((p) => [p.code, p.status] as const));
+          return [
+            item.id,
+            computeProcessSchedule(
+              item.deliveryDate,
+              scheduleProcessesForItem(processes, (code) => byCode.get(code)),
+            ),
+          ] as const;
+        }),
       ),
     [items, processes],
   );

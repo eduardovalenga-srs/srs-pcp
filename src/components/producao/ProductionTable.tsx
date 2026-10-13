@@ -10,7 +10,11 @@ import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } fro
 import { F1_PROCESS_CODES } from "@/lib/constants/processes";
 import { formatDate, formatDayMonth } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight, truncate } from "@/lib/utils/formatting";
-import { computeProcessSchedule, type ProcessWindow } from "@/lib/utils/process-schedule";
+import {
+  computeProcessSchedule,
+  scheduleProcessesForItem,
+  type ProcessWindow,
+} from "@/lib/utils/process-schedule";
 import { isProcessStartOverdue } from "@/lib/utils/production";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -169,12 +173,23 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
   const [selection, setSelection] = useState<ProcessSelection | null>(null);
 
   // Datas previstas por item: janela de cada processo contada da entrega.
+  // O status do processo NO ITEM entra no cálculo: desmarcado (NAO_APLICAVEL)
+  // não ocupa dias nem ganha janela (senão empurrava as datas anteriores).
   const scheduleByItem = useMemo(
     () =>
       new Map(
-        rows.map(
-          (row) => [row.orderItemId, computeProcessSchedule(row.deliveryDate, processes)] as const,
-        ),
+        rows.map((row) => {
+          const byCode = new Map(
+            Object.entries(row.processes).map(([code, cell]) => [code, cell.status] as const),
+          );
+          return [
+            row.orderItemId,
+            computeProcessSchedule(
+              row.deliveryDate,
+              scheduleProcessesForItem(processes, (code) => byCode.get(code)),
+            ),
+          ] as const;
+        }),
       ),
     [rows, processes],
   );

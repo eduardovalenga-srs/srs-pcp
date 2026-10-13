@@ -4,6 +4,7 @@ import { isBusinessDay } from "@/lib/utils/dates";
 import {
   computeProcessSchedule,
   getProcessWindow,
+  scheduleProcessesForItem,
   type ScheduleProcess,
 } from "@/lib/utils/process-schedule";
 
@@ -111,6 +112,65 @@ describe("computeProcessSchedule (dias úteis)", () => {
 
   it("lista vazia de processos devolve mapa vazio", () => {
     expect(computeProcessSchedule("2026-10-10", []).size).toBe(0);
+  });
+});
+
+describe("processos desmarcados (NAO_APLICAVEL)", () => {
+  it("não ocupa dias na contagem regressiva", () => {
+    // SOLDA desmarcada: LASER sobe para perto da expedição, sem reservar
+    // os 3 dias úteis de um trabalho que não vai acontecer.
+    const schedule = computeProcessSchedule("2026-10-10", [
+      { code: "LASER", displayOrder: 10, durationDays: 2, status: "NAO_INICIADO" },
+      { code: "SOLDA", displayOrder: 20, durationDays: 3, status: "NAO_APLICAVEL" },
+      { code: "EXP", displayOrder: 30, durationDays: 1, status: "NAO_INICIADO" },
+    ]);
+
+    expect(schedule.has("SOLDA")).toBe(false);
+    expect(schedule.get("EXP")).toEqual({ start: "2026-10-09", end: "2026-10-09" });
+    // Sem SOLDA, LASER termina no dia útil anterior à expedição (qui 08).
+    expect(schedule.get("LASER")).toEqual({ start: "2026-10-07", end: "2026-10-08" });
+  });
+
+  it("cena com todos os processos desmarcados devolve mapa vazio", () => {
+    const schedule = computeProcessSchedule(
+      "2026-10-10",
+      flow.map((process) => ({ ...process, status: "NAO_APLICAVEL" as const })),
+    );
+    expect(schedule.size).toBe(0);
+  });
+
+  it("sem status no processo (catálogo puro) segue contando normalmente", () => {
+    // Compatibilidade: quem não informa status é tratado como aplicável.
+    expect(computeProcessSchedule("2026-10-10", flow)).toEqual(
+      computeProcessSchedule(
+        "2026-10-10",
+        flow.map((process) => ({ ...process, status: "NAO_INICIADO" as const })),
+      ),
+    );
+  });
+});
+
+describe("scheduleProcessesForItem", () => {
+  it("cruza o catálogo com o status do item", () => {
+    const catalog = [
+      { code: "LASER", displayOrder: 10, durationDays: 2 },
+      { code: "SOLDA", displayOrder: 20, durationDays: 3 },
+    ];
+    const statusByCode: Record<string, "NAO_INICIADO" | "NAO_APLICAVEL"> = {
+      SOLDA: "NAO_APLICAVEL",
+    };
+
+    const processes = scheduleProcessesForItem(catalog, (code) => statusByCode[code]);
+    expect(processes).toEqual([
+      { code: "LASER", displayOrder: 10, durationDays: 2, status: undefined },
+      { code: "SOLDA", displayOrder: 20, durationDays: 3, status: "NAO_APLICAVEL" },
+    ]);
+  });
+
+  it("processo do catálogo sem linha no item entra como status undefined (aplicável)", () => {
+    const catalog = [{ code: "LASER", displayOrder: 10, durationDays: 2 }];
+    const [process] = scheduleProcessesForItem(catalog, () => undefined);
+    expect(process.status).toBeUndefined();
   });
 });
 

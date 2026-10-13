@@ -11,7 +11,7 @@ import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { ItemProcess } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
 import { formatDate } from "@/lib/utils/dates";
-import { computeProcessSchedule } from "@/lib/utils/process-schedule";
+import { computeProcessSchedule, scheduleProcessesForItem } from "@/lib/utils/process-schedule";
 import { ProcessStatusBadge } from "@/components/shared/StatusBadges";
 import { ProcessDetailsSheet, type ProductionCapabilities } from "@/components/producao/ProcessDetailsSheet";
 import { Button } from "@/components/ui/button";
@@ -61,10 +61,16 @@ export function ItemProcesses({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selection, setSelection] = useState<ItemProcess | null>(null);
 
-  const schedule = useMemo(
-    () => computeProcessSchedule(deliveryDate, catalog),
-    [deliveryDate, catalog],
-  );
+  // Previsão contada da entrega: os processos DESMARCADOS (NAO_APLICAVEL)
+  // ficam de fora — não ocupam dias nem ganham janela, senão empurravam as
+  // datas dos demais para trás como se o trabalho fosse acontecer.
+  const schedule = useMemo(() => {
+    const byCode = new Map(rows.map((row) => [row.code, row.status] as const));
+    return computeProcessSchedule(
+      deliveryDate,
+      scheduleProcessesForItem(catalog, (code) => byCode.get(code)),
+    );
+  }, [deliveryDate, catalog, rows]);
 
   const applyStatus = async (row: ItemProcess, next: ProcessStatus) => {
     if (row.status === next) return;
