@@ -9,6 +9,7 @@ import type {
   OrderItemMaterial,
 } from "@/lib/types/order";
 import type { ProcessStatus } from "@/lib/constants/production";
+import { escapeFilterTerm } from "@/lib/utils/filters";
 import { assertOk } from "@/lib/utils/supabase-result";
 
 function toNumber(value: number | string | null): number | null {
@@ -211,7 +212,7 @@ export async function listChildItemsWithMaterials(
   filters: ChildItemFilters,
   processId: string | null = null,
 ): Promise<ChildItemMaterialsResult> {
-  const search = filters.search.trim();
+  const search = escapeFilterTerm(filters.search);
   const searchOr = search ? `description.ilike.%${search}%,parent_item.ilike.%${search}%` : null;
   const orderCode = filters.orderCode.trim();
   const customer = filters.customer.trim();

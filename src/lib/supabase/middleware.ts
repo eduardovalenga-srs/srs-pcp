@@ -4,7 +4,11 @@ import { createServerClient } from "@supabase/ssr";
 
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/env";
 
-const PUBLIC_ROUTES = ["/login"];
+// /redefinir-senha é pública de propósito: o link de recuperação do
+// Supabase (e-mail ou gerado pelo ADMIN) cai em `/redefinir-senha?code=`
+// (PKCE) SEM sessão — se o proxy bloqueasse, o redirect para /login
+// perderia o `code` e a troca de senha nunca aconteceria.
+const PUBLIC_ROUTES = ["/login", "/redefinir-senha"];
 
 function isPublicRoute(pathname: string): boolean {
   return PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`));

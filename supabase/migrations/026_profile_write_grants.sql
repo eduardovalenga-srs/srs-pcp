@@ -1,0 +1,32 @@
+-- =============================================================
+-- 026_profile_write_grants.sql
+-- Hardening: grants de coluna em profiles (defesa em profundidade
+-- contra escalada de privilégio).
+--
+-- Contexto: a política "profiles_update" (002) deixa o usuário
+-- autenticado atualizar a própria linha e os grants padrão do
+-- Supabase concediam INSERT/UPDATE/DELETE em TODAS as colunas.
+-- A migração 012 já blinda role/active/email pelo trigger
+-- profiles_protect_privileges (proteção primária, coberta pelos
+-- testes em tests/migrations.test.ts). Este arquivo reforça no
+-- nível de PRIVILÉGIO: mesmo que o trigger seja removido ou a
+-- política reaberta, a sessão comum não escreve nessas colunas.
+--
+-- Efeitos:
+--   * authenticated perde INSERT/UPDATE/DELETE gerais em profiles
+--     (não há escrita legítima desses tipos pela app — o trigger
+--     handle_new_user é SECURITY DEFINER com dono postgres e nunca
+--     depende dos grants de authenticated);
+--   * authenticated mantém apenas UPDATE de name e
+--     must_change_password (linha própria, permitido pelo 012);
+--   * role/active/email exigem o client service-role — o
+--     users.service usa createAdminClient() para essas colunas,
+--     após requireCapability("users.manage") no Server Action.
+--
+-- Ordem de deploy: publique o código novo PRIMEIRO (o client
+-- service-role funciona igualmente com os grants antigos) e só
+-- então aplique esta migration no Supabase (SQL Editor).
+-- =============================================================
+
+revoke insert, update, delete on table public.profiles from authenticated;
+grant update (name, must_change_password) on table public.profiles to authenticated;

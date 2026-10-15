@@ -98,7 +98,9 @@ export async function POST(request: Request) {
   } catch (error) {
     // Falha ao montar a sessão (configuração/infraestrutura) — sempre JSON.
     console.error("[api/importacao] authorize", error);
-    return jsonError(errorMessage(error, "Não foi possível iniciar a sessão."), 500);
+    // 500: só mensagem genérica ao cliente — o detalhe (possivelmente
+    // com internals de infra) fica no log do servidor.
+    return jsonError("Não foi possível iniciar a sessão.", 500);
   }
   if (auth instanceof NextResponse) return auth;
   const { supabase, user } = auth;
@@ -171,7 +173,8 @@ export async function POST(request: Request) {
         return jsonError(error.message, 400);
       }
       console.error("[api/importacao] executeImport", error);
-      return jsonError(errorMessage(error, "Não foi possível concluir a importação."), 500);
+      // 500: mensagem genérica ao cliente; o detalhe fica no log.
+      return jsonError("Não foi possível concluir a importação.", 500);
     }
   } catch (error) {
     return jsonError(errorMessage(error, "Não foi possível processar a planilha."), 400);

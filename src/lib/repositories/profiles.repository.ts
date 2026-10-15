@@ -1,4 +1,5 @@
 import type { Role } from "@/lib/constants/orders";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import { assertOk } from "@/lib/utils/supabase-result";
 
@@ -75,23 +76,27 @@ export async function findProfileByEmail(
   };
 }
 
-/** Altera o papel de um usuário (somente ADMIN — RLS reforça). */
-export async function updateProfileRole(
-  client: SupabaseServer,
-  profileId: string,
-  role: Role,
-): Promise<void> {
-  const { error } = await client.from("profiles").update({ role }).eq("id", profileId);
+/**
+ * Altera o papel de um usuário.
+ * A coluna `role` não tem grant para a sessão comum (migração 026) —
+ * só o client service-role grava, por isso ele é criado aqui. Os
+ * Server Actions chamam requireCapability("users.manage") antes.
+ */
+export async function updateProfileRole(profileId: string, role: Role): Promise<void> {
+  const admin = createAdminClient();
+  const { error } = await admin.from("profiles").update({ role }).eq("id", profileId);
   assertOk(error, "Não foi possível alterar a permissão");
 }
 
-/** Ativa/desativa a conta (somente ADMIN — RLS reforça). */
-export async function setProfileActive(
-  client: SupabaseServer,
-  profileId: string,
-  active: boolean,
-): Promise<void> {
-  const { error } = await client.from("profiles").update({ active }).eq("id", profileId);
+/**
+ * Ativa/desativa a conta.
+ * Mesmo motivo de `updateProfileRole`: coluna `active` exclusiva do
+ * service-role (migração 026), com a regra de último admin aplicada
+ * na camada de serviço antes desta chamada.
+ */
+export async function setProfileActive(profileId: string, active: boolean): Promise<void> {
+  const admin = createAdminClient();
+  const { error } = await admin.from("profiles").update({ active }).eq("id", profileId);
   assertOk(error, "Não foi possível alterar o status");
 }
 

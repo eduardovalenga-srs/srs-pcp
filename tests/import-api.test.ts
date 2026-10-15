@@ -387,7 +387,9 @@ describe("POST /api/importacao — etapa execute", () => {
     });
 
     expect(response.status).toBe(500);
-    expect((await response.json()).error).toMatch(/Falha na gravação/);
+    // 500 saneado (auditoria): mensagem genérica para o cliente —
+    // o detalhe da falha só aparece no log do servidor.
+    expect((await response.json()).error).toBe("Não foi possível concluir a importação.");
     expect(completeBatchMock).toHaveBeenCalledWith(expect.anything(), "batch-1", {
       status: "FALHOU",
       validRows: 0,

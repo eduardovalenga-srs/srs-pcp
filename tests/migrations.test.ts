@@ -561,7 +561,7 @@ describe("migrations", () => {
     await asSuperUser(db);
   });
 
-  it("adiciona status e troca de senha; blinda colunas sensíveis (012)", async () => {
+  it("adiciona status e troca de senha; blinda colunas sensíveis (012 + 026)", async () => {
     await asSuperUser(db);
 
     // Colunas novas existem no profile.
@@ -584,14 +584,15 @@ describe("migrations", () => {
     expect(initial[0]?.active).toBe(true);
     expect(initial[0]?.must_change_password).toBe(false);
 
-    // O próprio usuário não escala o próprio role nem altera o próprio status…
+    // O próprio usuário não altera role/status: sem grant de coluna para
+    // a sessão comum (026) — falha antes até de chegar no trigger 012.
     await asUser(db, "authenticated", uid);
     await expect(
       db.query(`update public.profiles set role = 'ADMIN' where id = $1`, [uid]),
-    ).rejects.toThrow(/administrador/i);
+    ).rejects.toThrow(/permission denied/i);
     await expect(
       db.query(`update public.profiles set active = false where id = $1`, [uid]),
-    ).rejects.toThrow(/administrador/i);
+    ).rejects.toThrow(/permission denied/i);
 
     // …mas pode ajustar nome e marcar/limpar o aviso de senha temporária.
     await db.query(
@@ -608,9 +609,17 @@ describe("migrations", () => {
 
     await asSuperUser(db);
 
-    // ADMIN altera o perfil de OUTRO usuário normalmente.
+    // role/active não têm grant nem para a sessão de um ADMIN (026: o
+    // grant é por papel de banco, não por usuário)…
     const admin = await createUser(db, "admin-012@serralheria.com", "ADMIN");
     await asUser(db, "authenticated", admin);
+    await expect(
+      db.query(`update public.profiles set role = 'GESTOR' where id = $1`, [uid]),
+    ).rejects.toThrow(/permission denied/i);
+
+    // …a troca de papel sai pelo caminho de serviço (client service-role
+    // em users.service), que segue gravando normalmente.
+    await asSuperUser(db);
     await db.query(`update public.profiles set role = 'GESTOR' where id = $1`, [uid]);
     const { rows: changed } = await db.query<{ role: string }>(
       `select role from public.profiles where id = $1`,

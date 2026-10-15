@@ -160,7 +160,7 @@ export async function createTempPasswordUser(
   }
 
   // O profile nasce com o trigger; aplica perfil + flag de troca.
-  await updateProfileRole(client, data.user.id, input.role);
+  await updateProfileRole(data.user.id, input.role);
   const { error: flagError } = await client
     .from("profiles")
     .update({ must_change_password: true })
@@ -196,7 +196,7 @@ export async function changeRoleWithRules(
   });
   if (problem) throw new Error(problem);
 
-  await updateProfileRole(client, profileId, newRole);
+  await updateProfileRole(profileId, newRole);
 }
 
 /** Ativa/desativa uma conta aplicando as proteções. */
@@ -221,7 +221,7 @@ export async function setProfileActiveWithRules(
   });
   if (problem) throw new Error(problem);
 
-  await setProfileActive(client, profileId, active);
+  await setProfileActive(profileId, active);
 }
 
 /**

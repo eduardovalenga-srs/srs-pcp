@@ -3,6 +3,7 @@ import type { SupabaseServer } from "@/lib/supabase/types";
 import type { ItemProcess, OrderDetails, OrderFilters, OrderItemDetails, OrderSummary } from "@/lib/types/order";
 import type { ExistingOfItem, ExistingOfStructure } from "@/lib/types/import";
 import type { ProcessStatus } from "@/lib/constants/production";
+import { escapeFilterTerm } from "@/lib/utils/filters";
 import { assertOk } from "@/lib/utils/supabase-result";
 
 function toNumber(value: number | string | null): number | null {
@@ -43,7 +44,7 @@ function applyOrderFilters<T>(query: T, filters: OrderFilters): T {
     or: (filter: string) => unknown;
     eq: (column: string, value: string) => unknown;
   };
-  const term = filters.search.trim();
+  const term = escapeFilterTerm(filters.search);
   if (term) {
     builder.or(`code.ilike.%${term}%,customer_name.ilike.%${term}%,description.ilike.%${term}%`);
   }

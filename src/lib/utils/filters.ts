@@ -43,6 +43,18 @@ function textParam(params: SearchParamsRecord, key: string): string {
 }
 
 /**
+ * Neutraliza caracteres da gramática de filtros PostgREST em termos que
+ * são interpolados em `.or(...)` (ex.: `code.ilike.%termo%`): vírgula
+ * separa condições e parênteses agrupam. Sem o escape, a busca do
+ * usuário quebrava a query (400) ou alterava a estrutura do filtro.
+ * As colunas continuam protegidas por RLS de qualquer forma — isto é
+ * correção de comportamento, não a única barreira.
+ */
+export function escapeFilterTerm(value: string): string {
+  return value.replace(/[(),]/g, " ").trim();
+}
+
+/**
  * Lê um limite numérico de coluna da URL.
  * Aceita vírgula decimal ("12,5") e descarta negativos/não numéricos.
  */
