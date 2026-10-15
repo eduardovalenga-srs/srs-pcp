@@ -9,6 +9,8 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
 import { ProcessCatalog } from "@/components/processos/ProcessCatalog";
 
+export const metadata = { title: "Processos" };
+
 export default async function ProcessosPage() {
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");

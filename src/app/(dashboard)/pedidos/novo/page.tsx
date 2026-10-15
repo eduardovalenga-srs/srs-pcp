@@ -12,6 +12,8 @@ import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { OrderForm, type OrderProcessOption } from "@/components/pedidos/OrderForm";
 
+export const metadata = { title: "Novo pedido" };
+
 export default async function NovoPedidoPage() {
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");

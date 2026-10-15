@@ -10,6 +10,8 @@ import { UsersTable } from "@/components/configuracoes/UsersTable";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
+export const metadata = { title: "Configurações" };
+
 export default async function ConfiguracoesPage() {
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");

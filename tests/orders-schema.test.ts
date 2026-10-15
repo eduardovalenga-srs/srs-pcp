@@ -506,7 +506,7 @@ describe("persistência da seleção de processos (022)", () => {
       processes: [
         {
           code: "LASER",
-          status: "EM_ANDAMENTO",
+          status: "CONCLUIDO",
           quantityPlanned: 10,
           quantityCompleted: 4,
           notes: "lote A",
@@ -528,7 +528,7 @@ describe("persistência da seleção de processos (022)", () => {
 
     expect(readPlan().operations[0]?.action).toBe("UPDATE");
     expect(processByCode("LASER")).toMatchObject({
-      status: "EM_ANDAMENTO",
+      status: "CONCLUIDO",
       quantityPlanned: 10,
       quantityCompleted: 4,
       notes: "lote A",

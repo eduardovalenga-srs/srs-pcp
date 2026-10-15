@@ -58,6 +58,11 @@ cp .env.example .env.local
 #    supabase/migrations/023_weight_total_derived.sql
 #    supabase/migrations/024_totals_and_performance.sql
 #    supabase/migrations/025_production_rows_by_order.sql
+#    supabase/migrations/026_profile_write_grants.sql
+#    supabase/migrations/027_apply_of_import_process_defaults.sql
+#    supabase/migrations/028_import_process_material_rules.sql
+#    supabase/migrations/029_process_status_simplification.sql
+#    supabase/migrations/030_ch_prefix_marks_laser.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -123,7 +128,7 @@ src/
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..025 (ordem obrigatória)
+  migrations/               001..030 (ordem obrigatória)
   seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
@@ -190,7 +195,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   todos os processos e a regra de atraso sem nenhuma gravação extra (a ação chama
   `updateItemDeliveryDateAction` e o refresh da página refaz a conta). Vazio limpa
   a entrega: a linha fica "sem data de entrega — não há como calcular as datas".
-- **Situações**: `NAO_INICIADO`, `EM_ANDAMENTO`, `CONCLUIDO`, `BLOQUEADO`, `NAO_APLICAVEL`.
+- **Situações**: `NAO_INICIADO`, `CONCLUIDO`, `NAO_APLICAVEL` (migração 029 —
+  `EM_ANDAMENTO` e `BLOQUEADO` foram removidos e os dados gravados viraram
+  `NAO_INICIADO`).
   Nada avança de etapa automaticamente (regra 62). O **MP** aceita apenas
   `NAO_INICIADO` e `CONCLUIDO`: a folha de edição lista só essas duas opções e o
   serviço rejeita as demais (`allowedProcessStatuses`, `lib/utils/production.ts`).
@@ -219,10 +226,14 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   etapa de mapeamento manual; colunas extras (obra, área, desenhos) entram na lista
   de ignoradas e o `os_NMCliente` do arquivo é descartado: **cliente e data de entrega
   são digitados no formulário da importação** e valem para todos os registros (OF,
-  pais e filhos). O arquivo **não traz processos**: o catálogo completo é criado em
-  `NAO_INICIADO` para pai e filho (`parent_order_item_id` liga filho ao pai — migração
-  016; toda linha com `ps_Tipo` = X é descartada — o material direto vem de
-  linha sem filhos e sem X).
+  pais e filhos). O arquivo **não traz processos**: o catálogo completo é criado para
+  pai e filho exatamente como no pedido manual — só o **MP** nasce marcado
+  (`NAO_INICIADO`, obrigatório) e os demais nascem desmarcados (`NAO_APLICAVEL`,
+  migração 027). O prefixo do material decide mais no nascer da linha: **TB** nas duas
+  primeiras letras marca **SERRA** e **DB TB**; **CH** marca **DB CH** e **LASER**
+  (migração 030, corrigindo o CH da 028). `parent_order_item_id` liga filho ao pai
+  (migração 016; toda linha com `ps_Tipo` = X é descartada — o material direto vem
+  de linha sem filhos e sem X).
   Nunca grava sem prévia e confirmação; cada OF já existente exige uma decisão —
   **Atualizar / Manter / Ignorar** (RPC transacional `apply_of_import`: atualizar
   preserva status e OP, troca os materiais e remove do banco o que sumiu do arquivo;
@@ -297,8 +308,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   **Entrega** (= data do PEDIDO, `orders.delivery_date`), seguidas de **TODAS as etapas
   do catálogo** em colunas próprias (a cadeia da Fábrica 1 — LASER…FICEP — que antes
   ficava oculta aqui, agora aparece agregada). Cada célula de processo traz a **pior
-  situação** entre os itens aplicáveis (BLOQUEADO > EM_ANDAMENTO > NAO_INICIADO >
-  CONCLUIDO) + o contador "feito/aplicável" (ex.: 3/5); a fonte por código espelha a
+  situação** entre os itens aplicáveis (NAO_INICIADO > CONCLUIDO) + o contador
+  "feito/aplicável" (ex.: 3/5); a fonte por código espelha a
   gravação: **a cadeia F1 lê os ITENS FILHOS e os demais (MP, KIT, PRÉ-MTG…EXPEDIÇÃO)
   os ITENS RAIZ**. Processo 100% não aplicável vira "—" (não editável). **Clicar numa
   célula abre a edição EM LOTE** (`ProcessBatchEditor`, capacidade

@@ -28,7 +28,7 @@ describe("regra de atraso (item 13)", () => {
 
   it("atrasado quando a entrega é anterior a hoje e a expedição não está concluída", () => {
     expect(
-      isItemOverdue({ deliveryDate: "2026-09-30", processStatuses: { EXP: "EM_ANDAMENTO" } }, today),
+      isItemOverdue({ deliveryDate: "2026-09-30", processStatuses: { EXP: "NAO_INICIADO" } }, today),
     ).toBe(true);
     expect(
       isItemOverdue({ deliveryDate: "2026-09-30", processStatuses: {} }, today),
@@ -55,9 +55,8 @@ describe("cor de data vencida (processo concluído fica neutro)", () => {
   const today = "2026-10-01";
 
   it("marca vencido quando o início é anterior à data de referência", () => {
-    expect(isProcessStartOverdue("2026-09-30", "EM_ANDAMENTO", today)).toBe(true);
+    expect(isProcessStartOverdue("2026-09-30", "NAO_APLICAVEL", today)).toBe(true);
     expect(isProcessStartOverdue("2026-09-30", "NAO_INICIADO", today)).toBe(true);
-    expect(isProcessStartOverdue("2026-09-30", "BLOQUEADO", today)).toBe(true);
     expect(isProcessStartOverdue("2026-09-30", null, today)).toBe(true);
   });
 
@@ -66,14 +65,14 @@ describe("cor de data vencida (processo concluído fica neutro)", () => {
   });
 
   it("início hoje ou futuro não é vencido", () => {
-    expect(isProcessStartOverdue(today, "EM_ANDAMENTO", today)).toBe(false);
-    expect(isProcessStartOverdue("2026-10-05", "EM_ANDAMENTO", today)).toBe(false);
+    expect(isProcessStartOverdue(today, "NAO_INICIADO", today)).toBe(false);
+    expect(isProcessStartOverdue("2026-10-05", "NAO_INICIADO", today)).toBe(false);
   });
 
   it("sem data de início não há o que marcar", () => {
-    expect(isProcessStartOverdue(null, "EM_ANDAMENTO", today)).toBe(false);
-    expect(isProcessStartOverdue(undefined, "EM_ANDAMENTO", today)).toBe(false);
-    expect(isProcessStartOverdue("", "EM_ANDAMENTO", today)).toBe(false);
+    expect(isProcessStartOverdue(null, "NAO_INICIADO", today)).toBe(false);
+    expect(isProcessStartOverdue(undefined, "NAO_INICIADO", today)).toBe(false);
+    expect(isProcessStartOverdue("", "NAO_INICIADO", today)).toBe(false);
   });
 });
 
@@ -89,26 +88,26 @@ describe("status derivado do item (regra 62: nada conclui sozinho + OP 013)", ()
 
   it("fica em produção quando a OP está preenchida", () => {
     expect(
-      deriveOrderItemStatus([state("LASER", "CONCLUIDO"), state("SOLDA", "EM_ANDAMENTO")], "OP-1234"),
+      deriveOrderItemStatus([state("LASER", "CONCLUIDO"), state("SOLDA", "NAO_INICIADO")], "OP-1234"),
     ).toBe("EM_PRODUCAO");
-    // OP preenchida já basta — mesmo sem processo em andamento.
+    // OP preenchida já basta — mesmo sem nenhum processo concluído.
     expect(
-      deriveOrderItemStatus([state("LASER", "NAO_INICIADO"), state("SOLDA", "BLOQUEADO")], "OP-1234"),
+      deriveOrderItemStatus([state("LASER", "NAO_INICIADO"), state("SOLDA", "NAO_INICIADO")], "OP-1234"),
     ).toBe("EM_PRODUCAO");
   });
 
-  it("fica em espera quando a OP está em branco (mesmo com processo ativo)", () => {
+  it("fica em espera quando a OP está em branco (mesmo com processo concluído)", () => {
     expect(
-      deriveOrderItemStatus([state("LASER", "CONCLUIDO"), state("SOLDA", "EM_ANDAMENTO")], null),
+      deriveOrderItemStatus([state("LASER", "CONCLUIDO"), state("SOLDA", "NAO_INICIADO")], null),
     ).toBe("PLANEJADO");
     expect(
-      deriveOrderItemStatus([state("LASER", "NAO_INICIADO"), state("SOLDA", "EM_ANDAMENTO")], "   "),
+      deriveOrderItemStatus([state("LASER", "NAO_INICIADO"), state("SOLDA", "NAO_INICIADO")], "   "),
     ).toBe("PLANEJADO");
   });
 
-  it("fica em espera quando há pendência sem início (mesmo com bloqueio)", () => {
+  it("fica em espera quando há pendência sem início", () => {
     expect(
-      deriveOrderItemStatus([state("LASER", "NAO_INICIADO"), state("SOLDA", "BLOQUEADO")], null),
+      deriveOrderItemStatus([state("LASER", "NAO_INICIADO"), state("SOLDA", "NAO_INICIADO")], null),
     ).toBe("PLANEJADO");
   });
 });
@@ -148,14 +147,12 @@ describe("progresso e pendências", () => {
 describe("situações permitidas por processo (regra do MP)", () => {
   it("MP aceita somente não iniciado e concluído", () => {
     expect(allowedProcessStatuses("MP")).toEqual(["NAO_INICIADO", "CONCLUIDO"]);
-    expect(allowedProcessStatuses("MP")).not.toContain("EM_ANDAMENTO");
-    expect(allowedProcessStatuses("MP")).not.toContain("BLOQUEADO");
     expect(allowedProcessStatuses("MP")).not.toContain("NAO_APLICAVEL");
   });
 
   it("os demais processos mantêm o catálogo completo", () => {
-    expect(allowedProcessStatuses("LASER")).toHaveLength(5);
-    expect(allowedProcessStatuses("EXP")).toContain("EM_ANDAMENTO");
+    expect(allowedProcessStatuses("LASER")).toHaveLength(3);
+    expect(allowedProcessStatuses("EXP")).toEqual(["NAO_INICIADO", "CONCLUIDO", "NAO_APLICAVEL"]);
     expect(allowedProcessStatuses("QUALITY")).toContain("NAO_APLICAVEL");
   });
 });
@@ -202,7 +199,7 @@ describe("processos aplicáveis de um item (Fábrica 1)", () => {
     const processes = [
       makeProcess("EXP", 60, "CONCLUIDO"),
       makeProcess("FICEP", 50, "NAO_APLICAVEL"),
-      makeProcess("LASER", 10, "EM_ANDAMENTO"),
+      makeProcess("LASER", 10, "NAO_INICIADO"),
       makeProcess("DOB", 20, "NAO_INICIADO"),
     ];
     const result = applicableProcesses(processes);
@@ -239,7 +236,7 @@ describe("processos visíveis na Fábrica 1 (MP primeiro, some depois do KIT)", 
       makeProcess("FICEP", 70),
       makeProcess("KIT", 80),
       makeProcess("SOLDA", 100),
-      makeProcess("EXP", 130, "EM_ANDAMENTO"),
+      makeProcess("EXP", 130, "NAO_INICIADO"),
     ];
     expect(fabrica1ItemProcesses(chain).map((process) => process.code)).toEqual([
       "MP",

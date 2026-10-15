@@ -13,6 +13,8 @@ import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { OrderForm, type OrderProcessOption } from "@/components/pedidos/OrderForm";
 
+export const metadata = { title: "Editar pedido" };
+
 export default async function EditarPedidoPage({ params }: PageProps<"/pedidos/[id]/editar">) {
   const { id } = await params;
 

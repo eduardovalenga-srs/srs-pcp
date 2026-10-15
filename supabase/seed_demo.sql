@@ -84,10 +84,10 @@ select
     when oi.status = 'CONCLUIDO' then 'CONCLUIDO'
     when oi.status = 'CANCELADO' then 'NAO_APLICAVEL'
     when p.code in ('LASER', 'DB_CH', 'SERRA') then 'CONCLUIDO'
-    when p.code = 'DB_TB' then case when oi.parent_item in ('IT-001A','IT-002A','IT-005A') then 'EM_ANDAMENTO' else 'NAO_INICIADO' end
-    when p.code = 'SOLDA' then case when oi.parent_item in ('IT-001A','IT-002A') then 'EM_ANDAMENTO' else 'NAO_INICIADO' end
-    when p.code = 'FICEP' and oi.parent_item in ('IT-001B','IT-004A') then 'BLOQUEADO'
-    when p.code = 'PUNC'  and oi.parent_item in ('IT-001A','IT-003A') then 'EM_ANDAMENTO'
+    when p.code = 'DB_TB' then case when oi.parent_item in ('IT-001A','IT-002A','IT-005A') then 'CONCLUIDO' else 'NAO_INICIADO' end
+    when p.code = 'SOLDA' then case when oi.parent_item in ('IT-001A','IT-002A') then 'CONCLUIDO' else 'NAO_INICIADO' end
+    when p.code = 'FICEP' and oi.parent_item in ('IT-001B','IT-004A') then 'NAO_INICIADO'
+    when p.code = 'PUNC'  and oi.parent_item in ('IT-001A','IT-003A') then 'CONCLUIDO'
     when p.code = 'KIT'   and oi.parent_item in ('IT-001A','IT-002A','IT-006A') then 'CONCLUIDO'
     when p.code in ('QUALITY', 'EXP', 'ACAB', 'PRE_MTG') then 'NAO_INICIADO'
     else 'NAO_INICIADO'

@@ -54,10 +54,6 @@ function statusClass(status: ProcessStatus): string {
   switch (status) {
     case "CONCLUIDO":
       return "border-status-done/40 bg-status-done-bg text-status-done";
-    case "EM_ANDAMENTO":
-      return "border-status-progress/40 bg-status-progress-bg text-status-progress";
-    case "BLOQUEADO":
-      return "border-status-blocked/40 bg-status-blocked-bg text-status-blocked";
     case "NAO_APLICAVEL":
       return "border-border bg-muted text-muted-foreground";
     default:

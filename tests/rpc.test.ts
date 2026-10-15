@@ -120,8 +120,8 @@ beforeAll(async () => {
   await createItem(order1, "ITEM-001", "Treliça metálica", 10, "2026-10-05", [
     { code: "LASER", status: "CONCLUIDO" },
     { code: "DB_CH", status: "CONCLUIDO" },
-    { code: "SERRA", status: "EM_ANDAMENTO" },
-    { code: "SOLDA", status: "BLOQUEADO" },
+    { code: "SERRA", status: "NAO_INICIADO" },
+    { code: "SOLDA", status: "NAO_INICIADO" },
     { code: "EXP", status: "NAO_INICIADO" },
   ]);
   await createItem(order1, "ITEM-002", "Porta metálica", 4, "2026-10-25", [
@@ -134,7 +134,7 @@ beforeAll(async () => {
   // OF-002: entregas futuras
   const order2 = await createOrder("OF-002", "2026-10-20");
   await createItem(order2, "ITEM-101", "Grade de proteção", 25, "2026-10-12", [
-    { code: "LASER", status: "EM_ANDAMENTO" },
+    { code: "LASER", status: "NAO_INICIADO" },
     { code: "EXP", status: "NAO_APLICAVEL" },
   ]);
   await createItem(order2, "ITEM-102", "Corrimão inox", 12, "2026-11-02", [
@@ -262,8 +262,8 @@ describe("get_production_rows", () => {
   });
 
   it("filtra por processo e status do processo", async () => {
-    const emAndamento = await callRows({ p_process_code: "SERRA", p_process_status: "EM_ANDAMENTO" });
-    expect(emAndamento.map((row) => row.parent_item)).toEqual(["ITEM-001"]);
+    const naoIniciado = await callRows({ p_process_code: "SERRA", p_process_status: "NAO_INICIADO" });
+    expect(naoIniciado.map((row) => row.parent_item)).toEqual(["ITEM-001"]);
 
     const aplicaveis = await callRows({ p_process_code: "EXP" });
     expect(aplicaveis.map((row) => row.parent_item).sort()).toEqual([
@@ -303,7 +303,7 @@ describe("get_production_rows", () => {
 
   it("ordena por coluna de processo", async () => {
     const rows = await callRows({ p_sort: "SOLDA", p_sort_dir: "asc" });
-    // CONCLUIDO (rank 1) vem primeiro, BLOQUEADO (rank 4) depois
+    // CONCLUIDO (rank 1) vem primeiro, NAO_INICIADO (rank 2) depois
     expect(rows.map((row) => row.parent_item)).toEqual(["ITEM-002", "ITEM-001", "ITEM-101", "ITEM-102"]);
   });
 
@@ -464,7 +464,7 @@ describe("get_production_stats", () => {
       itemsInProduction: number;
       delivery: Record<string, number>;
       expedition: { count: number; qty: number; weight: number };
-      processes: { code: string; pending: number; inProgress: number; done: number }[];
+      processes: { code: string; pending: number; done: number }[];
     };
 
     expect(stats.totalOrders).toBe(2);
@@ -486,7 +486,7 @@ describe("get_production_stats", () => {
 
     const laser = stats.processes.find((process) => process.code === "LASER");
     expect(laser?.done).toBe(3);
-    expect(laser?.inProgress).toBe(1);
+    expect(laser?.pending).toBe(1);
 
     const exp = stats.processes.find((process) => process.code === "EXP");
     expect(exp?.done).toBe(1);
@@ -519,7 +519,7 @@ describe("apply_import", () => {
             op: "OP-900",
             processes: [
               { code: "LASER", status: "CONCLUIDO" },
-              { code: "SERRA", status: "EM_ANDAMENTO" },
+              { code: "SERRA", status: "NAO_INICIADO" },
               { code: "EXP", status: "NAO_INICIADO" },
             ],
           },
@@ -558,7 +558,7 @@ describe("apply_import", () => {
     );
     expect(processes).toHaveLength(3);
     expect(processes.find((process) => process.code === "LASER")?.status).toBe("CONCLUIDO");
-    expect(processes.find((process) => process.code === "SERRA")?.status).toBe("EM_ANDAMENTO");
+    expect(processes.find((process) => process.code === "SERRA")?.status).toBe("NAO_INICIADO");
 
     await asSuperUser(db);
   });
@@ -1127,20 +1127,49 @@ describe("apply_of_import (016)", () => {
     expect(materials.find((entry) => entry.parent_item === "P-2")?.quantity).toBe("2");
     expect(materials.find((entry) => entry.parent_item === "C-1")?.quantity).toBe("3");
 
-    // Catálogo completo (pai e filho) em NAO_INICIADO.
+    // Catálogo completo por item (invariante 010): MP obrigatório; SERRA e
+    // DB_TB nascem marcados onde há material TB (P-1, P-2, C-1); C-2 sem
+    // material e DB_CH nascem desmarcados — regras 027/028.
     const { rows: active } = await db.query<{ count: string }>(
       "select count(*)::text as count from public.processes where active",
     );
-    const { rows: processes } = await db.query<{ total: string; nao: string }>(
+    const { rows: processes } = await db.query<{
+      total: string;
+      nao: string;
+      aplica: string;
+      itens: string;
+    }>(
       `select count(*)::text as total,
-              count(*) filter (where pp.status = 'NAO_INICIADO')::text as nao
+              count(*) filter (where pp.status = 'NAO_INICIADO')::text as nao,
+              count(*) filter (where pp.status = 'NAO_APLICAVEL')::text as aplica,
+              count(distinct oi.id)::text as itens
          from public.production_processes pp
          join public.order_items oi on oi.id = pp.order_item_id
          join public.orders o on o.id = oi.order_id
         where o.code = 'OF-700'`,
     );
     expect(processes[0]?.total).toBe(String(Number(active[0]?.count) * 4));
-    expect(processes[0]?.nao).toBe(processes[0]?.total);
+    expect(processes[0]?.itens).toBe("4");
+    expect(processes[0]?.nao).toBe("10"); // 4 MP + 3 SERRA + 3 DB_TB
+    expect(processes[0]?.aplica).toBe(String(Number(processes[0]?.total) - 10));
+
+    const { rows: porCodigo } = await db.query<{ key: string; n: string }>(
+      `select p.code || ':' || pp.status as key, count(*)::text as n
+         from public.production_processes pp
+         join public.processes p on p.id = pp.process_id
+         join public.order_items oi on oi.id = pp.order_item_id
+         join public.orders o on o.id = oi.order_id
+        where o.code = 'OF-700'
+        group by 1`,
+    );
+    const mapa = new Map(porCodigo.map((row) => [row.key, row.n] as [string, string]));
+    expect(mapa.get("MP:NAO_INICIADO")).toBe("4");
+    expect(mapa.get("SERRA:NAO_INICIADO")).toBe("3"); // P-1, P-2, C-1 com TB
+    expect(mapa.get("SERRA:NAO_APLICAVEL")).toBe("1"); // C-2 sem material
+    expect(mapa.get("DB_TB:NAO_INICIADO")).toBe("3");
+    expect(mapa.get("DB_TB:NAO_APLICAVEL")).toBe("1");
+    expect(mapa.get("DB_CH:NAO_APLICAVEL")).toBe("4");
+    expect(mapa.get("LASER:NAO_APLICAVEL")).toBe("4");
 
     await asSuperUser(db);
   });
@@ -1208,17 +1237,19 @@ describe("apply_of_import (016)", () => {
     );
     expect(materials).toEqual([{ description: "TB40X40", quantity: "5", unit: "UN" }]);
 
-    // Novo processo do catálogo em NAO_INICIADO nos 3 itens remanescentes.
-    const { rows: novo } = await db.query<{ total: string; nao: string }>(
+    // Novo processo do catálogo nasce DESMARCADO (NAO_APLICAVEL) nos 3
+    // itens remanescentes — só o MP é obrigatório (027).
+    const { rows: novo } = await db.query<{ total: string; nao: string; aplica: string }>(
       `select count(*)::text as total,
-              count(*) filter (where pp.status = 'NAO_INICIADO')::text as nao
+              count(*) filter (where pp.status = 'NAO_INICIADO')::text as nao,
+              count(*) filter (where pp.status = 'NAO_APLICAVEL')::text as aplica
          from public.production_processes pp
          join public.processes p on p.id = pp.process_id
          join public.order_items oi on oi.id = pp.order_item_id
          join public.orders o on o.id = oi.order_id
         where o.code = 'OF-700' and p.code = 'NOVO_P'`,
     );
-    expect(novo).toEqual([{ total: "3", nao: "3" }]);
+    expect(novo).toEqual([{ total: "3", nao: "0", aplica: "3" }]);
 
     // Status da OF re-derivado: filho em produção -> OF em produção.
     const { rows: orders } = await db.query<{ status: string }>(
@@ -1375,6 +1406,100 @@ describe("apply_of_import (016)", () => {
     const orderRows = await callRows({ p_search: "OF-700" });
     expect(orderRows.map((row) => row.parent_item).sort()).toEqual(["P-1", "P-2"]);
   });
+
+  it("material TB marca SERRA/DB_TB e CH marca DB_CH/LASER ao nascer (030)", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    await callApplyOfPlan({
+      operations: [
+        {
+          action: "CREATE",
+          order: {
+            code: "OF-800",
+            type: "OF",
+            customerName: "Cliente Prefixo",
+            description: "Regra de material",
+            deliveryDate: "2026-12-30",
+          },
+          parents: [
+            {
+              code: "A-1",
+              description: "COM TB",
+              family: "TB",
+              quantity: 1,
+              unitWeightKg: 1,
+              totalWeightKg: 1,
+              deliveryDate: "2026-12-30",
+              materials: [{ description: "  tb40x40", quantity: 1, unit: "UN", notes: null }],
+              children: [],
+            },
+            {
+              code: "A-2",
+              description: "COM CH",
+              family: "CH",
+              quantity: 1,
+              unitWeightKg: 1,
+              totalWeightKg: 1,
+              deliveryDate: "2026-12-30",
+              materials: [{ description: "CH100X100", quantity: 1, unit: "UN", notes: null }],
+              children: [
+                {
+                  code: "A-2-F",
+                  description: "FILHO SEM MATERIAL",
+                  family: "F",
+                  quantity: 1,
+                  unitWeightKg: 1,
+                  totalWeightKg: 1,
+                  deliveryDate: "2026-12-30",
+                  materials: [],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const { rows } = await db.query<{ parent_item: string; code: string; status: string }>(
+      `select oi.parent_item, p.code, pp.status
+         from public.production_processes pp
+         join public.processes p on p.id = pp.process_id
+         join public.order_items oi on oi.id = pp.order_item_id
+         join public.orders o on o.id = oi.order_id
+        where o.code = 'OF-800'
+          and p.code in ('MP', 'SERRA', 'DB_TB', 'DB_CH', 'LASER')`,
+    );
+    const statusOf = (item: string, code: string) =>
+      rows.find((row) => row.parent_item === item && row.code === code)?.status;
+
+    // Item com material TB (com espaço e minúsculo — normaliza): SERRA + DB TB.
+    expect(statusOf("A-1", "MP")).toBe("NAO_INICIADO");
+    expect(statusOf("A-1", "SERRA")).toBe("NAO_INICIADO");
+    expect(statusOf("A-1", "DB_TB")).toBe("NAO_INICIADO");
+    expect(statusOf("A-1", "DB_CH")).toBe("NAO_APLICAVEL");
+    expect(statusOf("A-1", "LASER")).toBe("NAO_APLICAVEL");
+
+    // Item com material CH: DB CH + LASER; SERRA e DB TB ficam desmarcados.
+    expect(statusOf("A-2", "MP")).toBe("NAO_INICIADO");
+    expect(statusOf("A-2", "SERRA")).toBe("NAO_APLICAVEL");
+    expect(statusOf("A-2", "DB_CH")).toBe("NAO_INICIADO");
+    expect(statusOf("A-2", "DB_TB")).toBe("NAO_APLICAVEL");
+    expect(statusOf("A-2", "LASER")).toBe("NAO_INICIADO");
+
+    // Filho sem material: só o MP é obrigatório.
+    expect(statusOf("A-2-F", "MP")).toBe("NAO_INICIADO");
+    expect(statusOf("A-2-F", "SERRA")).toBe("NAO_APLICAVEL");
+    expect(statusOf("A-2-F", "DB_TB")).toBe("NAO_APLICAVEL");
+    expect(statusOf("A-2-F", "DB_CH")).toBe("NAO_APLICAVEL");
+    expect(statusOf("A-2-F", "LASER")).toBe("NAO_APLICAVEL");
+
+    // Limpeza: a OF-800 não pode vazar para os testes seguintes.
+    await asSuperUser(db);
+    await db.query(
+      "delete from public.order_items where order_id = (select id from public.orders where code = 'OF-800')",
+    );
+    await db.query("delete from public.orders where code = 'OF-800'");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1467,7 +1592,7 @@ async function callOrderRows(params: Record<string, unknown> = {}): Promise<Orde
 
 describe("get_production_rows_by_order (025) — consolidada por OF", () => {
   // OF-801: vencida, com filhos da Fábrica 1 e um override de entrega
-  // em item. OF-802: futura, com KIT não aplicável e LASER bloqueado.
+  // em item. OF-802: futura, com KIT não aplicável e LASER pendente.
   beforeAll(async () => {
     const order801 = await createOrder("OF-801", "2026-10-05");
     const order802 = await createOrder("OF-802", "2026-11-01");
@@ -1475,7 +1600,7 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
     const paiA = await createRootItem(order801, "P-801A", "Treliça 801", 3, 10, [
       { code: "MP", status: "NAO_INICIADO" },
       { code: "KIT", status: "CONCLUIDO" },
-      { code: "SOLDA", status: "EM_ANDAMENTO" },
+      { code: "SOLDA", status: "NAO_INICIADO" },
       { code: "EXP", status: "NAO_INICIADO" },
     ]);
     await createRootItem(order801, "P-801B", "Porta 801", 2, 5, [
@@ -1490,12 +1615,12 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
     // célula da OF — são os raiz que mandam nesses códigos.
     await createChild(order801, paiA, "C-801A", "Componente 801A", 3, [
       { code: "LASER", status: "CONCLUIDO" },
-      { code: "SERRA", status: "EM_ANDAMENTO" },
-      { code: "KIT", status: "BLOQUEADO" },
+      { code: "SERRA", status: "NAO_INICIADO" },
+      { code: "KIT", status: "NAO_INICIADO" },
       { code: "SOLDA", status: "CONCLUIDO" },
     ]);
     await createChild(order801, paiA, "C-801B", "Componente 801B", 3, [
-      { code: "LASER", status: "EM_ANDAMENTO" },
+      { code: "LASER", status: "CONCLUIDO" },
     ]);
 
     const pai802 = await createRootItem(order802, "P-802A", "Grade 802", 4, 12.5, [
@@ -1503,7 +1628,7 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
       { code: "EXP", status: "CONCLUIDO" },
     ]);
     await createChild(order802, pai802, "C-802A", "Componente 802A", 4, [
-      { code: "LASER", status: "BLOQUEADO" },
+      { code: "LASER", status: "NAO_INICIADO" },
     ]);
 
     // Cliente próprio — os fixtures antigos compartilham "Metalúrgica Alfa".
@@ -1534,18 +1659,18 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
   it("lê a cadeia F1 nos FILHOS e os demais processos nos RAIZ", async () => {
     const [of801] = await callOrderRows({ p_search: "OF-801" });
 
-    // LASER vem dos filhos: CONCLUIDO + EM_ANDAMENTO => pior = EM_ANDAMENTO.
+    // LASER vem dos filhos: CONCLUIDO + CONCLUIDO => tudo concluído (2/2).
     expect(of801?.processes.LASER).toMatchObject({
-      status: "EM_ANDAMENTO",
-      done: 1,
+      status: "CONCLUIDO",
+      done: 2,
       applicable: 2,
     });
-    expect(of801?.processes.SERRA).toMatchObject({ status: "EM_ANDAMENTO", done: 0, applicable: 1 });
+    expect(of801?.processes.SERRA).toMatchObject({ status: "NAO_INICIADO", done: 0, applicable: 1 });
 
     // MP e SOLDA vêm dos RAIZ: o KIT/SOLDA lançado no filho foi ignorado
     // (o SOLDA do filho está CONCLUIDO e não puxou a célula para "concluído").
     expect(of801?.processes.MP).toMatchObject({ status: "NAO_INICIADO", done: 1, applicable: 2 });
-    expect(of801?.processes.SOLDA).toMatchObject({ status: "EM_ANDAMENTO", done: 0, applicable: 1 });
+    expect(of801?.processes.SOLDA).toMatchObject({ status: "NAO_INICIADO", done: 0, applicable: 1 });
     expect(of801?.processes.KIT).toMatchObject({ status: "CONCLUIDO", done: 1, applicable: 1 });
 
     // EXP: um raiz expedido e outro não => pior situação + contador 1/2.
@@ -1561,8 +1686,8 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
       done: 0,
       applicable: 0,
     });
-    // LASER bloqueado vem do filho; EXP concluído vem da raiz.
-    expect(of802?.processes.LASER).toMatchObject({ status: "BLOQUEADO", done: 0, applicable: 1 });
+    // LASER pendente vem do filho; EXP concluído vem da raiz.
+    expect(of802?.processes.LASER).toMatchObject({ status: "NAO_INICIADO", done: 0, applicable: 1 });
     expect(of802?.processes.EXP).toMatchObject({ status: "CONCLUIDO", done: 1, applicable: 1 });
     // Códigos sem nenhum registro na OF não aparecem.
     expect(of802?.processes.MP).toBeUndefined();
@@ -1602,12 +1727,12 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
   });
 
   it("filtra por processo/status considerando o escopo da coluna", async () => {
-    const laserBloqueado = await callOrderRows({
+    const laserNaoIniciado = await callOrderRows({
       p_search: "OF-8",
       p_process_code: "LASER",
-      p_process_status: "BLOQUEADO",
+      p_process_status: "NAO_INICIADO",
     });
-    expect(laserBloqueado.map((row) => row.order_code)).toEqual(["OF-802"]);
+    expect(laserNaoIniciado.map((row) => row.order_code)).toEqual(["OF-802"]);
 
     // MP aplicável: só OF-801 tem nos raiz.
     const mp = await callOrderRows({ p_search: "OF-8", p_process_code: "MP" });
@@ -1622,7 +1747,7 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
     const porPeso = await callOrderRows({ p_search: "OF-8", p_sort: "weight_total", p_sort_dir: "desc" });
     expect(porPeso.map((row) => row.order_code)).toEqual(["OF-802", "OF-801"]);
 
-    // LASER: EM_ANDAMENTO (rank 2) antes de BLOQUEADO (rank 4).
+    // LASER: CONCLUIDO (rank 1) antes de NAO_INICIADO (rank 2).
     const porLaser = await callOrderRows({ p_search: "OF-8", p_sort: "LASER", p_sort_dir: "asc" });
     expect(porLaser.map((row) => row.order_code)).toEqual(["OF-801", "OF-802"]);
 

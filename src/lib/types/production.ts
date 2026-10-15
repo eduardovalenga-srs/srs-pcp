@@ -18,7 +18,7 @@ export interface ProcessCell {
  * tooltip e para o contador "feito/aplicável".
  */
 export interface OrderProcessCell {
-  /** Pior situação entre os itens aplicáveis (BLOQUEADO > … > CONCLUIDO). */
+  /** Pior situação entre os itens aplicáveis (NAO_INICIADO > CONCLUIDO). */
   status: ProcessStatus;
   /** Quantos itens aplicáveis estão CONCLUIDO (numerador do contador). */
   done: number;
@@ -137,8 +137,6 @@ export interface ProcessStat {
   displayOrder: number;
   total: number;
   pending: number;
-  inProgress: number;
-  blocked: number;
   done: number;
 }
 

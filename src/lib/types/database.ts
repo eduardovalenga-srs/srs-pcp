@@ -14,9 +14,7 @@ export type OrderTypeValue = "OF" | "OS";
 export type OrderStatusValue = "PLANEJADO" | "EM_PRODUCAO" | "CONCLUIDO" | "CANCELADO";
 export type ProcessStatusValue =
   | "NAO_INICIADO"
-  | "EM_ANDAMENTO"
   | "CONCLUIDO"
-  | "BLOQUEADO"
   | "NAO_APLICAVEL";
 export type ImportBatchStatusValue = "PENDENTE" | "PROCESSANDO" | "CONCLUIDO" | "COM_ERROS" | "FALHOU";
 

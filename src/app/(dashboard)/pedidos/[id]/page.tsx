@@ -22,6 +22,8 @@ import { DeleteOrderButton } from "@/components/pedidos/DeleteOrderButton";
 import { ItemProcesses } from "@/components/pedidos/ItemProcesses";
 import { OrderDetailMaterials } from "@/components/pedidos/OrderDetailMaterials";
 
+export const metadata = { title: "Pedido" };
+
 function itemCountsLabel(parentCount: number, childCount: number): string {
   const parents = parentCount === 1 ? "1 item pai" : `${parentCount} itens pais`;
   if (childCount === 0) return parents;

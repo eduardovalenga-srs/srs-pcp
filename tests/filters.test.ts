@@ -268,7 +268,7 @@ describe("parseChildItemFilters", () => {
       cliente: "ACME",
       filho: "72ST18-025",
       entregade: "2026-10-01",
-      situacao: "BLOQUEADO",
+      situacao: "CONCLUIDO",
       pagina: "3",
     });
     const params = new URLSearchParams(childItemQueryString(filters));
@@ -277,7 +277,7 @@ describe("parseChildItemFilters", () => {
     expect(params.get("cliente")).toBe("ACME");
     expect(params.get("filho")).toBe("72ST18-025");
     expect(params.get("entregade")).toBe("2026-10-01");
-    expect(params.get("situacao")).toBe("BLOQUEADO");
+    expect(params.get("situacao")).toBe("CONCLUIDO");
     expect(params.get("pagina")).toBe("3");
     expect(params.has("material")).toBe(false);
     expect(params.has("processo")).toBe(false);
@@ -289,7 +289,7 @@ describe("parseChildItemFilters", () => {
     expect(roundtrip.customer).toBe("ACME");
     expect(roundtrip.childItem).toBe("72ST18-025");
     expect(roundtrip.deliveryFrom).toBe("2026-10-01");
-    expect(roundtrip.processStatus).toBe("BLOQUEADO");
+    expect(roundtrip.processStatus).toBe("CONCLUIDO");
     expect(roundtrip.page).toBe(3);
     expect(roundtrip.pageSize).toBe(CHILD_ITEMS_PAGE_SIZE);
   });
@@ -336,11 +336,11 @@ describe("childItemFilterChips", () => {
 
   it("descreve o período de entrega e o filtro de processo", () => {
     const chips = childItemFilterChips(
-      parseChildItemFilters({ entregade: "2026-10-01", entregaate: "2026-10-31", situacao: "EM_ANDAMENTO" }),
+      parseChildItemFilters({ entregade: "2026-10-01", entregaate: "2026-10-31", situacao: "CONCLUIDO" }),
     );
     expect(chips.map((chip) => chip.label)).toEqual([
       "Período de entrega: 01/10/2026 – 31/10/2026",
-      "Em andamento (qualquer processo)",
+      "Concluído (qualquer processo)",
     ]);
   });
 });
@@ -356,7 +356,7 @@ describe("activeFilterChips", () => {
       status: "EM_PRODUCAO",
       entrega: "OVERDUE",
       processo: "LASER",
-      situacao: "BLOQUEADO",
+      situacao: "CONCLUIDO",
     });
     const chips = activeFilterChips(filters);
 
@@ -365,7 +365,7 @@ describe("activeFilterChips", () => {
       "Busca: porta",
       "Situação: Em produção",
       "Entrega: Atrasados",
-      "LASER: Bloqueado",
+      "LASER: Concluído",
     ]);
 
     // Limpar o chip de situação não derruba os outros filtros.
@@ -374,7 +374,7 @@ describe("activeFilterChips", () => {
     expect(semStatus.search).toBe("porta");
     expect(semStatus.delivery).toBe("OVERDUE");
     expect(semStatus.processCode).toBe("LASER");
-    expect(semStatus.processStatus).toBe("BLOQUEADO");
+    expect(semStatus.processStatus).toBe("CONCLUIDO");
   });
 
   it("descreve o filtro de processo sem situação específica", () => {

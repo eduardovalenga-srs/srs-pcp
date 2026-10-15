@@ -75,13 +75,13 @@ describe("cabeçalhos com filtro (desktop)", () => {
 
   it("mostra o funil do grupo PROCESSOS como ativo só com situação em qualquer processo", () => {
     const globalStatus = html(
-      createElement(ProcessGroupFilter, { filters: parseProductionFilters({ situacao: "BLOQUEADO" }) }),
+      createElement(ProcessGroupFilter, { filters: parseProductionFilters({ situacao: "CONCLUIDO" }) }),
     );
     expect(globalStatus).toContain("filtro ativo");
 
     const scoped = html(
       createElement(ProcessGroupFilter, {
-        filters: parseProductionFilters({ processo: "LASER", situacao: "BLOQUEADO" }),
+        filters: parseProductionFilters({ processo: "LASER", situacao: "CONCLUIDO" }),
       }),
     );
     expect(scoped).not.toContain("filtro ativo");

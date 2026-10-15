@@ -22,6 +22,8 @@ import { Header } from "@/components/layout/Header";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { ProcessLoadTable } from "@/components/dashboard/ProcessLoadTable";
 
+export const metadata = { title: "Dashboard" };
+
 const DELIVERY_WINDOWS = [
   { key: "OVERDUE", label: "Atrasados", field: "overdue" as const },
   { key: "TODAY", label: "Entrega hoje", field: "today" as const },

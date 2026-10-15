@@ -105,7 +105,7 @@ describe("updateProcessBatchAction (025 — edição em lote por OF)", () => {
     const result = await updateProcessBatchAction({
       orderId: "of-1",
       processCode: "MP",
-      status: "EM_ANDAMENTO",
+      status: "NAO_APLICAVEL",
     });
 
     expect(result.success).toBe(false);
@@ -133,12 +133,12 @@ describe("updateProcessBatchAction (025 — edição em lote por OF)", () => {
 
   it("aplica a situação só onde difere, preserva quantidades/observações e gera evento por item", async () => {
     mocks.getOrderProcessTargets.mockResolvedValue([
-      target("pp-1", "item-1", "EM_ANDAMENTO", { quantityPlanned: 3, quantityCompleted: 1, notes: "obs 1" }),
+      target("pp-1", "item-1", "NAO_INICIADO", { quantityPlanned: 3, quantityCompleted: 1, notes: "obs 1" }),
       // Já no status desejado: fora da gravação, mas conta no total.
       target("pp-2", "item-2", "CONCLUIDO", { quantityCompleted: 2 }),
       // Não aplicável: o lote nunca recria um processo desmarcado.
       target("pp-3", "item-3", "NAO_APLICAVEL"),
-      target("pp-4", "item-4", "EM_ANDAMENTO"),
+      target("pp-4", "item-4", "NAO_INICIADO"),
     ]);
     mocks.getItemAggregate.mockImplementation(async () => ({
       status: "EM_PRODUCAO" as const,
@@ -174,7 +174,7 @@ describe("updateProcessBatchAction (025 — edição em lote por OF)", () => {
       productionProcessId: "pp-1",
       userId: "user-1",
       eventType: "STATUS_CHANGE",
-      oldStatus: "EM_ANDAMENTO",
+      oldStatus: "NAO_INICIADO",
       newStatus: "CONCLUIDO",
       oldQuantity: 1,
       newQuantity: 1,

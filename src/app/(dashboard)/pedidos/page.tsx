@@ -18,6 +18,8 @@ import { OrderFilters } from "@/components/pedidos/OrderFilters";
 import { OrderList } from "@/components/pedidos/OrderList";
 import { OrderPagination } from "@/components/pedidos/OrderPagination";
 
+export const metadata = { title: "Pedidos" };
+
 export default async function PedidosPage({ searchParams }: PageProps<"/pedidos">) {
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");

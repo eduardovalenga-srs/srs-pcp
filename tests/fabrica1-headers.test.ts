@@ -110,7 +110,7 @@ describe("cabeçalhos da Fábrica 1 (desktop)", () => {
   it("mostra o funil do grupo PROCESSOS como ativo com situação (sem processo específico)", () => {
     const markup = html(
       createElement(Fabrica1ProcessGroupFilter, {
-        filters: parseChildItemFilters({ situacao: "BLOQUEADO" }),
+        filters: parseChildItemFilters({ situacao: "CONCLUIDO" }),
       }),
     );
     expect(markup).toContain("filtro ativo");

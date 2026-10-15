@@ -347,9 +347,7 @@ export async function findOrderStructures(
       })),
       hasProgress:
         (item.op !== null && item.op !== "") ||
-        (item.production_processes ?? []).some((process) =>
-          ["EM_ANDAMENTO", "CONCLUIDO", "BLOQUEADO"].includes(process.status),
-        ),
+        (item.production_processes ?? []).some((process) => process.status === "CONCLUIDO"),
     }));
 
     result.set(row.code.toUpperCase(), {
