@@ -22,6 +22,9 @@ export const PRODUCTION_SORT_KEYS = [
   "item_status",
   "op",
   "overdue",
+  // 025: coluna "Peso total" da gestão de entregas consolidada por OF.
+  // A Fábrica 2 não usa — a RPC dela ignora chaves fora da whitelist.
+  "weight_total",
 ] as const;
 export type ProductionSortKey = (typeof PRODUCTION_SORT_KEYS)[number];
 

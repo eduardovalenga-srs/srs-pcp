@@ -5,7 +5,7 @@ import { FileSpreadsheet, Plus } from "lucide-react";
 import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { getDashboardData, getProductionPage } from "@/lib/services/production.service";
+import { getDashboardData, getProductionOrdersPage } from "@/lib/services/production.service";
 import { parseProductionFilters } from "@/lib/utils/filters";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -34,11 +34,11 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
 
   const filters = parseProductionFilters(await searchParams);
 
-  let data: Awaited<ReturnType<typeof getProductionPage>>;
+  let data: Awaited<ReturnType<typeof getProductionOrdersPage>>;
   let stats: Awaited<ReturnType<typeof getDashboardData>>;
   try {
     const client = await createClient();
-    [data, stats] = await Promise.all([getProductionPage(client, filters), getDashboardData(client)]);
+    [data, stats] = await Promise.all([getProductionOrdersPage(client, filters), getDashboardData(client)]);
   } catch (error) {
     return (
       <>
@@ -51,10 +51,11 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
     );
   }
 
+  // Visão consolidada por OF (025): só a situação (em lote) e a entrega
+  // do pedido são editáveis aqui — quantidades/observações por item
+  // seguem na Fábrica 2 e no detalhe do pedido.
   const capabilities = {
     canUpdateStatus: can(sessionUser.role, "production.update_status"),
-    canEditQuantities: can(sessionUser.role, "production.edit"),
-    canViewHistory: can(sessionUser.role, "production.view_history"),
     canEditDelivery: can(sessionUser.role, "orders.edit"),
   };
 
@@ -62,7 +63,7 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
     <>
       <Header
         title="Gestão de Entregas"
-        description="Uma linha por item, uma coluna por processo. Clique em uma célula para atualizar."
+        description="Uma linha por OF — quantidades e pesos somados, com uma coluna por processo. Clique numa célula para aplicar a situação a toda a OF."
         actions={
           <>
             {can(sessionUser.role, "orders.create") ? (

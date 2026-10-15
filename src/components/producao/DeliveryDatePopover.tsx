@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Pencil } from "lucide-react";
 import { toast } from "sonner";
 
-import { updateItemDeliveryDateAction } from "@/lib/actions/orders.actions";
+import { updateOrderDeliveryDateAction } from "@/lib/actions/orders.actions";
 import { isValidISODate } from "@/lib/utils/dates";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,25 +13,28 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface DeliveryDatePopoverProps {
-  orderItemId: string;
-  /** Data atual (AAAA-MM-DD) ou null (sem entrega). */
+  orderId: string;
+  /** Data atual do PEDIDO (AAAA-MM-DD) ou null (sem entrega). */
   deliveryDate: string | null;
-  /** Rótulo do item (OF — descrição) em aria-label e mensagens. */
-  itemLabel: string;
+  /** Rótulo do pedido (ex.: "OF OS-123") em aria-label e mensagens. */
+  orderLabel: string;
   /** Conteúdo gatilho — a data formatada + alerta de atraso. */
   children: ReactNode;
 }
 
 /**
- * Edição manual da data de entrega de um item (ADMIN/GESTOR), na própria
- * coluna "Ent." da gestão de entregas. Gravada a nova data, o refresh da
- * página recalcula as previsões de todos os processos (janelas derivadas
- * da entrega) e a regra de atraso da linha.
+ * Edição da data de entrega do PEDIDO (025), na própria coluna "Ent." da
+ * gestão de entregas consolidada. Gravada a nova data, o refresh da página
+ * recalcula as previsões de todos os processos (janelas derivadas da
+ * entrega) e a regra de atraso da linha.
+ *
+ * Itens com data própria (override) mantêm a deles — elas continuam
+ * visíveis e editáveis na tela da Fábrica 2 e no detalhe do pedido.
  */
 export function DeliveryDatePopover({
-  orderItemId,
+  orderId,
   deliveryDate,
-  itemLabel,
+  orderLabel,
   children,
 }: DeliveryDatePopoverProps) {
   const router = useRouter();
@@ -48,7 +51,7 @@ export function DeliveryDatePopover({
   const save = async () => {
     setSaving(true);
     try {
-      const result = await updateItemDeliveryDateAction(orderItemId, draft);
+      const result = await updateOrderDeliveryDateAction(orderId, draft);
       if (!result.success) {
         toast.error(result.message);
         return;
@@ -71,8 +74,8 @@ export function DeliveryDatePopover({
         <button
           type="button"
           className="group -mx-1 flex w-full items-center gap-1 rounded px-1 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          aria-label={`Editar data de entrega de ${itemLabel}`}
-          title="Editar data de entrega"
+          aria-label={`Editar data de entrega do pedido ${orderLabel}`}
+          title="Editar data de entrega do pedido"
         >
           {children}
           <Pencil
@@ -83,9 +86,9 @@ export function DeliveryDatePopover({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 space-y-3">
         <div className="space-y-1">
-          <Label htmlFor={`entrega-${orderItemId}`}>Data de entrega</Label>
+          <Label htmlFor={`entrega-${orderId}`}>Entrega do pedido</Label>
           <Input
-            id={`entrega-${orderItemId}`}
+            id={`entrega-${orderId}`}
             type="date"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -93,7 +96,8 @@ export function DeliveryDatePopover({
           />
         </div>
         <p className="text-xs text-muted-foreground">
-          As previsões de todos os processos são recalculadas a partir desta data.
+          As previsões de todos os processos são recalculadas a partir desta data. Itens com entrega
+          própria mantêm a data deles.
         </p>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={saving}>

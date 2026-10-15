@@ -7,7 +7,7 @@ import { can } from "@/lib/auth/permissions";
 import { isProcessStatus } from "@/lib/constants/production";
 import { createClient } from "@/lib/supabase/server";
 import type { ProductionEvent } from "@/lib/types/production";
-import { getItemHistory, updateProcess } from "@/lib/services/production.service";
+import { getItemHistory, updateProcess, updateProcessBatch } from "@/lib/services/production.service";
 import { errorMessage } from "@/lib/utils/supabase-result";
 
 /** Normaliza valor de formulário para o texto esperado pelos schemas. */
@@ -59,6 +59,7 @@ export async function updateProcessAction(input: {
 
     if (result.changed) {
       revalidatePath("/gestao-entregas");
+      revalidatePath("/fabrica-2");
       revalidatePath("/dashboard");
       revalidatePath("/(dashboard)/pedidos/[id]", "page");
     }
@@ -70,12 +71,65 @@ export async function updateProcessAction(input: {
   }
 }
 
+export interface ProcessBatchActionResult {
+  success: boolean;
+  message: string;
+  changed: boolean;
+  /** Itens cuja situação realmente mudou. */
+  updated: number;
+  /** Itens com o processo aplicável na OF. */
+  total: number;
+}
+
+/**
+ * Edição EM LOTE de um processo em TODOS os itens aplicáveis da OF
+ * (025 — a célula de processo da gestão de entregas consolidada).
+ * Só a situação muda; quantidades/observações por item ficam intactas
+ * e cada item alterado gera seu evento de histórico.
+ */
+export async function updateProcessBatchAction(input: {
+  orderId: string;
+  processCode: string;
+  status: string;
+}): Promise<ProcessBatchActionResult> {
+  try {
+    const sessionUser = await requireCapability("production.update_status");
+    if (!isProcessStatus(input.status)) {
+      return { success: false, message: "Status inválido.", changed: false, updated: 0, total: 0 };
+    }
+
+    const client = await createClient();
+    const result = await updateProcessBatch(client, sessionUser, {
+      orderId: input.orderId,
+      processCode: input.processCode,
+      status: input.status,
+    });
+
+    if (result.changed) {
+      revalidatePath("/gestao-entregas");
+      revalidatePath("/fabrica-2");
+      revalidatePath("/dashboard");
+      revalidatePath("/(dashboard)/pedidos/[id]", "page");
+    }
+
+    return {
+      success: true,
+      message: result.message,
+      changed: result.changed,
+      updated: result.updated,
+      total: result.total,
+    };
+  } catch (error) {
+    console.error("[updateProcessBatchAction]", error);
+    return { success: false, message: errorMessage(error), changed: false, updated: 0, total: 0 };
+  }
+}
+
 export interface HistoryResult {
   success: boolean;
   message: string;
   events: ProductionEvent[];
 }
-
 /** Histórico de alterações de um item (nunca destruído). */
 export async function getItemHistoryAction(orderItemId: string): Promise<HistoryResult> {
   try {

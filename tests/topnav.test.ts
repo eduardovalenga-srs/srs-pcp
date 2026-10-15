@@ -56,9 +56,13 @@ describe("TopNav (menu no topo)", () => {
     expect(markup).toContain('aria-current="page"');
     expect(markup).toContain('href="/fabrica-1"');
     expect(markup).toContain('aria-label="Fábrica 1"');
+    // Fábrica 2 entra logo após a Fábrica 1 (ADMIN/GESTOR).
+    expect(markup).toContain('href="/fabrica-2"');
+    expect(markup).toContain('aria-label="Fábrica 2"');
     expect(markup).toContain('href="/dashboard"');
-    expect(markup).toContain('href="/importacao"');
-    expect(markup).toContain('aria-label="Importar Excel"');
+    // Importação saiu da barra — o acesso é pelo botão da gestão de entregas.
+    expect(markup).not.toContain('href="/importacao"');
+    expect(markup).not.toContain('aria-label="Importar Excel"');
     expect(markup).toContain('href="/processos"');
     // Entre lg e xl só os ícones aparecem — o rótulo fica oculto para não disputar largura.
     expect(markup).toContain("hidden xl:inline");
@@ -69,7 +73,13 @@ describe("TopNav (menu no topo)", () => {
   it("mostra só o nome na barra; perfil, alterar senha e sair ficam no menu do usuário", () => {
     const markup = renderFor("GESTOR");
 
-    expect(markup).toContain("Controle de Produção");
+    expect(markup).toContain("Imperatriz");
+    // O brasão da tela de login marca o nome na barra (desktop e gaveta).
+    // O next/image serve o arquivo via /_next/image?url=..., então a
+    // checagem casa o nome do arquivo em qualquer forma.
+    expect(markup).toContain("logo_imperatriz.png");
+    expect(markup).not.toContain("logo.png");
+    expect(markup).not.toContain("Controle de Produção");
     expect(markup).toContain("Ana Souza");
     expect(markup).toContain('aria-label="Menu do usuário"');
     expect(markup).toContain('aria-haspopup="menu"');
@@ -90,6 +100,7 @@ describe("TopNav (menu no topo)", () => {
     expect(markup).toContain('aria-label="Fábrica 1"');
     // Gestão de Entregas saiu da barra dele (capability menu.gestao).
     expect(markup).not.toContain('href="/gestao-entregas"');
+    expect(markup).not.toContain('href="/fabrica-2"');
     expect(markup).not.toContain('href="/dashboard"');
     expect(markup).not.toContain('href="/importacao"');
     expect(markup).not.toContain('href="/processos"');
@@ -104,6 +115,8 @@ describe("TopNav (menu no topo)", () => {
     expect(markup).toContain('href="/gestao-entregas"');
     // Fábrica 1 é leitura de materiais — disponível para todos os perfis.
     expect(markup).toContain('href="/fabrica-1"');
+    // Fábrica 2 é restrita a ADMIN/GESTOR.
+    expect(markup).not.toContain('href="/fabrica-2"');
     expect(markup).not.toContain('href="/dashboard"');
     expect(markup).not.toContain('href="/importacao"');
     expect(markup).not.toContain('href="/processos"');
@@ -117,8 +130,9 @@ describe("TopNav (menu no topo)", () => {
 
     expect(markup).toContain('href="/gestao-entregas"');
     expect(markup).toContain('href="/fabrica-1"');
+    expect(markup).toContain('href="/fabrica-2"');
     expect(markup).toContain('href="/dashboard"');
-    expect(markup).toContain('href="/importacao"');
+    expect(markup).not.toContain('href="/importacao"');
     expect(markup).toContain('href="/processos"');
     // Configurações segue fora da barra — vive no menu do usuário.
     expect(markup).not.toContain('href="/configuracoes"');

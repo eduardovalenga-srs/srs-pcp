@@ -187,6 +187,37 @@ export type ProductionRowRecord = {
   >;
 };
 
+/** Linha retornada pela RPC get_production_rows_by_order (025) — uma por OF. */
+export type ProductionOrderRowRecord = {
+  total_count: number | string;
+  /** Soma do peso TOTAL das OFs filtradas — antes da paginação. */
+  weight_total: number | string;
+  /** Soma das quantidades das OFs filtradas — antes da paginação. */
+  qty_total: number | string;
+  order_id: string;
+  order_code: string;
+  order_type: string;
+  customer_name: string;
+  order_status: OrderStatusValue;
+  delivery_date: string | null;
+  /** Soma das quantidades dos itens raiz da OF. */
+  quantity: number | string;
+  /** Soma do peso total (qtd × peso unit.) dos itens raiz da OF. */
+  weight_kg: number | string | null;
+  overdue: boolean;
+  /** Célula agregada por processo (sem id/notes: é lote, não item). */
+  processes: Record<
+    string,
+    {
+      status: ProcessStatusValue;
+      done: number | string;
+      applicable: number | string;
+      quantityPlanned: number | string | null;
+      quantityCompleted: number | string | null;
+    }
+  >;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -499,6 +530,32 @@ export type Database = {
           p_delivery_to?: string | null;
         };
         Returns: ProductionRowRecord[];
+      };
+      get_production_rows_by_order: {
+        // 025: gestão de entregas consolidada — UMA linha por OF.
+        // Sem colunas TP/Item pai/Descrição/OP; a busca genérica ($1)
+        // ainda varre família/item pai/descrição dos itens da OF.
+        Args: {
+          p_search?: string | null;
+          p_order_status?: string | null;
+          p_process_code?: string | null;
+          p_process_status?: string | null;
+          p_delivery_filter?: string | null;
+          p_today?: string | null;
+          p_sort?: string | null;
+          p_sort_dir?: string | null;
+          p_offset?: number | null;
+          p_limit?: number | null;
+          p_order_code?: string | null;
+          p_customer?: string | null;
+          p_qty_min?: number | null;
+          p_qty_max?: number | null;
+          p_weight_min?: number | null;
+          p_weight_max?: number | null;
+          p_delivery_from?: string | null;
+          p_delivery_to?: string | null;
+        };
+        Returns: ProductionOrderRowRecord[];
       };
       get_production_stats: {
         Args: { p_today?: string | null };

@@ -923,6 +923,78 @@ describe("migrations", () => {
 
     await db.query(`delete from public.orders where id = $1`, [orderId]);
   });
+
+  it("025: cria get_production_rows_by_order (consolidada por OF) + índice por pedido", async () => {
+    await asSuperUser(db);
+
+    // A RPC antiga (get_production_rows) continua intacta — é ela que
+    // sustenta a Fábrica 2; a nova é uma função DIFERENTE.
+    const { rows: functions } = await db.query<{ by_order: string; item: string }>(
+      `select
+         (select count(*)::text
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname = 'public' and p.proname = 'get_production_rows_by_order') as by_order,
+         (select count(*)::text
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname = 'public' and p.proname = 'get_production_rows') as item`,
+    );
+    expect(Number(functions[0]?.by_order)).toBeGreaterThanOrEqual(1);
+    expect(Number(functions[0]?.item)).toBeGreaterThanOrEqual(1);
+
+    // Permissões na régua das RPCs de produção: authenticated executa.
+    // (anon perde o grant direto — no PGlite ele ainda herda o EXECUTE
+    // default de PUBLIC, então a checagem de "revoke" é só do grant.)
+    const sig =
+      "public.get_production_rows_by_order(text, text, text, text, text, date, text, text, integer, integer, text, text, numeric, numeric, numeric, numeric, date, date)";
+    const { rows: grants } = await db.query<{ authenticated: boolean }>(
+      `select has_function_privilege('authenticated', $1, 'EXECUTE') as authenticated`,
+      [sig],
+    );
+    expect(grants[0]?.authenticated).toBe(true);
+
+    // Índice de apoio da consolidação (agrupa itens por pedido).
+    const { rows: indexes } = await db.query<{ count: string }>(
+      `select count(*)::text as count from pg_indexes
+        where schemaname = 'public' and indexname = 'idx_order_items_order_id'`,
+    );
+    expect(Number(indexes[0]?.count)).toBe(1);
+
+    // Pedido manual com 2 itens raiz vira UMA linha, com qtd/peso somados
+    // e a entrega vindo do PEDIDO (orders.delivery_date).
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type, customer_name, delivery_date)
+       values ('OF-025', 'OF', 'Cliente 025', current_date + 5) returning id`,
+    );
+    const orderId = orderRows[0]?.id as string;
+    // 3 × 10 kg = 30 kg  +  2 × 5 kg = 10 kg  =>  40 kg e 5 peças na linha.
+    await db.query(
+      `insert into public.order_items (order_id, parent_item, description, quantity, unit_weight_kg)
+       values ($1, 'P-025-1', 'OF-025 pai 1', 3, 10),
+              ($1, 'P-025-2', 'OF-025 pai 2', 2, 5)`,
+      [orderId],
+    );
+
+    const { rows } = await db.query<{
+      total_count: string;
+      qty_total: string;
+      weight_total: string;
+      quantity: string;
+      weight_kg: string | null;
+      delivery_date: string;
+      processes: Record<string, unknown>;
+    }>(`select * from public.get_production_rows_by_order(p_search => 'OF-025')`);
+
+    expect(rows).toHaveLength(1);
+    expect(Number(rows[0]?.total_count)).toBe(1);
+    expect(Number(rows[0]?.quantity)).toBe(5);
+    expect(Number(rows[0]?.weight_kg)).toBe(40);
+    expect(Number(rows[0]?.qty_total)).toBe(5);
+    expect(Number(rows[0]?.weight_total)).toBe(40);
+    // Sem processos cadastrados a OF ainda aparece (células vazias).
+    expect(rows[0]?.processes).toMatchObject({});
+
+    await db.query(`delete from public.orders where id = $1`, [orderId]);
+  });
 });
 
 describe("RLS", () => {

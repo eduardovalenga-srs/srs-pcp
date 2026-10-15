@@ -65,6 +65,7 @@ export async function createProcessAction(input: CreateProcessInput): Promise<Ca
 
     revalidatePath("/processos");
     revalidatePath("/gestao-entregas");
+    revalidatePath("/fabrica-2");
     revalidatePath("/dashboard");
     return { success: true, message: `Processo ${parsed.data.code} criado com sucesso${appliedSuffix(applied)}.` };
   } catch (error) {
@@ -95,6 +96,7 @@ export async function updateCatalogProcessAction(input: UpdateProcessInput): Pro
 
     revalidatePath("/processos");
     revalidatePath("/gestao-entregas");
+    revalidatePath("/fabrica-2");
     revalidatePath("/dashboard");
     return { success: true, message: `Processo atualizado com sucesso${appliedSuffix(applied)}.` };
   } catch (error) {
@@ -124,6 +126,7 @@ export async function reorderProcessesAction(
 
     revalidatePath("/processos");
     revalidatePath("/gestao-entregas");
+    revalidatePath("/fabrica-2");
     revalidatePath("/dashboard");
     return { success: true, message: "Ordem da cadeia de processos atualizada." };
   } catch (error) {

@@ -10,7 +10,7 @@ import {
   normalizeHeader,
   parseExcelFile,
 } from "@/lib/import/excel-parser";
-import { buildOfStructure, familyFromDescription, isGuardaCorpo, orderStatusOf } from "@/lib/import/of-structure";
+import { buildOfStructure, familyFromDescription, orderStatusOf } from "@/lib/import/of-structure";
 import { buildOfImportPlan, computeOfDifferences, undecidedOrders } from "@/lib/import/of-plan";
 import { assertSheetStructure, importFormSchema, validateImportFile } from "@/lib/validators/import.schema";
 import { formatQuantity } from "@/lib/utils/formatting";
@@ -76,7 +76,7 @@ function buildRows(rows: unknown[][], headers: string[] = TECH_HEADERS) {
   return buildOfStructure(sheetFrom(rows, headers), FORM);
 }
 
-/** Linhas de uma OF completa: pai com 2 filhos + posição tipo X (só material). */
+/** Linhas de uma OF completa: pai com 2 filhos + linha sem filhos (material direto). */
 function fullHierarchyRows(): unknown[][] {
   return [
     makeRow({
@@ -119,7 +119,6 @@ function fullHierarchyRows(): unknown[][] {
       of_idOF: "OF 107482",
       ps_idPos: "72ST18-025",
       ps_Descr: "BOTÃO PORTA",
-      ps_Tipo: "X",
       ps_Qtde: 2,
       ps_Peso: 1.09,
       pos_PesoTotal: 2.18,
@@ -291,10 +290,10 @@ describe("buildOfStructure", () => {
     expect(orderStatusOf(order.issues)).toBe("VALID");
     expect(order.parents).toHaveLength(2);
 
-    const [pai, tipoX] = order.parents;
+    const [pai, direto] = order.parents;
     expect(pai).toBeDefined();
-    expect(tipoX).toBeDefined();
-    if (!pai || !tipoX) return;
+    expect(direto).toBeDefined();
+    if (!pai || !direto) return;
 
     // Campos do pai vêm da PRIMEIRA linha da posição (999 da 2ª linha é ignorado).
     expect(pai.code).toBe("72ST18-018");
@@ -323,11 +322,11 @@ describe("buildOfStructure", () => {
       quantity: 2,
     });
 
-    // Posição tipo X: sem filhos, material direto no pai com ps_Qtde.
-    expect(tipoX.code).toBe("72ST18-025");
-    expect(tipoX.family).toBe("BP");
-    expect(tipoX.children).toHaveLength(0);
-    expect(tipoX.materials).toEqual([
+    // Linha sem filhos: material direto no pai com ps_Qtde (sem ps_Tipo = X).
+    expect(direto.code).toBe("72ST18-025");
+    expect(direto.family).toBe("BP");
+    expect(direto.children).toHaveLength(0);
+    expect(direto.materials).toEqual([
       { description: "TB42.20X3.56", quantity: 2, unit: "UN", notes: "T1318 · SCH40" },
     ]);
   });
@@ -419,7 +418,7 @@ describe("buildOfStructure", () => {
     expect(order?.parents.every((parent) => parent.children.every((child) => child.materials.length === 0))).toBe(true);
   });
 
-  it("posição tipo X com 'SEM MATERIAL' fica sem material e sem alerta", () => {
+  it("linha sem filho com 'SEM MATERIAL' fica sem material e sem alerta", () => {
     const { orders } = buildRows([
       makeRow({ of_idOF: "300002", ps_idPos: "P1", ps_Descr: "PEÇA", ps_Qtde: 3, ps_DesMaterial: "SEM MATERIAL" }),
     ]);
@@ -448,7 +447,7 @@ describe("buildOfStructure", () => {
   });
 
   // ---------------------------------------------------------
-  // Posição tipo X de guarda-corpo é descartada por inteiro
+  // Linha com ps_Tipo = X é descartada por inteiro
   // ---------------------------------------------------------
 
   it("descarta posição tipo X de guarda-corpo (não vira pai nem material)", () => {
@@ -485,23 +484,14 @@ describe("buildOfStructure", () => {
     expect(order?.parents[0]?.children).toHaveLength(1);
   });
 
-  it("reconhece guarda-corpo em qualquer caixa e acento", () => {
-    const { orders } = buildRows([
-      makeRow({ of_idOF: "500003", ps_idPos: "P1", ps_Descr: "Guarda-Côrpo 3M", ps_Tipo: "X", ps_Qtde: 1, ps_DesMaterial: "TB42" }),
-      makeRow({ of_idOF: "500003", ps_idPos: "P2", ps_Descr: "GUARDA-CORPO MOLDUREIRA", ps_Tipo: "X", ps_Qtde: 1, ps_DesMaterial: "TB40" }),
-    ]);
-    expect(orders[0]?.parents).toEqual([]);
-  });
-
-  it("não descarta posição tipo X que NÃO é guarda-corpo (material direto)", () => {
+  it("descarta posição tipo X mesmo sem ser guarda-corpo (material direto também é ignorado)", () => {
     const { orders } = buildRows([
       makeRow({ of_idOF: "500004", ps_idPos: "P1", ps_Descr: "BOTÃO PORTA", ps_Tipo: "X", ps_Qtde: 2, ps_idMat: "T1318", ps_DesMaterial: "TB42.20X3.56", ps_Qualidade: "SCH40" }),
     ]);
     const order = orders[0];
-    expect(order?.parents).toHaveLength(1);
-    expect(order?.parents[0]?.materials).toEqual([
-      { description: "TB42.20X3.56", quantity: 2, unit: "UN", notes: "T1318 · SCH40" },
-    ]);
+    expect(order?.parents).toEqual([]);
+    expect(orderStatusOf(order?.issues ?? [])).toBe("ERROR");
+    expect(order?.issues[0]?.message).toMatch(/sem itens pai válidos/);
   });
 
   it("não descarta guarda-corpo com ps_Tipo = E (é posição com filhos)", () => {
@@ -517,12 +507,14 @@ describe("buildOfStructure", () => {
   it("mantém a posição já montada mesmo que uma linha X venha depois", () => {
     const { orders } = buildRows([
       makeRow({ of_idOF: "500006", ps_idPos: "P1", ps_Descr: "GUARDA CORPO", ps_Tipo: "E", ps_Qtde: 1, cp_comp: "72-742", cp_compdescr: "MONTANTE", cp_compqtdetotal: 3, cp_DesMaterial: "TB40" }),
-      // Linha X da MESMA posição, com ps_Descr de guarda-corpo: não retroage.
+      // Linha X da MESMA posição: a posição montada não é destruída,
+      // mas a linha X também não contribui (nem material).
       makeRow({ of_idOF: "500006", ps_idPos: "P1", ps_Descr: "GUARDA CORPO", ps_Tipo: "X", ps_Qtde: 1, ps_DesMaterial: "TB42" }),
     ]);
     const order = orders[0];
     expect(order?.parents).toHaveLength(1);
     expect(order?.parents[0]?.children).toHaveLength(1);
+    expect(order?.parents[0]?.materials).toEqual([]);
   });
 });
 
@@ -532,21 +524,6 @@ describe("familyFromDescription", () => {
     expect(familyFromDescription("portão de entrada")).toBe("PDE");
     expect(familyFromDescription("STR0018 - PLATAFORMA")).toBe("SP");
     expect(familyFromDescription("")).toBeNull();
-  });
-});
-
-describe("isGuardaCorpo", () => {
-  it("reconhece o termo em qualquer caixa, acento e separador", () => {
-    expect(isGuardaCorpo("GUARDA CORPO")).toBe(true);
-    expect(isGuardaCorpo("Guarda-Côrpo 3M")).toBe(true);
-    expect(isGuardaCorpo("guarda_corpo moldureira")).toBe(true);
-    expect(isGuardaCorpo("GUARDACORPO MOLDUREIRA")).toBe(true);
-  });
-
-  it("não confunde com outros itens", () => {
-    expect(isGuardaCorpo("BOTÃO PORTA")).toBe(false);
-    expect(isGuardaCorpo("CORPO DO PORTÃO")).toBe(false);
-    expect(isGuardaCorpo("")).toBe(false);
   });
 });
 
@@ -804,7 +781,7 @@ describe("arquivo real da fábrica (fixture OF 107482)", () => {
     expect(findMissingTechnicalColumns(detected[0]?.headers ?? [])).toEqual([]);
   });
 
-  it("constrói 9 itens pais, 62 filhos e 64 materiais sem erros", () => {
+  it("constrói 7 itens pais, 62 filhos e 62 materiais sem erros", () => {
     const detected = parsed.sheets.filter((entry) => parsed.headerBySheet[entry.name]?.detected);
     expect(detected[0]).toBeDefined();
 
@@ -818,11 +795,11 @@ describe("arquivo real da fábrica (fixture OF 107482)", () => {
         0,
       );
 
-    // 11 posições no arquivo; 2 são tipo X de guarda-corpo (72ST18-025 e
-    // 72ST18-026) e por isso descartadas — os demais 9 entram.
-    expect(parents).toHaveLength(9);
+    // 11 posições no arquivo; 4 são tipo X (72ST18-025, 72ST18-026 e as 2
+    // de LIGACAO, material direto) e por isso descartadas — as 7 entram.
+    expect(parents).toHaveLength(7);
     expect(children).toHaveLength(62);
-    expect(materials).toBe(64); // 62 dos filhos + 2 materiais diretos (tipo X de LIGACAO)
+    expect(materials).toBe(62); // todos dos filhos: as posições X (material direto) saíram
     expect(parents.map((parent) => parent.code)).not.toEqual(expect.arrayContaining(["72ST18-025", "72ST18-026"]));
 
     for (const order of orders) {

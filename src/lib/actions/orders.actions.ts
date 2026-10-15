@@ -6,6 +6,7 @@ import { requireCapability } from "@/lib/auth/guards";
 import { can } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { replaceItemMaterials } from "@/lib/repositories/materials.repository";
+import { updateOrderDeliveryDate } from "@/lib/repositories/orders.repository";
 import { updateItemDeliveryDate } from "@/lib/repositories/order-items.repository";
 import { getOrder, removeOrder, saveOrder } from "@/lib/services/orders.service";
 import { firstZodMessage, nullableDate } from "@/lib/validators/common";
@@ -29,6 +30,7 @@ export async function saveOrderAction(input: unknown): Promise<OrderActionResult
 
     revalidatePath("/pedidos");
     revalidatePath("/gestao-entregas");
+    revalidatePath("/fabrica-2");
     revalidatePath("/dashboard");
 
     return {
@@ -56,6 +58,7 @@ export async function deleteOrderAction(orderId: string): Promise<OrderActionRes
 
     revalidatePath("/pedidos");
     revalidatePath("/gestao-entregas");
+    revalidatePath("/fabrica-2");
     revalidatePath("/dashboard");
 
     return { success: true, message: "Pedido excluído.", orderId, code: "" };
@@ -143,6 +146,7 @@ export async function updateItemDeliveryDateAction(
     await updateItemDeliveryDate(client, orderItemId, parsed.data);
 
     revalidatePath("/gestao-entregas");
+    revalidatePath("/fabrica-2");
     revalidatePath("/dashboard");
     revalidatePath("/(dashboard)/pedidos/[id]", "page");
 
@@ -153,6 +157,50 @@ export async function updateItemDeliveryDateAction(
     };
   } catch (error) {
     console.error("[updateItemDeliveryDateAction]", error);
+    return { success: false, message: errorMessage(error), deliveryDate: null };
+  }
+}
+
+/**
+ * Edita a data de entrega do PEDIDO (025) — é a data que a gestão de
+ * entregas consolidada exibe e edita na coluna "Ent.". Itens com data
+ * própria (override) mantêm a deles (continuam na Fábrica 2). As janelas
+ * previstas derivam desta data em toda leitura: gravada, o refresh da
+ * página recalcula tudo — nenhuma outra gravação é necessária.
+ */
+export async function updateOrderDeliveryDateAction(
+  orderId: string,
+  deliveryDate: unknown,
+): Promise<{ success: boolean; message: string; deliveryDate: string | null }> {
+  try {
+    await requireCapability("orders.edit");
+
+    const parsed = nullableDate.safeParse(deliveryDate);
+    if (!parsed.success || (parsed.data !== null && !isValidISODate(parsed.data))) {
+      return {
+        success: false,
+        message: parsed.success
+          ? "Data de entrega inválida."
+          : (firstZodMessage(parsed.error) ?? "Data de entrega inválida."),
+        deliveryDate: null,
+      };
+    }
+
+    const client = await createClient();
+    await updateOrderDeliveryDate(client, orderId, parsed.data);
+
+    revalidatePath("/gestao-entregas");
+    revalidatePath("/fabrica-2");
+    revalidatePath("/dashboard");
+    revalidatePath("/(dashboard)/pedidos/[id]", "page");
+
+    return {
+      success: true,
+      message: "Entrega do pedido atualizada — as previsões dos processos foram recalculadas.",
+      deliveryDate: parsed.data,
+    };
+  } catch (error) {
+    console.error("[updateOrderDeliveryDateAction]", error);
     return { success: false, message: errorMessage(error), deliveryDate: null };
   }
 }

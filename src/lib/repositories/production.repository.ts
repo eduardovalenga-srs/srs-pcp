@@ -1,9 +1,13 @@
 import type { ProcessStatus } from "@/lib/constants/production";
-import type { ProductionRowRecord, ProcessStatusValue } from "@/lib/types/database";
+import { F1_PROCESS_CODES } from "@/lib/constants/processes";
+import type { ProductionOrderRowRecord, ProductionRowRecord, ProcessStatusValue } from "@/lib/types/database";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type {
+  OrderProcessCell,
   ProductionEvent,
   ProductionFilters,
+  ProductionOrderResult,
+  ProductionOrderRow,
   ProductionResult,
   ProductionRow,
   ProductionStats,
@@ -90,6 +94,150 @@ export async function getProductionRows(
   const rows = rawRows.map((row) => mapProductionRow(row));
 
   return { rows, total, weightTotal, qtyTotal };
+}
+
+function mapProductionOrderRow(raw: ProductionOrderRowRecord): ProductionOrderRow {
+  const processes: Record<string, OrderProcessCell> = {};
+  for (const [code, cell] of Object.entries(raw.processes ?? {})) {
+    processes[code] = {
+      status: cell.status,
+      done: Number(cell.done ?? 0),
+      applicable: Number(cell.applicable ?? 0),
+      quantityPlanned: toNumber(cell.quantityPlanned),
+      quantityCompleted: toNumber(cell.quantityCompleted),
+    };
+  }
+
+  return {
+    orderId: raw.order_id,
+    orderCode: raw.order_code,
+    orderType: raw.order_type,
+    customerName: raw.customer_name,
+    orderStatus: raw.order_status,
+    deliveryDate: raw.delivery_date,
+    quantity: toNumber(raw.quantity) ?? 0,
+    weightTotal: toNumber(raw.weight_kg),
+    overdue: raw.overdue,
+    processes,
+  };
+}
+
+/**
+ * Lista paginada CONSOLIDADA por OF (025) — uma linha por pedido, com
+ * processos agregados. A tela da Fábrica 2 continua chamando
+ * `getProductionRows` (uma linha por item): as duas visões coexistem.
+ *
+ * Os filtros de família/item pai/descrição não existem mais nesta tela
+ * (as colunas foram removidas); a busca genérica continua varrendo esses
+ * campos no servidor, então a OF aparece se qualquer item casar.
+ */
+export async function getProductionOrderRows(
+  client: SupabaseServer,
+  filters: ProductionFilters,
+  today: string,
+): Promise<ProductionOrderResult> {
+  const { data, error } = await client.rpc("get_production_rows_by_order", {
+    p_search: filters.search || null,
+    p_order_status: filters.orderStatus === "ALL" ? null : filters.orderStatus,
+    p_process_code: filters.processCode === "ALL" ? null : filters.processCode,
+    p_process_status: filters.processStatus === "ALL" ? null : filters.processStatus,
+    p_delivery_filter: filters.delivery,
+    p_delivery_from: filters.deliveryFrom,
+    p_delivery_to: filters.deliveryTo,
+    p_today: today,
+    p_sort: filters.sort,
+    p_sort_dir: filters.sortDir,
+    p_offset: (filters.page - 1) * filters.pageSize,
+    p_limit: filters.pageSize,
+    // filtros por coluna (sobre os TOTAIS da OF)
+    p_order_code: filters.orderCode || null,
+    p_customer: filters.customer || null,
+    p_qty_min: filters.qtyMin,
+    p_qty_max: filters.qtyMax,
+    p_weight_min: filters.weightMin,
+    p_weight_max: filters.weightMax,
+  });
+
+  if (error) throw new Error(`Não foi possível carregar a gestão de entregas: ${error.message}`);
+
+  const rawRows = data ?? [];
+  const total = rawRows.length > 0 ? Number(rawRows[0].total_count ?? 0) : 0;
+  const weightTotal = rawRows.length > 0 ? Number(rawRows[0].weight_total ?? 0) : 0;
+  const qtyTotal = rawRows.length > 0 ? Number(rawRows[0].qty_total ?? 0) : 0;
+  const rows = rawRows.map((row) => mapProductionOrderRow(row));
+
+  return { rows, total, weightTotal, qtyTotal };
+}
+
+export interface OrderProcessTarget {
+  id: string;
+  orderItemId: string;
+  status: ProcessStatus;
+  quantityPlanned: number | null;
+  quantityCompleted: number | null;
+  notes: string | null;
+}
+
+/**
+ * Registros de UM processo em todos os itens de uma OF — o alvo da edição
+ * em lote da gestão de entregas (025).
+ *
+ * O escopo espelha a coluna exibida: a cadeia da Fábrica 1 (LASER…FICEP)
+ * é rastreada nos ITENS FILHOS (é lá que a Fábrica 1 grava); MP e os
+ * demais processos (KIT, PRÉ-MTG…EXPEDIÇÃO) vêm dos itens RAIZ.
+ */
+export async function getOrderProcessTargets(
+  client: SupabaseServer,
+  orderId: string,
+  processCode: string,
+): Promise<OrderProcessTarget[]> {
+  const { data: process, error: processError } = await client
+    .from("processes")
+    .select("id")
+    .eq("code", processCode)
+    .maybeSingle();
+  assertOk(processError, "Não foi possível carregar o processo");
+  if (!process) return [];
+
+  const { data: items, error: itemsError } = await client
+    .from("order_items")
+    .select("id, parent_order_item_id")
+    .eq("order_id", orderId);
+  assertOk(itemsError, "Não foi possível carregar os itens da OF");
+
+  const isChildScope = (F1_PROCESS_CODES as readonly string[]).includes(processCode);
+  const itemIds = (items ?? [])
+    .filter((item) =>
+      isChildScope ? item.parent_order_item_id !== null : item.parent_order_item_id === null,
+    )
+    .map((item) => item.id);
+  if (itemIds.length === 0) return [];
+
+  const { data: rows, error: rowsError } = await client
+    .from("production_processes")
+    .select("id, order_item_id, status, quantity_planned, quantity_completed, notes")
+    .eq("process_id", process.id)
+    .in("order_item_id", itemIds);
+
+  assertOk(rowsError, "Não foi possível carregar os processos da OF");
+
+  type Raw = {
+    id: string;
+    order_item_id: string;
+    status: ProcessStatusValue;
+    quantity_planned: number | string | null;
+    quantity_completed: number | string | null;
+    notes: string | null;
+  };
+
+  return ((rows ?? []) as unknown as Raw[]).map((row) => ({
+    id: row.id,
+    orderItemId: row.order_item_id,
+    status: row.status as ProcessStatus,
+    quantityPlanned: toNumber(row.quantity_planned),
+    quantityCompleted: toNumber(row.quantity_completed),
+    notes: row.notes,
+  }));
 }
 
 /** Estatísticas do dashboard. */

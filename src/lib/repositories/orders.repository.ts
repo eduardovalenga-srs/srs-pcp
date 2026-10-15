@@ -382,6 +382,32 @@ export async function deleteOrder(client: SupabaseServer, orderId: string): Prom
   assertOk(error, "Não foi possível excluir o pedido");
 }
 
+/**
+ * Atualiza a data de entrega do PEDIDO (025) — é a data que a gestão de
+ * entregas consolidada exibe e edita na coluna "Ent.". Itens com data
+ * própria (override) mantêm a deles: elas continuam visíveis/editáveis na
+ * tela da Fábrica 2 e no detalhe do pedido.
+ *
+ * O `.select()` existe para detectar 0 linhas afetadas: o action já filtra
+ * por capacidade, aqui fica a defesa de "pedido não existe / RLS negou".
+ */
+export async function updateOrderDeliveryDate(
+  client: SupabaseServer,
+  orderId: string,
+  deliveryDate: string | null,
+): Promise<void> {
+  const { data, error } = await client
+    .from("orders")
+    .update({ delivery_date: deliveryDate })
+    .eq("id", orderId)
+    .select("id");
+
+  assertOk(error, "Não foi possível atualizar a entrega do pedido");
+  if (!data || data.length === 0) {
+    throw new Error("Pedido não encontrado ou sem permissão para editar a entrega.");
+  }
+}
+
 export interface DashboardOrdersSummary {
   /** Top clientes (nome + nº de pedidos), já agregados no banco. */
   topCustomers: { name: string; count: number }[];

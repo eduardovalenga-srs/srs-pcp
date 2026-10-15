@@ -20,9 +20,10 @@ const ALL_CAPABILITIES: Capability[] = [
   "users.manage",
   "menu.gestao",
   "menu.dashboard",
-  "menu.import",
   "menu.processes",
   "menu.fabrica1",
+  "fabrica2.view",
+  "menu.fabrica2",
   "menu.settings",
 ];
 
@@ -65,9 +66,10 @@ describe("matriz de permissões (item 40)", () => {
       "processes.view",
       "menu.gestao",
       "menu.dashboard",
-      "menu.import",
       "menu.processes",
       "menu.fabrica1",
+      "fabrica2.view",
+      "menu.fabrica2",
     ];
     const denied: Capability[] = [
       "processes.manage",
@@ -96,6 +98,8 @@ describe("matriz de permissões (item 40)", () => {
       "dashboard.view",
       "processes.view",
       "menu.gestao",
+      "fabrica2.view",
+      "menu.fabrica2",
     ];
 
     for (const capability of allowed) expect(can("OPERADOR", capability), capability).toBe(true);
@@ -122,6 +126,8 @@ describe("matriz de permissões (item 40)", () => {
       "processes.manage",
       "dashboard.view",
       "processes.view",
+      "fabrica2.view",
+      "menu.fabrica2",
     ];
 
     for (const capability of allowed) expect(can("VISUALIZADOR", capability), capability).toBe(true);
@@ -141,8 +147,8 @@ describe("matriz de permissões (item 40)", () => {
     expect(can("OPERADOR", "menu.settings")).toBe(false);
     expect(can("VISUALIZADOR", "menu.settings")).toBe(false);
 
-    // Dashboard/Importação/Processos: ADMIN e GESTOR apenas.
-    for (const capability of ["menu.dashboard", "menu.import", "menu.processes"] as const) {
+    // Dashboard/Processos: ADMIN e GESTOR apenas.
+    for (const capability of ["menu.dashboard", "menu.processes"] as const) {
       expect(can("GESTOR", capability), capability).toBe(true);
       expect(can("OPERADOR", capability), capability).toBe(false);
       expect(can("VISUALIZADOR", capability), capability).toBe(false);
@@ -152,6 +158,16 @@ describe("matriz de permissões (item 40)", () => {
     expect(can("GESTOR", "menu.fabrica1")).toBe(true);
     expect(can("OPERADOR", "menu.fabrica1")).toBe(true);
     expect(can("VISUALIZADOR", "menu.fabrica1")).toBe(true);
+
+    // Fábrica 2 (réplica da gestão) é exclusiva de ADMIN/GESTOR — menu e página.
+    expect(can("ADMIN", "menu.fabrica2")).toBe(true);
+    expect(can("GESTOR", "menu.fabrica2")).toBe(true);
+    expect(can("OPERADOR", "menu.fabrica2")).toBe(false);
+    expect(can("VISUALIZADOR", "menu.fabrica2")).toBe(false);
+    expect(can("ADMIN", "fabrica2.view")).toBe(true);
+    expect(can("GESTOR", "fabrica2.view")).toBe(true);
+    expect(can("OPERADOR", "fabrica2.view")).toBe(false);
+    expect(can("VISUALIZADOR", "fabrica2.view")).toBe(false);
   });
 
   it("perfil desconhecido/nulo não tem acesso a nada", () => {

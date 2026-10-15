@@ -62,7 +62,10 @@ export default async function ImportacaoPage() {
           <h2 id="historico-heading" className="text-sm font-semibold tracking-tight">
             Histórico de importações
           </h2>
-          <ImportHistory initialBatches={batches} initialError={historyError} />
+          {/* key pelo lote mais recente: quando o assistente conclui uma
+              importação e chama router.refresh(), as props novas do servidor
+              remontam a lista (o useState inicial não acompanha props). */}
+          <ImportHistory key={batches[0]?.id ?? "vazio"} initialBatches={batches} initialError={historyError} />
         </section>
       </div>
     </>

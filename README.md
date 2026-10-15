@@ -1,8 +1,11 @@
-# Controle de Produção — Serralheria
+# Imperatriz — Sistema de Gestão Corporativa
 
 Aplicação web para controle de produção industrial (serralheria): substitui a planilha
 de Excel por um sistema com pedidos, itens, processos configuráveis, importação de
 planilha com prévia e histórico completo de alterações.
+
+O sistema se chama **Imperatriz** (menu superior e aba do navegador, com o brasão
+`/logo_imperatriz.png` ao lado do nome).
 
 ## Stack
 
@@ -54,6 +57,7 @@ cp .env.example .env.local
 #    supabase/migrations/022_order_process_defaults.sql
 #    supabase/migrations/023_weight_total_derived.sql
 #    supabase/migrations/024_totals_and_performance.sql
+#    supabase/migrations/025_production_rows_by_order.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -98,8 +102,9 @@ src/
     (auth)/login            tela de autenticação (com "Esqueci minha senha")
     (auth)/redefinir-senha/ destino do link de recuperação de senha
     (dashboard)/            casca autenticada (menu superior)
-      gestao-entregas/        tabela por item × processo (rota /gestao-entregas; /producao redireciona)
+      gestao-entregas/        tabela por OF × processo (consolidada, 025; rota /gestao-entregas; /producao redireciona)
       fabrica-1/            lista de itens filhos com matérias-primas (rota /fabrica-1)
+      fabrica-2/            réplica da gestão com código próprio (rota /fabrica-2; ADMIN/GESTOR)
       pedidos/              CRUD de pedidos
         [id]/               detalhes da OF (itens pai + filhos aninhados, processos e MP)
         [id]/editar/        formulário de edição
@@ -108,7 +113,7 @@ src/
       processos/            catálogo de processos (fluxo fabril)
       configuracoes/        usuários e permissões
     api/importacao/         análise / prévia / execução + modelo .xlsx
-  components/               ui (shadcn) + producao/pedidos/dashboard/fabrica1/…
+  components/               ui (shadcn) + producao/fabrica1/fabrica2/pedidos/dashboard/…
   lib/
     actions/                Server Actions (única porta de escrita)
     services/               regras de negócio (server-only)
@@ -118,7 +123,7 @@ src/
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..024 (ordem obrigatória)
+  migrations/               001..025 (ordem obrigatória)
   seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
@@ -216,21 +221,24 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   são digitados no formulário da importação** e valem para todos os registros (OF,
   pais e filhos). O arquivo **não traz processos**: o catálogo completo é criado em
   `NAO_INICIADO` para pai e filho (`parent_order_item_id` liga filho ao pai — migração
-  016; posição tipo X, sem filhos, leva `ps_DesMaterial` como material direto do pai).
+  016; toda linha com `ps_Tipo` = X é descartada — o material direto vem de
+  linha sem filhos e sem X).
   Nunca grava sem prévia e confirmação; cada OF já existente exige uma decisão —
   **Atualizar / Manter / Ignorar** (RPC transacional `apply_of_import`: atualizar
   preserva status e OP, troca os materiais e remove do banco o que sumiu do arquivo;
   OF com erro fica inteira de fora, alertas não bloqueiam e qualquer falha faz
   rollback completo). A RPC antiga `apply_import` continua no formulário de pedidos
-  (formato item único). A gestão de entregas mostra **só a OF consolidada e os itens
-  pai** — os filhos aparecem em `/pedidos/[id]` (cards aninhados com processos e MP).
+  (formato item único). A gestão de entregas mostra **uma linha por OF** (consolidada,
+  migração 025) — os itens pai e filho aparecem em `/pedidos/[id]` (cards aninhados com
+  processos e MP) e na Fábrica 2, que segue **por item**.
   Pesos são **derivados**: `total_weight_kg` = quantidade × peso unitário, gravado por
   trigger (migração 023); `pos_PesoTotal`/`cp_comppesototal` da planilha só serve para
   **avisar na prévia** quando divergir da fórmula (migração 015);
   `METALEIRA` segue como processo próprio do catálogo (ordem 55, entre `PUNC` e
   `FICEP`). Cada lote fica em `import_batches` com os erros linha a linha em
-  `import_batch_errors`; fixture real em `tests/fixtures/of-107482-novo-layout.xlsx`
-  (11 pais, 62 filhos, 66 materiais).
+  `import_batch_errors` (o histórico abaixo do assistente atualiza sozinho quando uma
+  importação é concluída); fixture real em `tests/fixtures/of-107482-novo-layout.xlsx`
+  (7 pais, 62 filhos, 62 materiais).
 - **Matérias-primas** (`order_item_materials`, migração 011): insumo do **sub-item**
   (descrição, quantidade, unidade e observação) — sem processos próprios e fora da grade
   de produção. Sempre gravadas em lote pela RPC `replace_item_materials` (troca a lista
@@ -257,6 +265,20 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   filtro preserva o restante da URL e volta para a página 1. Menu visível para **todos os
   perfis** (`menu.fabrica1`), página protegida por
   `orders.view`; leitura 100% server-rendered (sem componentes client por linha).
+- **Fábrica 2** (`/fabrica-2`): **réplica da gestão de entregas com código próprio** —
+  página em `app/(dashboard)/fabrica-2/` e cópia dos componentes em
+  `components/fabrica2/` (`Fabrica2*`), de propósito: alterações futuras na gestão não
+  podem vazar para cá (nem o contrário). Continua lendo pelos mesmos services/filtros/
+  actions compartilhados (`parseProductionFilters`, actions de produção/pedidos/processos
+  — que revalidam `/fabrica-2` junto de `/gestao-entregas`), então dados e regras de
+  negócio seguem iguais; só a camada de tela é duplicada. **Desde a consolidação da
+  gestão por OF (025) as duas telas divergem de propósito na granularidade da leitura**:
+  gestão usa a RPC nova `get_production_rows_by_order` (uma linha por pedido) e a
+  Fábrica 2 mantém `get_production_rows` (via `getProductionPage`, uma linha por item pai) — as duas RPCs
+  coexistem Diferenças
+  em relação ao original: **cabeçalho sem botões** (sem "Novo pedido" nem "Importar Excel")
+  e acesso restrito a **ADMIN/GESTOR** (`menu.fabrica2` no item de menu, `fabrica2.view`
+  no guard da página — VISUALIZADOR e OPERADOR caem em "Acesso negado" mesmo por URL).
 - **Gestão como hub**: o código da OF/OS na tabela de entregas (desktop e mobile) abre a
   tela de detalhes `/pedidos/[id]` — sub-itens, processos e materiais num só lugar; a
   criação termina lá e o menu superior não expõe "Pedidos" (a lista `/pedidos` segue como
@@ -269,24 +291,49 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   agora centralizada em `lib/utils/order-code.ts` (`normalizeOrderCode`) — o formulário
   mostra "Será salvo como: OF 1234" antes de salvar. Assim o código manual casa com a
   chave de dedupe da reimportação.
-- **Filtros da gestão de entregas**: busca, situação, processos, colunas (contém/faixas),
-  janelas de entrega (Atrasado, Hoje, Próx. 7/30 dias) e **período De → Até pela data de
-  entrega** (migração 014 — inclusivo nos dois limites, lados opcionais, combina em E com
-  as janelas; item sem data fica de fora quando o período está ativo). Tudo mora na query
+- **Gestão de entregas = uma linha por OF** (025): a tela consolidada mostra um registro
+  por pedido — colunas **OF/OS** (link para `/pedidos/[id]`), **Cliente**, **Qtd. total**
+  (soma das quantidades dos itens raiz), **Peso total** (soma do `total_weight_kg`) e
+  **Entrega** (= data do PEDIDO, `orders.delivery_date`), seguidas de **TODAS as etapas
+  do catálogo** em colunas próprias (a cadeia da Fábrica 1 — LASER…FICEP — que antes
+  ficava oculta aqui, agora aparece agregada). Cada célula de processo traz a **pior
+  situação** entre os itens aplicáveis (BLOQUEADO > EM_ANDAMENTO > NAO_INICIADO >
+  CONCLUIDO) + o contador "feito/aplicável" (ex.: 3/5); a fonte por código espelha a
+  gravação: **a cadeia F1 lê os ITENS FILHOS e os demais (MP, KIT, PRÉ-MTG…EXPEDIÇÃO)
+  os ITENS RAIZ**. Processo 100% não aplicável vira "—" (não editável). **Clicar numa
+  célula abre a edição EM LOTE** (`ProcessBatchEditor`, capacidade
+  `production.update_status`): a nova situação vale para todos os itens aplicáveis da
+  OF — cada item gera seu evento no histórico e re-deriva o status do item/OF; quantidades
+  e observações por item não mudam aqui (continuam na Fábrica 2 e no detalhe do pedido).
+  A **Entrega** é editável inline (`updateOrderDeliveryDateAction`, capacidade
+  `orders.edit`) e as janelas previstas de todos os processos são recalculadas a partir
+  dela no refresh — itens com data própria (override) mantêm a deles. **Atraso por OF**:
+  entrega do pedido vencida e algum item raiz ainda sem EXPEDIÇÃO concluída. Tudo vem da
+  RPC nova `get_production_rows_by_order` (migração 025 — mesmos filtros, paginação e
+  permissões da antiga); a Fábrica 2 continua na `get_production_rows`, por item.
+- **Filtros da gestão de entregas**: busca, situação, processos, colunas (contém/faixas —
+  as faixas de quantidade e peso valem sobre os **totais da OF**), janelas de entrega
+  (Atrasado, Hoje, Próx. 7/30 dias) e **período De → Até pela data de entrega do PEDIDO**
+  (migração 014 — inclusivo nos dois limites, lados opcionais, combina em E com as
+  janelas; pedido sem data fica de fora quando o período está ativo). A busca genérica
+  casa o código do pedido, o cliente e a **descrição/item pai/família de qualquer item
+  da OF** (a OF aparece se bater). Tudo mora na query
   string (link compartilhável, validado no client) e vira chip em "filtros ativos", com
   um filtro por chip e "Limpar filtros" para zerar tudo.
-- **Resumo com três números**: os cards **Eventos**, **Atrasados** e
-  **Expedição** ocupam duas colunas cada e reúnem **Registros**, **Qtd. total**
-  (soma da coluna Qtd.) e **Peso total** (soma do **peso total** — qtd × peso unit.,
+- **Resumo com três números**: os cards **OFs**, **Atrasados** e
+  **Expedição** ocupam duas colunas cada e reúnem contagem, **Qtd. total**
+  e **Peso total** (soma do **peso total** — qtd × peso unit.,
   coluna derivada `total_weight_kg`, migrações 023 e 024):
-  - **Eventos** — a lista filtrada inteira, em qualquer página (janelas da RPC
-    `get_production_rows`, migrações 017 e 018);
+  - **OFs** — nº de pedidos da lista filtrada inteira, em qualquer página (janelas da
+    RPC `get_production_rows_by_order`, migração 025), com a soma das quantidades e
+    dos pesos das OFs;
   - **Atrasados** — entrega vencida + expedição pendente (objeto `delivery` da
     RPC `get_production_stats`, migração 019);
   - **Expedição** — itens cuja etapa EXPEDIÇÃO está **concluída** (objeto
     `expedition` da mesma RPC, migração 020).
-  Atrasados e Expedição são KPIs globais (escopo dos antigos chips de entrega,
-  que saíram junto com "Em produção" e "Concluídos") e são clicáveis: aplicam
+  Atenção às unidades: o card **OFs conta PEDIDOS** (a lista é por OF) e Atrasados /
+  Expedição são KPIs globais que contam **ITENS** (escopo dos antigos chips de entrega,
+  que saíram junto com "Em produção" e "Concluídos"); os dois são clicáveis e aplicam
   o filtro correspondente na lista. Itens sem peso ou sem quantidade entram
   como 0.
 - **Histórico**: toda mutação de produção gera linha em `production_events`;
@@ -302,9 +349,12 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   fica com ADMIN/GESTOR/VISUALIZADOR — o OPERADOR não vê o menu **nem entra por URL** na
   gestão, que segue guardada por `production.view`; a atualização de status dele acontece
   pela folha do processo em `/pedidos/[id]`, alcançável pelo link da OF na Fábrica 1).
-  Dashboard, Importação, Processos e Configurações negam acesso direto por URL aos demais
-  perfis. O menu do usuário (nome na barra) reúne perfil, alterar senha, configurações
-  (só ADMIN) e sair.
+  **Fábrica 2** (`/fabrica-2`) fica com **ADMIN e GESTOR apenas** — item de menu
+  (`menu.fabrica2`) e página (`fabrica2.view`) negados aos demais. Dashboard, Processos e
+  Configurações negam acesso direto por URL aos demais perfis; a **Importação não é mais
+  item de menu** — o acesso ao assistente `/importacao` é pelo botão "Importar Excel" do
+  cabeçalho da gestão de entregas (guardado por `import.access`). O menu do usuário (nome
+  na barra) reúne perfil, alterar senha, configurações (só ADMIN) e sair.
 - **Criação com senha temporária** (Configurações > Novo usuário): a conta nasce
   confirmada no Auth com senha temporária de 12 caracteres (sem ambíguos, gerada por
   CSPRNG), exibida **uma única vez** com botão de copiar — o ADMIN entrega fora do app.

@@ -8,11 +8,11 @@ import {
   ChevronDown,
   Cog,
   Factory,
-  FileSpreadsheet,
   KeyRound,
   LayoutDashboard,
   LogOut,
   Menu,
+  Warehouse,
   Workflow,
   X,
 } from "lucide-react";
@@ -53,8 +53,8 @@ const NAV_ITEMS: NavItem[] = [
     capability: "menu.gestao",
   },
   { href: "/fabrica-1", label: "Fábrica 1", icon: Boxes, capability: "menu.fabrica1" },
+  { href: "/fabrica-2", label: "Fábrica 2", icon: Warehouse, capability: "menu.fabrica2" },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, capability: "menu.dashboard" },
-  { href: "/importacao", label: "Importar Excel", icon: FileSpreadsheet, capability: "menu.import" },
   { href: "/processos", label: "Processos", icon: Workflow, capability: "menu.processes" },
 ];
 
@@ -144,11 +144,17 @@ export function TopNav({ user }: TopNavProps) {
         </Button>
 
         <span className="flex min-w-0 items-center gap-2">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border bg-primary text-primary-foreground">
-            <Image src="/logo.png" alt="" width={24} height={24} className="h-full w-full object-contain" />
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded border bg-primary">
+            <Image
+              src="/logo_imperatriz.png"
+              alt=""
+              width={24}
+              height={24}
+              className="h-full w-full object-contain"
+            />
           </span>
           <span className="leading-tight">
-            <span className="block truncate text-sm font-semibold">Controle de Produção</span>
+            <span className="block truncate text-sm font-semibold">Imperatriz</span>
             <span className="hidden text-[10px] text-muted-foreground sm:block">SRS</span>
           </span>
         </span>
@@ -236,10 +242,16 @@ export function TopNav({ user }: TopNavProps) {
           <div className="absolute inset-y-0 left-0 flex w-64 flex-col border-r bg-card">
             <div className="flex items-center justify-between border-b px-4 py-3">
               <span className="flex items-center gap-2">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border bg-primary text-primary-foreground">
-                  <Image src="/logo.png" alt="" width={24} height={24} className="h-full w-full object-contain" />
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded border bg-primary">
+                  <Image
+                    src="/logo_imperatriz.png"
+                    alt=""
+                    width={24}
+                    height={24}
+                    className="h-full w-full object-contain"
+                  />
                 </span>
-                <span className="text-sm font-semibold">Controle de Produção</span>
+                <span className="text-sm font-semibold">Imperatriz</span>
               </span>
               <Button
                 type="button"

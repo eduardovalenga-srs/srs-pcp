@@ -17,13 +17,13 @@ import { normalizeOrderCode } from "@/lib/utils/order-code";
  *           cp_comppeso, cp_comppesototal)
  *           -> matéria-prima por item (cp_DesMaterial + código/qualidade
  *              nas observações)
- *        -> material direto no pai (ps_DesMaterial — posições tipo X,
- *           sem filhos)
+ *        -> material direto no pai (ps_DesMaterial — linha sem filhos
+ *           e sem ps_Tipo = "X")
  *
- * Posições tipo X de guarda-corpo (ps_Tipo = "X" com ps_Descr contendo
- * GUARDA CORPO, em qualquer caixa/acento) são descartadas por inteiro:
- * não viram item pai nem material direto. As linhas de continuação da
- * mesma ps_idPos caem junto (ps_Descr em branco nelas).
+ * Toda linha com ps_Tipo = "X" (qualquer descrição) é descartada por
+ * inteiro: não vira item pai nem material direto. As linhas de
+ * continuação da mesma ps_idPos caem junto (ps_Tipo/ps_Descr em
+ * branco nelas).
  *
  * O mapeamento é 100% pelo NOME técnico da coluna (sem posição, sem
  * etapa de mapeamento manual). Cliente e data de entrega vêm do
@@ -91,15 +91,6 @@ export function familyFromDescription(description: string): string | null {
   if (words.length === 0) return null;
   const initials = words.map((word) => word.charAt(0).toUpperCase()).join("");
   return initials || null;
-}
-
-/**
- * O item é guarda-corpo? Compara a descrição JÁ normalizada (sem acento,
- * sem espaço/pontuação, maiúscula) — "Guarda-Côrpo 3M" -> "GUARDACORPO3M".
- * Aceita variações de caixa, acento e hífen do arquivo da fábrica.
- */
-export function isGuardaCorpo(description: string): boolean {
-  return normalizeHeader(description).includes("GUARDACORPO");
 }
 
 function issue(partial: StructureIssue): StructureIssue {
@@ -170,8 +161,9 @@ export function buildOfStructure(
 
   const orders = new Map<string, BuiltOf>();
   const seenChildren = new Map<string, Set<string>>();
-  // Posições tipo X descartadas (guarda-corpo) — por OF, para as linhas de
-  // continuação da mesma ps_idPos caírem também (ps_Descr em branco nelas).
+  // Posições tipo X descartadas — por OF, para as linhas de
+  // continuação da mesma ps_idPos caírem também (ps_Tipo/ps_Descr
+  // em branco nelas).
   const skippedPositions = new Map<string, Set<string>>();
   const consumed = new Set(CONSUMED_COLUMNS.map(normalizeHeader));
 
@@ -243,22 +235,22 @@ export function buildOfStructure(
     }
 
     // -------------------------------------------------------
-    // Posição tipo X de guarda-corpo: descartada por inteiro.
-    // A linha que abre a posição (com ps_Descr preenchido) marca o
-    // código; as demais caem pela lista — nelas ps_Descr vem em branco.
-    // Descartamos a posição só enquanto ela ainda não virou item pai,
-    // para não perder filhos de uma posição já montada.
+    // Linha com ps_Tipo = X: descartada por inteiro, qualquer
+    // que seja a descrição. A linha que abre a posição marca o
+    // código; as demais caem pela lista — nelas ps_Tipo/ps_Descr
+    // vêm em branco. Marcamos só enquanto a posição ainda não
+    // virou item pai (não destruímos o que já está montado).
     // -------------------------------------------------------
     const skippedForOrder = skippedPositions.get(orderCode);
     if (skippedForOrder?.has(parentCode)) return;
 
     const positionType = cellText(row, col.PSTIPO).trim().toUpperCase();
-    if (positionType === "X" && !order.parents.some((entry) => entry.code === parentCode)) {
-      if (isGuardaCorpo(cellText(row, col.PSDESCR))) {
+    if (positionType === "X") {
+      if (!order.parents.some((entry) => entry.code === parentCode)) {
         if (!skippedForOrder) skippedPositions.set(orderCode, new Set([parentCode]));
         else skippedForOrder.add(parentCode);
-        return;
       }
+      return;
     }
 
     // -------------------------------------------------------
@@ -420,7 +412,7 @@ export function buildOfStructure(
     }
 
     // -------------------------------------------------------
-    // Linha sem filho: material direto no pai (posição tipo X)
+    // Linha sem filho: material direto no pai (sem ps_Tipo = X)
     // -------------------------------------------------------
     const rawDirect = cellText(row, col.PSDESMATERIAL);
     const directMaterial = materialDescription(rawDirect);

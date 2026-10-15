@@ -11,6 +11,42 @@ export interface ProcessCell {
   notes: string | null;
 }
 
+/**
+ * Célula de processo AGREGADA por OF (025): soma quantidades e situações
+ * de todos os itens aplicáveis da OF naquele processo. A edição em lote
+ * aplica a mesma situação a todos eles — os números ficam aqui para o
+ * tooltip e para o contador "feito/aplicável".
+ */
+export interface OrderProcessCell {
+  /** Pior situação entre os itens aplicáveis (BLOQUEADO > … > CONCLUIDO). */
+  status: ProcessStatus;
+  /** Quantos itens aplicáveis estão CONCLUIDO (numerador do contador). */
+  done: number;
+  /** Quantos itens têm o processo aplicável (0 => a célula vira "—"). */
+  applicable: number;
+  quantityPlanned: number | null;
+  quantityCompleted: number | null;
+}
+
+/** Linha da tela de gestão de entregas — UMA por pedido (OF/OS) (025). */
+export interface ProductionOrderRow {
+  orderId: string;
+  orderCode: string;
+  orderType: string;
+  customerName: string;
+  orderStatus: OrderStatus;
+  /** Entrega exibida = data do PEDIDO (orders.delivery_date). */
+  deliveryDate: string | null;
+  /** Soma das quantidades dos itens raiz da OF. */
+  quantity: number;
+  /** Soma do peso total (qtd × peso unit.) dos itens raiz da OF. */
+  weightTotal: number | null;
+  /** Entrega do pedido vencida e algum item raiz sem EXPEDIÇÃO concluída. */
+  overdue: boolean;
+  /** Todas as etapas do catálogo, agregadas pela OF (código -> célula). */
+  processes: Record<string, OrderProcessCell>;
+}
+
 /** Linha da tela de gestão de entregas. */
 export interface ProductionRow {
   orderItemId: string;
@@ -68,6 +104,16 @@ export interface ProductionResult {
   /** Peso total (kg) da lista filtrada inteira — soma da coluna "Peso" de todas as páginas. */
   weightTotal: number;
   /** Soma da coluna "Qtd." da lista filtrada inteira — de todas as páginas. */
+  qtyTotal: number;
+}
+
+/** Resultado da listagem consolidada por OF (025). */
+export interface ProductionOrderResult {
+  rows: ProductionOrderRow[];
+  total: number;
+  /** Peso total (kg) da lista filtrada inteira — soma dos pesos das OFs. */
+  weightTotal: number;
+  /** Soma das quantidades da lista filtrada inteira — de todas as páginas. */
   qtyTotal: number;
 }
 

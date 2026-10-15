@@ -5,7 +5,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { homePathFor } from "@/lib/auth/permissions";
 import { LoginForm } from "@/components/auth/LoginForm";
 
-export const metadata = { title: "Entrar · Imperatriz" };
+export const metadata = { title: "Entrar" };
 
 export default async function LoginPage() {
   // Já autenticado? Segue direto para o painel.

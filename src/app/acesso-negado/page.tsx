@@ -4,7 +4,7 @@ import { homePathFor } from "@/lib/auth/permissions";
 import { getSessionState } from "@/lib/auth/session";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 
-export const metadata = { title: "Acesso negado · Imperatriz" };
+export const metadata = { title: "Acesso negado" };
 
 /**
  * Rota TERMINAL para sessão que a app rejeita (usuário sem perfil em

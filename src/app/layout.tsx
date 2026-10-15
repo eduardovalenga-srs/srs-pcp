@@ -18,8 +18,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Controle de Produção",
-    template: "%s · Controle de Produção",
+    default: "Imperatriz",
+    template: "%s · Imperatriz",
   },
   description: "Controle de produção para serralheria industrial: pedidos, itens, processos e prazos.",
 };

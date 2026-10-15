@@ -85,6 +85,7 @@ function factoryFile(): File {
       ["Grupo 1", "Grupo 2"],
       TECH_HEADERS,
       ["OF", "107482", "GUARDA CORPO", "72ST18-018", "GUARDA CORPO", "E", 1, 12.48, 12.48, "00000", "SEM MATERIAL", null, "72-742", "GUARDA CORPO", 3, 4.16, 12.48, "T1318", "TB42.20X3.56", "SCH40"],
+      // ps_Tipo = X: a linha é descartada na importação (qualquer descrição).
       ["OF", "107482", "GUARDA CORPO", "72ST18-025", "BOTÃO DE PORTA", "X", 2, 1.09, 2.18, "T1318", "TB42.20X3.56", "SCH40", null, null, null, null, null, null, null, null],
     ],
   });
@@ -117,7 +118,7 @@ beforeEach(() => {
     ordersCreated: 1,
     ordersUpdated: 0,
     ordersSkipped: 0,
-    parentsCreated: 2,
+    parentsCreated: 1,
     parentsUpdated: 0,
     childrenCreated: 1,
     childrenUpdated: 0,
@@ -211,9 +212,9 @@ describe("POST /api/importacao — etapa preview", () => {
       importable: 1,
       existing: 0,
       errors: 0,
-      parents: 2,
+      parents: 1,
       children: 1,
-      materials: 2,
+      materials: 1,
     });
 
     const entry = body.orders[0];
@@ -223,7 +224,7 @@ describe("POST /api/importacao — etapa preview", () => {
     expect(entry.order.code).toBe("OF 107482");
     expect(entry.order.customerName).toBe(FORM.customerName);
     expect(entry.order.deliveryDate).toBe(FORM.deliveryDate);
-    expect(entry.counts).toEqual({ parents: 2, children: 1, materials: 2 });
+    expect(entry.counts).toEqual({ parents: 1, children: 1, materials: 1 });
   });
 
   it("aponta a OF existente como exigindo decisão", async () => {
@@ -294,7 +295,7 @@ describe("POST /api/importacao — etapa execute", () => {
       updated: 0,
       skipped: 0,
       errors: 0,
-      parentsCreated: 2,
+      parentsCreated: 1,
       childrenCreated: 1,
       itemsRemoved: 0,
     });
@@ -322,7 +323,7 @@ describe("POST /api/importacao — etapa execute", () => {
       ordersUpdated: 1,
       ordersSkipped: 0,
       parentsCreated: 0,
-      parentsUpdated: 2,
+      parentsUpdated: 1,
       childrenCreated: 1,
       childrenUpdated: 0,
       itemsRemoved: 1,
@@ -337,7 +338,7 @@ describe("POST /api/importacao — etapa execute", () => {
 
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body).toMatchObject({ created: 0, updated: 1, parentsUpdated: 2, itemsRemoved: 1 });
+    expect(body).toMatchObject({ created: 0, updated: 1, parentsUpdated: 1, itemsRemoved: 1 });
     expect(applyOfPlanMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -438,7 +439,7 @@ describe("GET /api/importacao/modelo", () => {
     const detection = detectHeaderRow(matrix);
     expect(detection).toMatchObject({ headerRowIndex: 1, detected: true });
 
-    // 3 linhas de exemplo (pai com filhos + tipo X com material direto).
+    // 3 linhas de exemplo (pai com 2 filhos + linha sem filhos com material direto).
     expect(matrix).toHaveLength(5);
   });
 });

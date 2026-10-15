@@ -8,20 +8,23 @@ import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { cn } from "@/lib/utils";
 
 interface ProductionSummaryProps {
-  /** Nº de registros da lista filtrada — principal número do card "Eventos". */
+  /** Nº de OFs da lista filtrada — principal número do card "OFs". */
   total: number;
-  /** Soma da coluna "Qtd." da lista filtrada inteira — de todas as páginas (018). */
+  /** Soma das quantidades (itens raiz) da lista filtrada — de todas as páginas (018). */
   qtyTotal: number;
-  /** Peso total (kg) da lista filtrada inteira — soma da coluna "Peso". */
+  /** Peso total (kg) da lista filtrada inteira — soma da coluna "Peso total". */
   weightTotal: number;
   filters: ProductionFilters;
-  /** KPIs globais de entrega (019 soma peças e peso do MESMO conjunto de atraso). */
+  /**
+   * KPIs globais de entrega (019 soma peças e peso do MESMO conjunto de atraso).
+   * Atenção: estes cards vêm do get_production_stats e contam ITENS, não OFs.
+   */
   delivery: {
     overdue: number;
     overdueQty: number;
     overdueWeight: number;
   };
-  /** Itens com EXPEDIÇÃO concluída (020). Opcional: sem a migração o card mostra "—". */
+  /** Itens com EXPEDIÇÃO concluída (020) — contagem por ITEM. Opcional: sem a migração o card mostra "—". */
   expedition?: {
     count: number;
     qty: number;
@@ -54,17 +57,20 @@ export function ProductionSummary({
 }: ProductionSummaryProps) {
   const chips: Chip[] = [
     {
+      // 025: a tela lista UMA LINHA POR OF — "Registros" aqui são pedidos.
       key: "events",
-      label: "Eventos",
+      label: "OFs",
       value: total,
       icon: <Inbox className="h-4 w-4" aria-hidden />,
       details: [
-        { label: "Registros", value: formatQuantity(total) },
+        { label: "OFs", value: formatQuantity(total) },
         { label: "Qtd. total", value: formatQuantity(qtyTotal) },
         { label: "Peso total", value: `${formatWeight(weightTotal)} kg` },
       ],
     },
     {
+      // Card GLOBAL (itens atrasados, de todas as OFs) — não confundir com
+      // as linhas da tabela, que são OFs.
       key: "overdue",
       label: "Atrasados",
       value: delivery.overdue,
@@ -73,7 +79,7 @@ export function ProductionSummary({
       filter: { delivery: "OVERDUE" },
       active: filters.delivery === "OVERDUE",
       details: [
-        { label: "Registros", value: formatQuantity(delivery.overdue) },
+        { label: "Itens", value: formatQuantity(delivery.overdue) },
         { label: "Qtd. total", value: formatQuantity(delivery.overdueQty) },
         { label: "Peso total", value: `${formatWeight(delivery.overdueWeight)} kg` },
       ],
@@ -87,7 +93,7 @@ export function ProductionSummary({
       filter: { processCode: "EXP", processStatus: "CONCLUIDO" },
       active: filters.processCode === "EXP" && filters.processStatus === "CONCLUIDO",
       details: [
-        { label: "Registros", value: formatQuantity(expedition?.count) },
+        { label: "Itens", value: formatQuantity(expedition?.count) },
         { label: "Qtd. total", value: formatQuantity(expedition?.qty) },
         { label: "Peso total", value: `${formatWeight(expedition?.weight)} kg` },
       ],

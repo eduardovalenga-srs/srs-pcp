@@ -49,6 +49,7 @@ describe("updateItemDeliveryDateAction", () => {
       "2026-10-10",
     );
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/gestao-entregas");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/fabrica-2");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/dashboard");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/(dashboard)/pedidos/[id]", "page");
   });

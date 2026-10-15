@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -86,6 +87,7 @@ async function postImport(input: PostInput): Promise<unknown> {
  * apenas a orquestração da interface.
  */
 export function ImportWizard({ capabilities }: ImportWizardProps) {
+  const router = useRouter();
   const [step, setStep] = useState<WizardStep>(1);
   const [file, setFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeOutput | null>(null);
@@ -242,6 +244,9 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
       setStep(4);
       setStatus(`Importação concluída: ${data.created} criada(s) e ${data.updated} atualizada(s).`);
       toast.success("Importação concluída!");
+      // O lote já foi gravado — re-renderiza a página para o histórico
+      // de importações (abaixo do assistente) listar o lote novo.
+      router.refresh();
     } catch (caught) {
       fail(readError(caught));
       setStatus("");

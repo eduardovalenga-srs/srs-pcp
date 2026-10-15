@@ -150,6 +150,22 @@ describe(`performance com base grande (${ORDER_COUNT} OFs)`, () => {
     expect(ms).toBeLessThan(BUDGET_MS);
   });
 
+  it("get_production_rows_by_order (gestão consolidada por OF) responde dentro do orçamento", async () => {
+    // Uma linha por OF com TODAS as etapas agregadas — o volume de linhas
+    // do banco é o mesmo, mas a consolinação varre itens + processos.
+    const { value, ms } = await timed(() =>
+      db.query<{ n: number }>(
+        `select count(*) as n from public.get_production_rows_by_order(
+           p_search => null, p_order_status => null, p_process_code => null,
+           p_process_status => null, p_delivery_filter => 'OVERDUE',
+           p_today => current_date, p_sort => 'weight_total', p_sort_dir => 'asc',
+           p_offset => 0, p_limit => 50)`,
+      ),
+    );
+    expect(Number(value.rows[0]?.n)).toBeGreaterThan(0);
+    expect(ms).toBeLessThan(BUDGET_MS);
+  });
+
   it("get_production_stats (cards do dashboard) responde dentro do orçamento", async () => {
     const { value, ms } = await timed(() =>
       db.query<{ stats: { delivery: { overdueWeight: number }; totalItems: number } }>(

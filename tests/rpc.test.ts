@@ -51,6 +51,62 @@ async function createOrder(code: string, deliveryDate: string): Promise<string> 
   return rows[0]?.id as string;
 }
 
+/** Item RAIZ com peso unitário próprio (createItem fixa 12,5 kg). */
+async function createRootItem(
+  orderId: string,
+  parentItem: string,
+  description: string,
+  quantity: number,
+  unitWeight: number,
+  processes: ProcessInput[],
+): Promise<string> {
+  const { rows } = await db.query<{ id: string }>(
+    `insert into public.order_items (order_id, family, parent_item, description, quantity, unit_weight_kg, status)
+     values ($1, 'ESTRUTURA', $2, $3, $4, $5, 'EM_PRODUCAO') returning id`,
+    [orderId, parentItem, description, quantity, unitWeight],
+  );
+  const itemId = rows[0]?.id as string;
+
+  for (const process of processes) {
+    await db.query(
+      `insert into public.production_processes (order_item_id, process_id, status, quantity_planned, quantity_completed)
+       select $1, p.id, $3, $2, $2
+         from public.processes p where p.code = $4`,
+      [itemId, quantity, process.status, process.code],
+    );
+  }
+
+  return itemId;
+}
+
+/** Item FILHO (016) — a cadeia da Fábrica 1 é rastreada nele. */
+async function createChild(
+  orderId: string,
+  parentItemId: string,
+  code: string,
+  description: string,
+  quantity: number,
+  processes: ProcessInput[],
+): Promise<string> {
+  const { rows } = await db.query<{ id: string }>(
+    `insert into public.order_items (order_id, family, parent_item, description, quantity, unit_weight_kg, parent_order_item_id, status)
+     values ($1, 'ESTRUTURA', $2, $3, $4, 12.5, $5, 'EM_PRODUCAO') returning id`,
+    [orderId, code, description, quantity, parentItemId],
+  );
+  const itemId = rows[0]?.id as string;
+
+  for (const process of processes) {
+    await db.query(
+      `insert into public.production_processes (order_item_id, process_id, status, quantity_planned, quantity_completed)
+       select $1, p.id, $3, $2, $2
+         from public.processes p where p.code = $4`,
+      [itemId, quantity, process.status, process.code],
+    );
+  }
+
+  return itemId;
+}
+
 beforeAll(async () => {
   const created = await createTestDatabase();
   db = created.db;
@@ -1318,5 +1374,284 @@ describe("apply_of_import (016)", () => {
 
     const orderRows = await callRows({ p_search: "OF-700" });
     expect(orderRows.map((row) => row.parent_item).sort()).toEqual(["P-1", "P-2"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 025) Gestão de entregas CONSOLIDADA por OF — uma linha por pedido.
+// ---------------------------------------------------------------------------
+
+interface OrderRowResult {
+  total_count: string;
+  weight_total: string;
+  qty_total: string;
+  order_code: string;
+  order_type: string;
+  customer_name: string;
+  order_status: string;
+  delivery_date: string;
+  quantity: string;
+  weight_kg: string | null;
+  overdue: boolean;
+  processes: Record<
+    string,
+    {
+      status: string;
+      // count(*) e sum(inteiro) vêm como número no PGlite.
+      done: number;
+      applicable: number;
+      quantityPlanned: number;
+      quantityCompleted: number;
+    }
+  >;
+}
+
+async function callOrderRows(params: Record<string, unknown> = {}): Promise<OrderRowResult[]> {
+  const defaults: Record<string, unknown> = {
+    p_search: null,
+    p_order_status: null,
+    p_process_code: null,
+    p_process_status: null,
+    p_delivery_filter: "ALL",
+    p_today: TODAY,
+    p_sort: "delivery_date",
+    p_sort_dir: "asc",
+    p_offset: 0,
+    p_limit: 50,
+    // filtros por coluna (sobre os TOTAIS da OF)
+    p_order_code: null,
+    p_customer: null,
+    p_qty_min: null,
+    p_qty_max: null,
+    p_weight_min: null,
+    p_weight_max: null,
+    // período de entrega (sobre a data do PEDIDO)
+    p_delivery_from: null,
+    p_delivery_to: null,
+    ...params,
+  };
+
+  const { rows } = await db.query<OrderRowResult>(
+    `select
+       total_count, weight_total, qty_total, order_id, order_code, order_type,
+       customer_name, order_status,
+       to_char(delivery_date, 'YYYY-MM-DD') as delivery_date,
+       quantity, weight_kg, overdue, processes
+     from public.get_production_rows_by_order(
+       $1, $2, $3, $4, $5, $6::date, $7, $8, $9::int, $10::int,
+       $11, $12, $13::numeric, $14::numeric, $15::numeric, $16::numeric,
+       $17::date, $18::date)`,
+    [
+      defaults.p_search,
+      defaults.p_order_status,
+      defaults.p_process_code,
+      defaults.p_process_status,
+      defaults.p_delivery_filter,
+      defaults.p_today,
+      defaults.p_sort,
+      defaults.p_sort_dir,
+      defaults.p_offset,
+      defaults.p_limit,
+      defaults.p_order_code,
+      defaults.p_customer,
+      defaults.p_qty_min,
+      defaults.p_qty_max,
+      defaults.p_weight_min,
+      defaults.p_weight_max,
+      defaults.p_delivery_from,
+      defaults.p_delivery_to,
+    ],
+  );
+  return rows;
+}
+
+describe("get_production_rows_by_order (025) — consolidada por OF", () => {
+  // OF-801: vencida, com filhos da Fábrica 1 e um override de entrega
+  // em item. OF-802: futura, com KIT não aplicável e LASER bloqueado.
+  beforeAll(async () => {
+    const order801 = await createOrder("OF-801", "2026-10-05");
+    const order802 = await createOrder("OF-802", "2026-11-01");
+
+    const paiA = await createRootItem(order801, "P-801A", "Treliça 801", 3, 10, [
+      { code: "MP", status: "NAO_INICIADO" },
+      { code: "KIT", status: "CONCLUIDO" },
+      { code: "SOLDA", status: "EM_ANDAMENTO" },
+      { code: "EXP", status: "NAO_INICIADO" },
+    ]);
+    await createRootItem(order801, "P-801B", "Porta 801", 2, 5, [
+      { code: "MP", status: "CONCLUIDO" },
+      { code: "KIT", status: "NAO_APLICAVEL" },
+      { code: "SOLDA", status: "NAO_APLICAVEL" },
+      { code: "EXP", status: "CONCLUIDO" },
+    ]);
+
+    // A cadeia da Fábrica 1 é rastreada nos FILHOS. Os processos fora de
+    // escopo lançados aqui (KIT/SOLDA no filho) NÃO podem vazar para a
+    // célula da OF — são os raiz que mandam nesses códigos.
+    await createChild(order801, paiA, "C-801A", "Componente 801A", 3, [
+      { code: "LASER", status: "CONCLUIDO" },
+      { code: "SERRA", status: "EM_ANDAMENTO" },
+      { code: "KIT", status: "BLOQUEADO" },
+      { code: "SOLDA", status: "CONCLUIDO" },
+    ]);
+    await createChild(order801, paiA, "C-801B", "Componente 801B", 3, [
+      { code: "LASER", status: "EM_ANDAMENTO" },
+    ]);
+
+    const pai802 = await createRootItem(order802, "P-802A", "Grade 802", 4, 12.5, [
+      { code: "KIT", status: "NAO_APLICAVEL" },
+      { code: "EXP", status: "CONCLUIDO" },
+    ]);
+    await createChild(order802, pai802, "C-802A", "Componente 802A", 4, [
+      { code: "LASER", status: "BLOQUEADO" },
+    ]);
+
+    // Cliente próprio — os fixtures antigos compartilham "Metalúrgica Alfa".
+    await db.query(
+      `update public.orders set customer_name = 'Consolidada Silva' where code in ('OF-801', 'OF-802')`,
+    );
+  });
+
+  it("consolida a OF em UMA linha com quantidade e peso somados", async () => {
+    const rows = await callOrderRows({ p_search: "OF-8" });
+    expect(rows.map((row) => row.order_code).sort()).toEqual(["OF-801", "OF-802"]);
+
+    const of801 = rows.find((row) => row.order_code === "OF-801");
+    // 3 + 2 das raiz (os FILHOS não somam: pertencem à raiz P-801A).
+    expect(Number(of801?.quantity)).toBe(5);
+    // 3 × 10 kg + 2 × 5 kg = 40 kg.
+    expect(Number(of801?.weight_kg)).toBe(40);
+    // A entrega exibida é a do PEDIDO.
+    expect(of801?.delivery_date).toBe("2026-10-05");
+    expect(of801?.customer_name).toBe("Consolidada Silva");
+    expect(of801?.order_type).toBe("OF");
+
+    const of802 = rows.find((row) => row.order_code === "OF-802");
+    expect(Number(of802?.quantity)).toBe(4);
+    expect(Number(of802?.weight_kg)).toBe(50); // 4 × 12,5 kg
+  });
+
+  it("lê a cadeia F1 nos FILHOS e os demais processos nos RAIZ", async () => {
+    const [of801] = await callOrderRows({ p_search: "OF-801" });
+
+    // LASER vem dos filhos: CONCLUIDO + EM_ANDAMENTO => pior = EM_ANDAMENTO.
+    expect(of801?.processes.LASER).toMatchObject({
+      status: "EM_ANDAMENTO",
+      done: 1,
+      applicable: 2,
+    });
+    expect(of801?.processes.SERRA).toMatchObject({ status: "EM_ANDAMENTO", done: 0, applicable: 1 });
+
+    // MP e SOLDA vêm dos RAIZ: o KIT/SOLDA lançado no filho foi ignorado
+    // (o SOLDA do filho está CONCLUIDO e não puxou a célula para "concluído").
+    expect(of801?.processes.MP).toMatchObject({ status: "NAO_INICIADO", done: 1, applicable: 2 });
+    expect(of801?.processes.SOLDA).toMatchObject({ status: "EM_ANDAMENTO", done: 0, applicable: 1 });
+    expect(of801?.processes.KIT).toMatchObject({ status: "CONCLUIDO", done: 1, applicable: 1 });
+
+    // EXP: um raiz expedido e outro não => pior situação + contador 1/2.
+    expect(of801?.processes.EXP).toMatchObject({ status: "NAO_INICIADO", done: 1, applicable: 2 });
+    // Soma das quantidades das raiz, só para exibição no tooltip.
+    expect(of801?.processes.EXP.quantityPlanned).toBe(5);
+  });
+
+  it("processo 100% não aplicável vira NAO_APLICAVEL (célula \"—\")", async () => {
+    const [of802] = await callOrderRows({ p_search: "OF-802" });
+    expect(of802?.processes.KIT).toMatchObject({
+      status: "NAO_APLICAVEL",
+      done: 0,
+      applicable: 0,
+    });
+    // LASER bloqueado vem do filho; EXP concluído vem da raiz.
+    expect(of802?.processes.LASER).toMatchObject({ status: "BLOQUEADO", done: 0, applicable: 1 });
+    expect(of802?.processes.EXP).toMatchObject({ status: "CONCLUIDO", done: 1, applicable: 1 });
+    // Códigos sem nenhum registro na OF não aparecem.
+    expect(of802?.processes.MP).toBeUndefined();
+  });
+
+  it("aplica a regra de atraso POR OF (entrega vencida + EXP pendente)", async () => {
+    const rows = await callOrderRows({ p_search: "OF-8", p_delivery_filter: "OVERDUE" });
+    expect(rows.map((row) => row.order_code)).toEqual(["OF-801"]);
+
+    const of801 = await callOrderRows({ p_search: "OF-801" });
+    expect(of801[0]?.overdue).toBe(true);
+    const of802 = await callOrderRows({ p_search: "OF-802" });
+    expect(of802[0]?.overdue).toBe(false);
+  });
+
+  it("busca genérica casa código, cliente e descrição de QUALQUER item da OF", async () => {
+    // Código do pedido.
+    expect(await callOrderRows({ p_search: "OF-801" })).toHaveLength(1);
+    // Cliente.
+    expect(await callOrderRows({ p_search: "Consolidada" })).toHaveLength(2);
+    // Descrição de um FILHO — a OF aparece mesmo sem bater nas raiz.
+    const porFilho = await callOrderRows({ p_search: "Componente 801A" });
+    expect(porFilho.map((row) => row.order_code)).toEqual(["OF-801"]);
+    // Item pai (código externo) de uma raiz.
+    expect(await callOrderRows({ p_search: "P-802A" })).toHaveLength(1);
+  });
+
+  it("faixas de quantidade e peso valem sobre os TOTAIS da OF", async () => {
+    // OF-801 tem 5 peças/40 kg; OF-802 tem 4 peças/50 kg.
+    expect(await callOrderRows({ p_search: "OF-8", p_qty_min: 5 })).toHaveLength(1);
+    expect(await callOrderRows({ p_search: "OF-8", p_qty_max: 4 })).toHaveLength(1);
+    expect(await callOrderRows({ p_search: "OF-8", p_weight_min: 41 })).toHaveLength(1);
+    expect(await callOrderRows({ p_search: "OF-8", p_weight_max: 40 })).toHaveLength(1);
+
+    const porPeso = await callOrderRows({ p_search: "OF-8", p_weight_min: 41 });
+    expect(porPeso[0]?.order_code).toBe("OF-802");
+  });
+
+  it("filtra por processo/status considerando o escopo da coluna", async () => {
+    const laserBloqueado = await callOrderRows({
+      p_search: "OF-8",
+      p_process_code: "LASER",
+      p_process_status: "BLOQUEADO",
+    });
+    expect(laserBloqueado.map((row) => row.order_code)).toEqual(["OF-802"]);
+
+    // MP aplicável: só OF-801 tem nos raiz.
+    const mp = await callOrderRows({ p_search: "OF-8", p_process_code: "MP" });
+    expect(mp.map((row) => row.order_code)).toEqual(["OF-801"]);
+
+    // KIT 100% não aplicável não conta como aplicável (sem status).
+    const kit = await callOrderRows({ p_search: "OF-8", p_process_code: "KIT" });
+    expect(kit.map((row) => row.order_code)).toEqual(["OF-801"]);
+  });
+
+  it("ordena por peso total e por coluna de processo", async () => {
+    const porPeso = await callOrderRows({ p_search: "OF-8", p_sort: "weight_total", p_sort_dir: "desc" });
+    expect(porPeso.map((row) => row.order_code)).toEqual(["OF-802", "OF-801"]);
+
+    // LASER: EM_ANDAMENTO (rank 2) antes de BLOQUEADO (rank 4).
+    const porLaser = await callOrderRows({ p_search: "OF-8", p_sort: "LASER", p_sort_dir: "asc" });
+    expect(porLaser.map((row) => row.order_code)).toEqual(["OF-801", "OF-802"]);
+
+    // Chave desconhecida não quebra (cai na entrega).
+    const invalida = await callOrderRows({ p_search: "OF-8", p_sort: "'; drop table orders; --" });
+    expect(invalida).toHaveLength(2);
+  });
+
+  it("pagina mantendo o total e as somas da lista filtrada", async () => {
+    const page1 = await callOrderRows({ p_search: "OF-8", p_limit: 1, p_offset: 0 });
+    const page2 = await callOrderRows({ p_search: "OF-8", p_limit: 1, p_offset: 1 });
+    expect(page1).toHaveLength(1);
+    expect(page2).toHaveLength(1);
+    // As somas vêm de TODAS as OFs filtradas, não só da página.
+    expect(Number(page1[0]?.total_count)).toBe(2);
+    expect(Number(page1[0]?.qty_total)).toBe(9);
+    expect(Number(page1[0]?.weight_total)).toBe(90);
+  });
+
+  it("entrega exibida é a do PEDIDO — override do item fica intacto", async () => {
+    // Mesmo com um item em entrega diferente, a linha mostra a data do pedido
+    // (a data por item continua na Fábrica 2 e no detalhe do pedido).
+    await db.query(
+      `update public.order_items set delivery_date = '2026-12-31' where parent_item = 'P-801A'`,
+    );
+    const [of801] = await callOrderRows({ p_search: "OF-801" });
+    expect(of801?.delivery_date).toBe("2026-10-05");
+    await db.query(
+      `update public.order_items set delivery_date = null where parent_item = 'P-801A'`,
+    );
   });
 });

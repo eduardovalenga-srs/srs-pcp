@@ -18,9 +18,10 @@ export type Capability =
   | "users.manage"
   | "menu.gestao"
   | "menu.dashboard"
-  | "menu.import"
   | "menu.processes"
   | "menu.fabrica1"
+  | "fabrica2.view"
+  | "menu.fabrica2"
   | "menu.settings";
 
 const CAPABILITIES: Record<Role, readonly Capability[]> = {
@@ -41,9 +42,10 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "users.manage",
     "menu.gestao",
     "menu.dashboard",
-    "menu.import",
     "menu.processes",
     "menu.fabrica1",
+    "fabrica2.view",
+    "menu.fabrica2",
     "menu.settings",
   ],
   GESTOR: [
@@ -60,9 +62,10 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "processes.view",
     "menu.gestao",
     "menu.dashboard",
-    "menu.import",
     "menu.processes",
     "menu.fabrica1",
+    "fabrica2.view",
+    "menu.fabrica2",
   ],
   // OPERADOR não vê a gestão de entregas (menu nem página): o trabalho dele
   // entra pela Fábrica 1 → link da OF → folha do processo em /pedidos/[id].

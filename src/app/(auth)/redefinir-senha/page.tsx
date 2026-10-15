@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ResetPasswordForm } from "@/components/auth/ResetPasswordForm";
 import { Button } from "@/components/ui/button";
 
-export const metadata = { title: "Redefinir senha · Controle de Produção" };
+export const metadata = { title: "Redefinir senha" };
 
 /**
  * Destino do link de recuperação ("Esqueci minha senha" e link gerado
@@ -23,7 +23,7 @@ export default async function RedefinirSenhaPage({
       <div className="w-full max-w-sm space-y-4">
         <div className="space-y-1 text-center">
           <h1 className="text-lg font-semibold tracking-tight">Redefinir senha</h1>
-          <p className="text-sm text-muted-foreground">Controle de Produção · Serralheria</p>
+          <p className="text-sm text-muted-foreground">Imperatriz · Serralheria</p>
         </div>
 
         {code ? (
