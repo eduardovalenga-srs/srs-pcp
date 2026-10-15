@@ -45,9 +45,10 @@ function displayTotalWeight(item: OrderItemDetails): number | null {
 }
 
 /**
- * Detalhes da OF: dados do pedido, itens pai com seus itens filhos
- * (processos com previsão e necessidade + matéria-prima) e ações de
- * editar/excluir — ponto de entrada a partir da gestão de entregas.
+ * Detalhes da OF: dados do pedido (com a edição cadastral da própria
+ * seção), itens pai com seus itens filhos (processos com previsão e
+ * necessidade + matéria-prima, ambos editados inline) e a exclusão —
+ * ponto de entrada a partir da gestão de entregas.
  *
  * A gestão de entregas lista só os itens pai; os filhos aparecem apenas
  * aqui (e podem ser ajustados por reimportação ou pela grade de materiais).
@@ -138,14 +139,6 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
         description={headerDescription}
         actions={
           <>
-            {canEdit ? (
-              <Button type="button" size="sm" asChild>
-                <Link href={`/pedidos/${order.id}/editar`}>
-                  <Pencil className="h-4 w-4" aria-hidden />
-                  Editar
-                </Link>
-              </Button>
-            ) : null}
             {canDelete ? (
               <DeleteOrderButton
                 orderId={order.id}
@@ -164,7 +157,23 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
       />
 
       <section aria-label="Dados do pedido" className="rounded border bg-card p-4">
-        <h2 className="mb-3 text-sm font-semibold">Dados do pedido</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">Dados do pedido</h2>
+            <p className="text-xs text-muted-foreground">
+              Edição cadastral (cliente, entrega, quantidades, itens) — processos e
+              matérias-primas são ajustados direto nos cards abaixo.
+            </p>
+          </div>
+          {canEdit ? (
+            <Button type="button" variant="outline" size="sm" asChild>
+              <Link href={`/pedidos/${order.id}/editar`}>
+                <Pencil className="h-4 w-4" aria-hidden />
+                Editar dados do pedido
+              </Link>
+            </Button>
+          ) : null}
+        </div>
         <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <dt className="text-xs text-muted-foreground">Situação</dt>
@@ -219,7 +228,7 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
                 <Button type="button" size="sm" asChild>
                   <Link href={`/pedidos/${order.id}/editar`}>
                     <Pencil className="h-4 w-4" aria-hidden />
-                    Editar pedido
+                    Adicionar itens
                   </Link>
                 </Button>
               ) : undefined
