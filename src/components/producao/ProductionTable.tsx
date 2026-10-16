@@ -347,7 +347,7 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
       <div className="hidden max-h-[calc(100vh-8rem)] overflow-auto rounded border bg-card lg:block">
         <table className="w-full caption-bottom text-[10px]">
           <caption className="sr-only">
-            Gestão de entregas consolidada por OF — uma linha por pedido, com uma coluna por processo.
+            Gestão de OF consolidada por OF — uma linha por pedido, com uma coluna por processo.
           </caption>
           <thead>
             {table.getHeaderGroups().map((headerGroup, groupIndex) => (

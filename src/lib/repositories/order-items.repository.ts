@@ -339,6 +339,8 @@ export async function listChildItemGroups(
     total: number | string;
     qtyTotal: number | string;
     weightTotal: number | string;
+    /** 035: quebra por família do conjunto filtrado (chave nova da 024). */
+    families?: { family: string | null; qty: number | string; weight: number | string }[];
   };
   const totals = (totalsResult.data ?? {}) as unknown as TotalsRow;
   const aggregated = {
@@ -346,6 +348,12 @@ export async function listChildItemGroups(
     total: toNumber(groupsPayload.total ?? null) ?? 0,
     qtyTotal: toNumber(totals.qtyTotal) ?? 0,
     weightTotal: toNumber(totals.weightTotal) ?? 0,
+    //035: família vazia vem null; a UI exibe "—".
+    familyTotals: (totals.families ?? []).map((entry) => ({
+      family: entry.family,
+      qty: toNumber(entry.qty) ?? 0,
+      weight: toNumber(entry.weight) ?? 0,
+    })),
   };
   if (memberIds.length === 0) {
     return { items: [], ...aggregated };

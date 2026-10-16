@@ -52,7 +52,7 @@ describe("TopNav (menu no topo)", () => {
 
     expect(markup).toContain('aria-label="Navegação principal"');
     expect(markup).toContain('href="/gestao-entregas"');
-    expect(markup).toContain('aria-label="Gestão de Entregas"');
+    expect(markup).toContain('aria-label="Gestão de OF"');
     expect(markup).toContain('aria-current="page"');
     expect(markup).toContain('href="/fabrica-1"');
     expect(markup).toContain('aria-label="Fábrica 1"');

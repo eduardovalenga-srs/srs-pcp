@@ -101,7 +101,7 @@ export function ProductionSummary({
   ];
 
   return (
-    <section aria-label="Resumo da gestão de entregas" className="grid grid-cols-2 gap-2 xl:grid-cols-6">
+    <section aria-label="Resumo da gestão de OF" className="grid grid-cols-2 gap-2 xl:grid-cols-6">
       {chips.map((chip) => {
         const title = (
           <span className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">

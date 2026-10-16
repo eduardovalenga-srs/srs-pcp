@@ -550,7 +550,7 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
               ) : null}
               {capabilities.canViewProduction ? (
                 <Button type="button" variant="outline" size="sm" asChild>
-                  <Link href="/gestao-entregas">Ver gestão de entregas</Link>
+                  <Link href="/gestao-entregas">Ver gestão de OF</Link>
                 </Button>
               ) : null}
             </div>

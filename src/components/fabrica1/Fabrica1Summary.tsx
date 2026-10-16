@@ -1,5 +1,7 @@
 import { Inbox } from "lucide-react";
 
+import { FamilyTotalsList } from "@/components/shared/FamilyTotalsList";
+import type { FamilyTotal } from "@/lib/types/production";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 
 interface Fabrica1SummaryProps {
@@ -9,13 +11,15 @@ interface Fabrica1SummaryProps {
   qtyTotal: number;
   /** Peso total (kg) do conjunto filtrado — Σ (qtd × peso unit.). */
   weightTotal: number;
+  /** 035: quebra por família do MESMO conjunto dos três números acima. */
+  familyTotals: FamilyTotal[];
 }
 
 /**
  * Card "Eventos" no mesmo modelo da gestão de entregas: três números lado
  * a lado (Registros, Qtd. total e Peso total) do conjunto filtrado.
  */
-export function Fabrica1Summary({ total, qtyTotal, weightTotal }: Fabrica1SummaryProps) {
+export function Fabrica1Summary({ total, qtyTotal, weightTotal, familyTotals }: Fabrica1SummaryProps) {
   const details = [
     { label: "Registros", value: formatQuantity(total) },
     { label: "Qtd. total", value: formatQuantity(qtyTotal) },
@@ -36,6 +40,8 @@ export function Fabrica1Summary({ total, qtyTotal, weightTotal }: Fabrica1Summar
           </div>
         ))}
       </div>
+      {/* 035: quebra por família do conjunto filtrado — abaixo dos três números. */}
+      <FamilyTotalsList entries={familyTotals} className="mt-1.5" />
     </section>
   );
 }

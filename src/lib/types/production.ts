@@ -102,6 +102,19 @@ export interface ProductionFilters {
   pageSize: number;
 }
 
+/**
+ * Total por FAMÍLIA do produto no conjunto filtrado inteiro (035) —
+ * exibido nos cards de resumo da Fábrica 1 e da Fábrica 2.
+ */
+export interface FamilyTotal {
+  /** Família (coluna TP / order_items.family) — null = item sem família. */
+  family: string | null;
+  /** Σ das quantidades dos itens da família. */
+  qty: number;
+  /** Σ do peso total (qtd × peso unit.) dos itens da família. */
+  weight: number;
+}
+
 export interface ProductionResult {
   rows: ProductionRow[];
   total: number;
@@ -109,6 +122,8 @@ export interface ProductionResult {
   weightTotal: number;
   /** Soma da coluna "Qtd." da lista filtrada inteira — de todas as páginas. */
   qtyTotal: number;
+  /** 035: quebra por família do MESMO conjunto dos totais acima (todas as páginas). */
+  familyTotals: FamilyTotal[];
 }
 
 /** Resultado da listagem consolidada por OF (025). */

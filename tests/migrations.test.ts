@@ -1035,6 +1035,104 @@ describe("migrations", () => {
     );
     expect(grants[0]?.authenticated).toBe(true);
   });
+
+  it("035: totais por família nas RPCs (F1 = filhos, F2 = raízes)", async () => {
+    await asSuperUser(db);
+
+    type FamilyEntry = { family: string | null; qty: number; weight: number };
+
+    // DROP + recriação da get_production_rows: 1 função, mesmos 21 params
+    // e grants refeitos (o DROP leva o EXECUTE junto).
+    const { rows: fns } = await db.query<{ total: string; same_args: string }>(
+      `select (select count(*)
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows')::text as total,
+              (select count(*)
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows'
+                  and p.pronargs = 21)::text as same_args`,
+    );
+    expect(fns[0]?.total).toBe("1");
+    expect(fns[0]?.same_args).toBe("1");
+
+    const { rows: grants } = await db.query<{ rows_prod: boolean; rows_totals: boolean }>(
+      `select
+         has_function_privilege('authenticated',
+           'public.get_production_rows(text, text, text, text, text, date, text, text, integer, integer, text, text, text, text, text, numeric, numeric, numeric, numeric, date, date)',
+           'EXECUTE') as rows_prod,
+         has_function_privilege('authenticated',
+           'public.get_child_items_totals(text, text, text, text, text, text, uuid[], date, date, uuid, text)',
+           'EXECUTE') as rows_totals`,
+    );
+    expect(grants[0]?.rows_prod).toBe(true);
+    expect(grants[0]?.rows_totals).toBe(true);
+
+    // OF com duas famílias nos RAÍZES e três FILHOS (TP, TP e sem família).
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type, customer_name, delivery_date)
+       values ('OF-035', 'OF', 'Cliente 035', current_date + 9) returning id`,
+    );
+    const orderId = orderRows[0]?.id as string;
+    const { rows: roots } = await db.query<{ id: string; parent_item: string }>(
+      `insert into public.order_items (order_id, family, parent_item, description, quantity, unit_weight_kg)
+       values ($1, 'GC', 'P-035-1', 'Guarda-corpo', 2, 5),
+              ($1, 'EB', 'P-035-2', 'Estante bazar', 10, 1.5)
+       returning id, parent_item`,
+      [orderId],
+    );
+    const gcRootId = roots.find((root) => root.parent_item === "P-035-1")?.id as string;
+    await db.query(
+      `insert into public.order_items (order_id, parent_order_item_id, family, parent_item, description, quantity, unit_weight_kg)
+       values ($1, $2, 'TP', 'F-035-1', 'Tampo 1', 3, 2),
+              ($1, $2, 'TP', 'F-035-2', 'Tampo 2', 4, 2),
+              ($1, $2, null, 'F-035-3', 'Parafuso', 1, 3)`,
+      [orderId, gcRootId],
+    );
+
+    // F2 (raízes): ordenação por qtd. desc e mesma janela do limite pequeno.
+    const { rows: prodRows } = await db.query<{ family_totals: FamilyEntry[] }>(
+      `select family_totals from public.get_production_rows(p_search => 'OF-035', p_limit => 1)`,
+    );
+    expect(prodRows).toHaveLength(1);
+    expect(prodRows[0]?.family_totals).toEqual([
+      { family: "EB", qty: 10, weight: 15 },
+      { family: "GC", qty: 2, weight: 10 },
+    ]);
+
+    // Sem limit, TODAS as linhas carregam o conjunto inteiro (não só a página).
+    const { rows: allProdRows } = await db.query<{ family_totals: FamilyEntry[] }>(
+      `select family_totals from public.get_production_rows(p_search => 'OF-035')`,
+    );
+    expect(allProdRows).toHaveLength(2);
+    for (const row of allProdRows) {
+      expect(row.family_totals).toEqual(prodRows[0]?.family_totals);
+    }
+
+    // F1 (filhos): TP = 3 + 4 un / 6 + 8 kg; sem família = 1 un / 3 kg.
+    const { rows: totals } = await db.query<{
+      totals: {
+        total: number | string;
+        qtyTotal: number | string;
+        weightTotal: number | string;
+        families: FamilyEntry[];
+      };
+    }>(`select public.get_child_items_totals(p_order_code => 'OF-035') as totals`);
+    expect(Number(totals[0]?.totals.total)).toBe(3);
+    expect(Number(totals[0]?.totals.qtyTotal)).toBe(8);
+    expect(Number(totals[0]?.totals.weightTotal)).toBe(17);
+    expect(totals[0]?.totals.families).toEqual([
+      { family: "TP", qty: 7, weight: 14 },
+      { family: null, qty: 1, weight: 3 },
+    ]);
+
+    // Conjunto sem correspondência: 'families' vira [] (o card exibe "—").
+    const { rows: empty } = await db.query<{ totals: { families: FamilyEntry[] } }>(
+      `select public.get_child_items_totals(p_search => 'zzz-035-nada') as totals`,
+    );
+    expect(empty[0]?.totals.families).toEqual([]);
+
+    await db.query(`delete from public.orders where code = 'OF-035'`);
+  });
 });
 
 describe("RLS", () => {

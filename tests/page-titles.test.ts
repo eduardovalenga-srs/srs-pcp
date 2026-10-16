@@ -22,7 +22,7 @@ const EXPECTED_TITLES: Record<string, string> = {
   "(dashboard)/dashboard": "Dashboard",
   "(dashboard)/fabrica-1": "Fábrica 1",
   "(dashboard)/fabrica-2": "Fábrica 2",
-  "(dashboard)/gestao-entregas": "Gestão de Entregas",
+  "(dashboard)/gestao-entregas": "Gestão de OF",
   "(dashboard)/importacao": "Importar planilha",
   "(dashboard)/pedidos": "Pedidos",
   "(dashboard)/pedidos/[id]": "Pedido",

@@ -86,6 +86,7 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
           total={data.total}
           qtyTotal={data.qtyTotal}
           weightTotal={data.weightTotal}
+          familyTotals={data.familyTotals}
         />
 
         {/* Chips de filtros ativos: removem um a um ou limpam tudo. */}

@@ -238,7 +238,7 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
       {processes.length === 0 ? (
         <EmptyState
           title="Nenhum processo cadastrado"
-          description="Crie as etapas do seu fluxo fabril para que elas apareçam como colunas na gestão de entregas."
+          description="Crie as etapas do seu fluxo fabril para que elas apareçam como colunas na gestão de OF."
         />
       ) : (
         <>
@@ -294,7 +294,7 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
           {canManage ? (
             <p className="mt-2 text-xs text-muted-foreground">
               Arraste as linhas pela alça <GripVertical className="inline h-3 w-3" aria-hidden />{" "}
-              para reordenar a cadeia: a ordem define as colunas da gestão de entregas e as datas
+              para reordenar a cadeia: a ordem define as colunas da gestão de OF e as datas
               previstas de execução.
             </p>
           ) : (
@@ -310,7 +310,7 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
           <DialogHeader>
             <DialogTitle>Novo processo</DialogTitle>
             <DialogDescription>
-              O código vira coluna na tela de gestão de entregas e não pode ser alterado depois.
+              O código vira coluna na tela de gestão de OF e não pode ser alterado depois.
             </DialogDescription>
           </DialogHeader>
 
@@ -368,7 +368,7 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
               />
               <p id="processo-novo-duracao-ajuda" className="text-xs text-muted-foreground">
                 Dias úteis (seg–sex) que o processo leva para ser concluído — alimenta as datas
-                previstas na gestão de entregas: a expedição acontece no dia útil anterior à
+                previstas na gestão de OF: a expedição acontece no dia útil anterior à
                 entrega e a contagem segue para trás, sem agendar fim de semana.
               </p>
               <p role="alert" className="text-xs text-status-blocked">
@@ -452,7 +452,7 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
               />
               <p id="processo-editar-duracao-ajuda" className="text-xs text-muted-foreground">
                 Dias úteis (seg–sex) que o processo leva para ser concluído — alimenta as datas
-                previstas na gestão de entregas: a expedição acontece no dia útil anterior à
+                previstas na gestão de OF: a expedição acontece no dia útil anterior à
                 entrega e a contagem segue para trás, sem agendar fim de semana.
               </p>
               <p role="alert" className="text-xs text-status-blocked">
@@ -474,7 +474,7 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
                 checked={editActive === true}
                 onCheckedChange={(checked) => editForm.setValue("active", checked === true)}
               />
-              <Label htmlFor="processo-editar-ativo">Processo ativo (aparece na gestão de entregas)</Label>
+              <Label htmlFor="processo-editar-ativo">Processo ativo (aparece na gestão de OF)</Label>
             </div>
 
             <DialogFooter>

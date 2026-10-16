@@ -2,7 +2,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { AlertTriangle, Inbox, Truck } from "lucide-react";
 
-import type { ProductionFilters } from "@/lib/types/production";
+import { FamilyTotalsList } from "@/components/shared/FamilyTotalsList";
+import type { FamilyTotal, ProductionFilters } from "@/lib/types/production";
 import { productionQueryString } from "@/lib/utils/filters";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,8 @@ interface Fabrica2SummaryProps {
   qtyTotal: number;
   /** Peso total (kg) da lista filtrada inteira — soma da coluna "Peso". */
   weightTotal: number;
+  /** 035: quebra por família do MESMO conjunto dos três números (card "Eventos"). */
+  familyTotals: FamilyTotal[];
   filters: ProductionFilters;
   /** KPIs globais de entrega (019 soma peças e peso do MESMO conjunto de atraso). */
   delivery: {
@@ -37,6 +40,8 @@ interface Chip {
   tone?: "danger" | "warning" | "success" | "muted";
   /** Três números lado a lado (Registros, Qtd. total, Peso total). */
   details: { label: string; value: string }[];
+  /** 035: lista de famílias — só no card "Eventos" (ausente = não renderiza). */
+  families?: FamilyTotal[];
   /** Card clicável: filtro aplicado ao clicar (os demais filtros são mantidos). */
   filter?: Partial<ProductionFilters>;
   /** true quando o filtro deste chip já está ativo. */
@@ -48,6 +53,7 @@ export function Fabrica2Summary({
   total,
   qtyTotal,
   weightTotal,
+  familyTotals,
   filters,
   delivery,
   expedition,
@@ -63,6 +69,7 @@ export function Fabrica2Summary({
         { label: "Qtd. total", value: formatQuantity(qtyTotal) },
         { label: "Peso total", value: `${formatWeight(weightTotal)} kg` },
       ],
+      families: familyTotals,
     },
     {
       key: "overdue",
@@ -118,6 +125,8 @@ export function Fabrica2Summary({
           <>
             {title}
             {body}
+            {/* 035: lista de famílias — presente só no card "Eventos". */}
+            {chip.families !== undefined && <FamilyTotalsList entries={chip.families} />}
           </>
         );
         const className = cn(

@@ -53,7 +53,7 @@ export default async function ConfiguracoesPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Processos ativos</CardTitle>
-              <CardDescription>Colunas exibidas na tela de gestão de entregas.</CardDescription>
+              <CardDescription>Colunas exibidas na tela de gestão de OF.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-1.5">
               {data.processes.map((process) => (

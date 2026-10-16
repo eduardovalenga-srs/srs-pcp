@@ -122,7 +122,7 @@ export function ProductionFiltersBar({ filters, processes }: ProductionFiltersPr
   const setSelect = (key: keyof Filters) => (value: string) => apply({ [key]: value } as Partial<Filters>);
 
   return (
-    <section aria-label="Filtros da gestão de entregas" className="rounded border bg-card p-3">
+    <section aria-label="Filtros da gestão de OF" className="rounded border bg-card p-3">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <div className="space-y-1 md:col-span-2 xl:col-span-1">
           <Label htmlFor="producao-busca" className="text-xs text-muted-foreground">

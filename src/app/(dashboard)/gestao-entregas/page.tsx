@@ -17,7 +17,7 @@ import { ProductionSummary } from "@/components/producao/ProductionSummary";
 import { ProductionTable } from "@/components/producao/ProductionTable";
 import { ProductionPagination } from "@/components/producao/ProductionPagination";
 
-export const metadata = { title: "Gestão de Entregas" };
+export const metadata = { title: "Gestão de OF" };
 
 export default async function GestaoEntregasPage({ searchParams }: PageProps<"/gestao-entregas">) {
   const sessionUser = await getSessionUser();
@@ -26,7 +26,7 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
   if (!can(sessionUser.role, "production.view")) {
     return (
       <>
-        <Header title="Gestão de Entregas" description="Acompanhamento etapa a etapa dos itens." />
+        <Header title="Gestão de OF" description="Acompanhamento etapa a etapa dos itens." />
         <AccessDenied />
       </>
     );
@@ -42,9 +42,9 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
   } catch (error) {
     return (
       <>
-        <Header title="Gestão de Entregas" description="Acompanhamento etapa a etapa dos itens." />
+        <Header title="Gestão de OF" description="Acompanhamento etapa a etapa dos itens." />
         <ErrorState
-          title="Não foi possível carregar a gestão de entregas"
+          title="Não foi possível carregar a gestão de OF"
           message={error instanceof Error ? error.message : "Erro desconhecido."}
         />
       </>
@@ -62,7 +62,7 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
   return (
     <>
       <Header
-        title="Gestão de Entregas"
+        title="Gestão de OF"
         description="Uma linha por OF — quantidades e pesos somados, com uma coluna por processo. Clique numa célula para aplicar a situação a toda a OF."
         actions={
           <>

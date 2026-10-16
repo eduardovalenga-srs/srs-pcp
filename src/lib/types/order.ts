@@ -1,5 +1,6 @@
 import type { OrderStatus, OrderType } from "@/lib/constants/orders";
 import type { ProcessStatus } from "@/lib/constants/production";
+import type { FamilyTotal } from "@/lib/types/production";
 
 /** Resumo de pedido para listagens. */
 export interface OrderSummary {
@@ -201,6 +202,8 @@ export interface ChildItemGroupsResult {
   qtyTotal: number;
   /** Peso total (kg) do conjunto filtrado — Σ (qtd × peso unit.). */
   weightTotal: number;
+  /** 035: quebra por família do MESMO conjunto dos totais acima (todas as páginas). */
+  familyTotals: FamilyTotal[];
 }
 
 /** Payload de um item enviado pelo formulário. */

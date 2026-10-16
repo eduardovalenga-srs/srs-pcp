@@ -48,7 +48,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   {
     href: "/gestao-entregas",
-    label: "Gestão de Entregas",
+    label: "Gestão de OF",
     icon: Factory,
     capability: "menu.gestao",
   },

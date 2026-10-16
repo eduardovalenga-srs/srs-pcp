@@ -234,7 +234,7 @@ describe("tabela da Fábrica 1", () => {
         today: "2026-10-09",
       }),
     );
-    expect(markup).toContain("status do item pai (editado na Gestão de Entregas)");
+    expect(markup).toContain("status do item pai (editado na Gestão de OF)");
     // Só os processos editáveis viram botão (aqui: LASER e KIT do catálogo).
     expect(markup).toContain('aria-label="LASER de BOTÃO DE PORTA');
     expect(markup).toContain('aria-label="KIT de BOTÃO DE PORTA');

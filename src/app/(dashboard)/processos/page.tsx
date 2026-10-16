@@ -44,7 +44,7 @@ export default async function ProcessosPage() {
     <>
       <Header
         title="Processos"
-        description="As colunas da tela de gestão de entregas vêm daqui — nenhum processo é fixo no código."
+        description="As colunas da tela de gestão de OF vêm daqui — nenhum processo é fixo no código."
       />
       <ProcessCatalog processes={processes} canManage={can(sessionUser.role, "processes.manage")} />
     </>

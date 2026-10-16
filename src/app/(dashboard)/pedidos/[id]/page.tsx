@@ -98,12 +98,12 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
         <Header title="Detalhes do pedido" description="Dados da OF e de seus itens." />
         <EmptyState
           title="Pedido não encontrado"
-          description="Ele pode ter sido excluído. Volte para a gestão de entregas para continuar."
+          description="Ele pode ter sido excluído. Volte para a gestão de OF para continuar."
           action={
             <Button type="button" size="sm" asChild>
               <Link href="/gestao-entregas">
                 <ArrowLeft className="h-4 w-4" aria-hidden />
-                Gestão de entregas
+                Gestão de OF
               </Link>
             </Button>
           }

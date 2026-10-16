@@ -185,6 +185,8 @@ export type ProductionRowRecord = {
       completedAt: string | null;
     }
   >;
+  /** 035: totais por família do conjunto filtrado inteiro (mesma janela dos totais). */
+  family_totals: { family: string | null; qty: number | string; weight: number | string }[] | null;
 };
 
 /** Linha retornada pela RPC get_production_rows_by_order (025) — uma por OF. */

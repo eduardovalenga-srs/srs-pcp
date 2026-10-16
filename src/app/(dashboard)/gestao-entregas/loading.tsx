@@ -4,7 +4,7 @@ import { Header } from "@/components/layout/Header";
 export default function GestaoEntregasLoading() {
   return (
     <>
-      <Header title="Gestão de Entregas" description="Carregando…" />
+      <Header title="Gestão de OF" description="Carregando…" />
 
       <div className="space-y-3">
         <div className="rounded border bg-card p-3">

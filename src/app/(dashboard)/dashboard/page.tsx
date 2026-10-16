@@ -127,7 +127,7 @@ export default async function DashboardPage() {
           <div className="mb-2 flex items-center gap-2">
             <CalendarClock className="h-4 w-4 text-muted-foreground" aria-hidden />
             <h2 className="text-sm font-semibold">Entregas</h2>
-            <span className="text-xs text-muted-foreground">clique para filtrar na gestão de entregas</span>
+            <span className="text-xs text-muted-foreground">clique para filtrar na gestão de OF</span>
           </div>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             {DELIVERY_WINDOWS.map((window) => (

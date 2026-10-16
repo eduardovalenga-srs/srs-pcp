@@ -532,7 +532,7 @@ export function OrderForm({ processes, initialOrder }: OrderFormProps) {
                     <FieldError id={processErrorId} message={processMessage} />
                     <p className="text-xs text-muted-foreground">
                       Desmarcado = não se aplica ao item (sem janela prevista na gestão de
-                      entregas). Selecione ao menos um processo além do MP.
+                      OF). Selecione ao menos um processo além do MP.
                     </p>
                   </div>
 

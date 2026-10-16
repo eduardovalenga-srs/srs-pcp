@@ -184,7 +184,7 @@ function InheritedProcessCell({
         receivedDay && plannedDay ? "gap-0" : "gap-0.5",
         statusClass(status),
       )}
-      title={`Matéria-prima — status do item pai (editado na Gestão de Entregas): ${PROCESS_STATUS_LABELS[status]}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(completedAt)}` : ""}`}
+      title={`Matéria-prima — status do item pai (editado na Gestão de OF): ${PROCESS_STATUS_LABELS[status]}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(completedAt)}` : ""}`}
     >
       <span aria-hidden>{PROCESS_STATUS_SYMBOLS[status]}</span>
       {/* 031: recebimento efetivo em CIMA da prevista (mesmo formato das listas). */}

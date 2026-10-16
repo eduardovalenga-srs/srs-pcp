@@ -3,6 +3,7 @@ import { F1_PROCESS_CODES } from "@/lib/constants/processes";
 import type { ProductionOrderRowRecord, ProductionRowRecord, ProcessStatusValue } from "@/lib/types/database";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type {
+  FamilyTotal,
   OrderProcessCell,
   ProductionEvent,
   ProductionFilters,
@@ -86,15 +87,24 @@ export async function getProductionRows(
     p_weight_max: filters.weightMax,
   });
 
-  if (error) throw new Error(`Não foi possível carregar a gestão de entregas: ${error.message}`);
+  if (error) throw new Error(`Não foi possível carregar a gestão de OF: ${error.message}`);
 
   const rawRows = data ?? [];
   const total = rawRows.length > 0 ? Number(rawRows[0].total_count ?? 0) : 0;
   const weightTotal = rawRows.length > 0 ? Number(rawRows[0].weight_total ?? 0) : 0;
   const qtyTotal = rawRows.length > 0 ? Number(rawRows[0].qty_total ?? 0) : 0;
   const rows = rawRows.map((row) => mapProductionRow(row));
+  // 035: a quebra por família vem no registro da primeira linha e cobre o
+  // conjunto filtrado inteiro (mesma janela dos totais acima).
+  const familyTotals: FamilyTotal[] = (
+    rawRows.length > 0 ? (rawRows[0].family_totals ?? []) : []
+  ).map((entry) => ({
+    family: entry.family,
+    qty: toNumber(entry.qty) ?? 0,
+    weight: toNumber(entry.weight) ?? 0,
+  }));
 
-  return { rows, total, weightTotal, qtyTotal };
+  return { rows, total, weightTotal, qtyTotal, familyTotals };
 }
 
 function mapProductionOrderRow(raw: ProductionOrderRowRecord): ProductionOrderRow {
@@ -160,7 +170,7 @@ export async function getProductionOrderRows(
     p_weight_max: filters.weightMax,
   });
 
-  if (error) throw new Error(`Não foi possível carregar a gestão de entregas: ${error.message}`);
+  if (error) throw new Error(`Não foi possível carregar a gestão de OF: ${error.message}`);
 
   const rawRows = data ?? [];
   const total = rawRows.length > 0 ? Number(rawRows[0].total_count ?? 0) : 0;

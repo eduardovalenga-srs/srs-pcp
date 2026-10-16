@@ -67,6 +67,7 @@ cp .env.example .env.local
 #    supabase/migrations/032_import_process_final_chain.sql
 #    supabase/migrations/033_get_child_item_groups.sql
 #    supabase/migrations/034_import_material_prefix_serra.sql
+#    supabase/migrations/035_card_family_totals.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -132,7 +133,7 @@ src/
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..034 (ordem obrigatória)
+  migrations/               001..035 (ordem obrigatória)
   seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
@@ -163,10 +164,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
 - **Ordem da cadeia**: `display_order` — no cadastro o processo entra ao final
   (máximo + 1, automático) e em `/processos` a lista reordena por arrastar-e-soltar
   (RPC `reorder_processes`, migração 009, tudo em uma transação). A ordem define as
-  colunas da gestão de entregas e as janelas de execução previstas. O **código**
+  colunas da gestão de OF e as janelas de execução previstas. O **código**
   (LASER, SOLDA…) nunca muda: é a chave dos filtros e do histórico.
 - **Coluna MP (matéria-prima)**: a cadeia da Fábrica 1 (LASER, DB CH, SERRA, DB TB,
-  PUNC, METALEIRA, FICEP) não abre coluna na gestão de entregas — a primeira coluna de
+  PUNC, METALEIRA, FICEP) não abre coluna na gestão de OF — a primeira coluna de
   processos é a **MP** (migração 021), controlada como as demais (célula clicável,
   quantidades, observações e histórico), mas com **apenas duas situações: não iniciado
   ou concluído**. Os demais processos seguem com coluna própria. Como é o **pré-requisito
@@ -176,7 +177,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   concluído, a célula/linha mostra a data em que a MP foi efetivamente recebida
   (`production_processes.completed_at`, formatada no fuso do negócio) **em cima da
   data prevista**, sem os rótulos no visível (o `title`/hover traz os nomes com ano) —
-  em todas as listas (gestão de entregas, Fábrica 2 e Fábrica 1, desktop e mobile);
+  em todas as listas (gestão de OF, Fábrica 2 e Fábrica 1, desktop e mobile);
   sem recebimento sinalizado, só a prevista. Na Fábrica 1 a janela vem do **item pai**
   (entrega + status do pai), já que a coluna MP é herdada dele — na linha agrupada
   (033) os **pais do grupo** agregam: pior situação, menor entrega e a data efetiva
@@ -186,7 +187,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   (dias úteis — seg a sex, 1 a 365). As janelas de execução são contadas de TRÁS para
   FRENTE da **entrega efetiva do item — a do pedido quando o item não tem própria**
   (`lib/utils/process-schedule.ts`; mesma regra da Fábrica 1, do detalhe da OF e da
-  migração 022 na gestão de entregas), somente em dias úteis:
+  migração 022 na gestão de OF), somente em dias úteis:
   a **expedição acontece no dia útil anterior à entrega** (entrega no fim de semana →
   expedição na sexta anterior) e cada etapa anterior termina no dia útil anterior ao
   início da seguinte — nunca agenda fim de semana (feriados ainda não são considerados).
@@ -196,12 +197,12 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   Nada é gravado: as janelas são calculadas na leitura, então valem igual para pedido
   manual e para OF importada (a importação grava entrega em todo registro; o formulário
   grava no item a data do pedido quando ele vem em branco).
-  Aparece como **dd/MM na célula** da gestão de entregas, janela completa no tooltip e
+  Aparece como **dd/MM na célula** da gestão de OF, janela completa no tooltip e
   data completa na folha de detalhes. Datas já vencidas aparecem em **vermelho**: a
   **entrega** apenas quando a expedição ainda não concluiu (a mesma regra de atraso) e
   as datas de **processo** (MP e células), exceto o processo já concluído.
 - **Edição manual da entrega**: a data de entrega de um item pode ser alterada na
-  própria coluna **Ent.** da gestão de entregas (popover com data + Salvar) e na
+  própria coluna **Ent.** da gestão de OF (popover com data + Salvar) e na
   folha do processo (campo **Entrega**, com prévia recalculando ao digitar) — sempre
   por perfil com `orders.edit` (ADMIN/GESTOR). As janelas previstas são **derivadas
   da data em toda leitura**, então gravar a nova data recalcula as previsões de
@@ -224,7 +225,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   serviço rejeita as demais (`allowedProcessStatuses`, `lib/utils/production.ts`).
 - **Ordem de Produção (OP)** (`order_items.op`, migração 013): código da OP por
   sub-item (1–50 caracteres, `null` = em espera) — preenchido no formulário do pedido,
-  exibido no detalhe `/pedidos/[id]` e na coluna **OP** da gestão de entregas. O campo
+  exibido no detalhe `/pedidos/[id]` e na coluna **OP** da gestão de OF. O campo
   **Situação** do pedido saiu do formulário: tanto o status do item quanto o da OF são
   **derivados no servidor** e gravados em uma única transação (`apply_import`):
   1. todos os processos aplicáveis concluídos → `CONCLUIDO` (o progresso vence);
@@ -267,7 +268,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   preserva status e OP, troca os materiais e remove do banco o que sumiu do arquivo;
   OF com erro fica inteira de fora, alertas não bloqueiam e qualquer falha faz
   rollback completo). A RPC antiga `apply_import` continua no formulário de pedidos
-  (formato item único). A gestão de entregas mostra **uma linha por OF** (consolidada,
+  (formato item único). A gestão de OF mostra **uma linha por OF** (consolidada,
   migração 025) — os itens pai e filho aparecem em `/pedidos/[id]` (cards aninhados com
   processos e MP) e na Fábrica 2, que segue **por item**.
   Pesos são **derivados**: `total_weight_kg` = quantidade × peso unitário, gravado por
@@ -304,7 +305,11 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   menor entrega, data efetiva mais recente entre os concluídos). Acima da
   lista, o **card "Eventos"** no mesmo modelo da gestão (Registros = nº de linhas
   agrupadas, Qtd. total e Peso total do **conjunto filtrado inteiro**, somados pela RPC
-  `get_child_items_totals` — migração 024, inalterada).
+  `get_child_items_totals` — migração 024, redefinida pela **035**). Abaixo dos três
+  números, a lista **Famílias** (035): cada família (coluna TP) com Σ de quantidade e
+  peso — `GC — 120 un · 1.500 kg` — em ordem de qtd. desc, **mesma janela dos totais**
+  (o conjunto filtrado inteiro, todas as páginas, itens **filhos**); família vazia
+  exibe "—" e sem nenhuma família o bloco mostra só "—".
   A página vem da RPC **`get_child_item_groups`** (migração 033): aplica os **mesmos 11
   filtros** da `get_child_items_totals` (clonados da 024), agrupa por **(OF, código do
   filho)** — descrição quando o código vem vazio —, devolve os ids dos membros e pagina
@@ -323,7 +328,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   filtro preserva o restante da URL e volta para a página 1. Menu visível para **todos os
   perfis** (`menu.fabrica1`), página protegida por
   `orders.view`; leitura 100% server-rendered (sem componentes client por linha).
-- **Fábrica 2** (`/fabrica-2`): **réplica da gestão de entregas com código próprio** —
+- **Fábrica 2** (`/fabrica-2`): **réplica da gestão de OF com código próprio** —
   página em `app/(dashboard)/fabrica-2/` e cópia dos componentes em
   `components/fabrica2/` (`Fabrica2*`), de propósito: alterações futuras na gestão não
   podem vazar para cá (nem o contrário). Continua lendo pelos mesmos services/filtros/
@@ -337,6 +342,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   em relação ao original: **cabeçalho sem botões** (sem "Novo pedido" nem "Importar Excel")
   e acesso restrito a **ADMIN/GESTOR** (`menu.fabrica2` no item de menu, `fabrica2.view`
   no guard da página — VISUALIZADOR e OPERADOR caem em "Acesso negado" mesmo por URL).
+  O card **Eventos** traz a lista **Famílias** (035) junto dos três números — mesma
+  quebra da Fábrica 1, mas sobre os itens **raiz** do conjunto filtrado inteiro; os
+  chips clicáveis (Atrasados/Expedição) não mudam.
 - **Gestão como hub**: o código da OF/OS na tabela de entregas (desktop e mobile) abre a
   tela de detalhes `/pedidos/[id]` — sub-itens, processos e materiais num só lugar; a
   criação termina lá e o menu superior não expõe "Pedidos" (a lista `/pedidos` segue como
@@ -349,7 +357,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   agora centralizada em `lib/utils/order-code.ts` (`normalizeOrderCode`) — o formulário
   mostra "Será salvo como: OF 1234" antes de salvar. Assim o código manual casa com a
   chave de dedupe da reimportação.
-- **Gestão de entregas = uma linha por OF** (025): a tela consolidada mostra um registro
+- **Gestão de OF = uma linha por OF** (025): a tela consolidada mostra um registro
   por pedido — colunas **OF/OS** (link para `/pedidos/[id]`), **Cliente**, **Qtd. total**
   (soma das quantidades dos itens raiz), **Peso total** (soma do `total_weight_kg`) e
   **Entrega** (= data do PEDIDO, `orders.delivery_date`), seguidas de **TODAS as etapas
@@ -369,7 +377,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   entrega do pedido vencida e algum item raiz ainda sem EXPEDIÇÃO concluída. Tudo vem da
   RPC nova `get_production_rows_by_order` (migração 025 — mesmos filtros, paginação e
   permissões da antiga); a Fábrica 2 continua na `get_production_rows`, por item.
-- **Filtros da gestão de entregas**: busca, situação, processos, colunas (contém/faixas —
+- **Filtros da gestão de OF**: busca, situação, processos, colunas (contém/faixas —
   as faixas de quantidade e peso valem sobre os **totais da OF**), janelas de entrega
   (Atrasado, Hoje, Próx. 7/30 dias) e **período De → Até pela data de entrega do PEDIDO**
   (migração 014 — inclusivo nos dois limites, lados opcionais, combina em E com as
@@ -403,7 +411,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   um vê/edita está em `lib/auth/permissions.ts`; `users.manage` (criar, ativar/desativar,
   trocar perfil, gerar link) é exclusivo de `ADMIN`. **Menus por perfil** (capacidades
   `menu.*`): ADMIN vê tudo; GESTOR vê tudo **menos Configurações**; VISUALIZADOR vê
-  **Gestão de Entregas e Fábrica 1**; OPERADOR vê **apenas a Fábrica 1** (`menu.gestao`
+  **Gestão de OF e Fábrica 1**; OPERADOR vê **apenas a Fábrica 1** (`menu.gestao`
   fica com ADMIN/GESTOR/VISUALIZADOR — o OPERADOR não vê o menu **nem entra por URL** na
   gestão, que segue guardada por `production.view`; a atualização de status dele acontece
   pela folha do processo em `/pedidos/[id]`, alcançável pelo link da OF na Fábrica 1).
@@ -411,7 +419,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   (`menu.fabrica2`) e página (`fabrica2.view`) negados aos demais. Dashboard, Processos e
   Configurações negam acesso direto por URL aos demais perfis; a **Importação não é mais
   item de menu** — o acesso ao assistente `/importacao` é pelo botão "Importar Excel" do
-  cabeçalho da gestão de entregas (guardado por `import.access`). O menu do usuário (nome
+  cabeçalho da gestão de OF (guardado por `import.access`). O menu do usuário (nome
   na barra) reúne perfil, alterar senha, configurações (só ADMIN) e sair.
 - **Criação com senha temporária** (Configurações > Novo usuário): a conta nasce
   confirmada no Auth com senha temporária de 12 caracteres (sem ambíguos, gerada por

@@ -43,7 +43,7 @@ export function ProductionPagination({ filters, total }: ProductionPaginationPro
   }
 
   return (
-    <nav aria-label="Paginação da gestão de entregas" className="flex flex-wrap items-center justify-between gap-3">
+    <nav aria-label="Paginação da gestão de OF" className="flex flex-wrap items-center justify-between gap-3">
       <p className="text-sm text-muted-foreground" aria-live="polite">
         Exibindo <span className="font-medium text-foreground">{from}–{to}</span> de{" "}
         <span className="font-medium text-foreground">{total}</span> itens
