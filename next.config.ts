@@ -4,8 +4,10 @@ const nextConfig: NextConfig = {
   /**
    * xlsx (SheetJS) é CJS e usa fs/streams no servidor:
    * mantemos o pacote externo para o build não reescrevê-lo.
+   * pdfjs-dist (leitura do PDF da A1) é ESM com fake worker próprio —
+   * também externo, para o bundle não tentar reescrevê-lo.
    */
-  serverExternalPackages: ["xlsx"],
+  serverExternalPackages: ["xlsx", "pdfjs-dist"],
 
   async redirects() {
     return [

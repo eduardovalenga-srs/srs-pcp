@@ -17,6 +17,7 @@ O sistema se chama **Imperatriz** (menu superior e aba do navegador, com o bras�
 | Banco / Auth | Supabase (PostgreSQL + RLS + Auth) |
 | Formulários | react-hook-form + zod |
 | Planilha | xlsx (SheetJS) |
+| PDF (OF A1) | pdfjs-dist (extração de texto por coordenadas) |
 | Testes | Vitest + PGlite (Postgres em WASM) |
 | Deploy | Vercel |
 
@@ -119,10 +120,10 @@ src/
         [id]/               detalhes da OF (itens pai + filhos aninhados, processos e MP)
         [id]/editar/        formulário de edição
       dashboard/            KPIs, janelas de entrega, carga por processo
-      importacao/           assistente de importação de Excel
+      importacao/           assistente de importação (Excel ou PDF da A1)
       processos/            catálogo de processos (fluxo fabril)
       configuracoes/        usuários e permissões
-    api/importacao/         análise / prévia / execução + modelo .xlsx
+    api/importacao/         análise / prévia / execução + modelo .xlsx (aceita .pdf)
   components/               ui (shadcn) + producao/fabrica1/fabrica2/pedidos/dashboard/…
   lib/
     actions/                Server Actions (única porta de escrita)
@@ -130,6 +131,7 @@ src/
     repositories/           acesso a dados (Supabase)
     validators/             schemas zod
     import/                 parser/estrutura/diferenças/plano da importação (layout OF)
+                            excel-parser (SheetJS) + of-pdf/pdf-text (PDF da A1)
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
@@ -279,6 +281,22 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   `import_batch_errors` (o histórico abaixo do assistente atualiza sozinho quando uma
   importação é concluída); fixture real em `tests/fixtures/of-107482-novo-layout.xlsx`
   (7 pais, 62 filhos, 62 materiais).
+- **Importação via PDF (OF da A1 Engenharia)**: além do Excel, o assistente aceita o
+  **PDF da Ordem de Fabricação** e extrai a seção **COMPOSIÇÃO DOS CONJUNTOS** para
+  montar a **mesma árvore** (`OF → pai → filho → MP`), reaproveitando prévia, plano,
+  decisões e lote sem mudança (`pdfjs-dist`, texto por coordenadas). O parser
+  (`lib/import/of-pdf.ts`) lê o **código da OF** e a **descrição** das linhas de
+  cabeçalho antes da seção (o texto do pdf.js traz o acento correto via ToUnicode); na
+  seção, cada **conjunto** é um pai (código, descrição, `N PÇS` e o **Peso Unitário** na
+  mesma linha), e **filho** (peça `… CJ`) e **matéria-prima** vêm em linhas separadas,
+  pareados pelo **peso coincidente** no bloco (tolerância 0,01; com fallback de ordem e
+  aviso se sobrar material órfão — vai para o pai). **Cliente e data de entrega também
+  vêm só do formulário** (não do PDF). A quantidade da MP vira o **peso em KG** e a
+  medida dimensional (`0,335M`/`0,053M2`) e as dimensões (`Dim. 230x230`) vão para as
+  observações; a **soma dos pesos dos filhos** é conferida contra o Peso Unitário do
+  cabeçalho (aviso quando diverge). PDF ilegível, sem a seção ou com outra seção geram
+  erro amigável (entrada do usuário). Fixture real reduzida em
+  `tests/fixtures/of-2615-aa-4.pdf` (77 pais, 154 filhos, 154 materiais).
 - **Matérias-primas** (`order_item_materials`, migração 011): insumo do **sub-item**
   (descrição, quantidade, unidade e observação) — sem processos próprios e fora da grade
   de produção. Sempre gravadas em lote pela RPC `replace_item_materials` (troca a lista

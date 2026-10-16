@@ -50,7 +50,7 @@ function readErrorMessage(data: unknown): string {
     const message = (data as { error: unknown }).error;
     if (typeof message === "string" && message.trim()) return message;
   }
-  return "Não foi possível processar a planilha.";
+  return "Não foi possível processar o arquivo.";
 }
 
 function readError(error: unknown): string {
@@ -143,10 +143,14 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
       return;
     }
 
-    setStatus("Analisando a planilha…");
+    setStatus("Analisando o arquivo…");
     const data = await analyzeFile(next);
     if (data) {
-      setStatus(`Arquivo reconhecido — ${data.sheets.length} aba(s) no formato esperado.`);
+      setStatus(
+        data.source === "pdf"
+          ? `PDF reconhecido — seção "${data.defaultSheet}" com ${data.sheets[0]?.rowCount ?? 0} conjunto(s).`
+          : `Arquivo reconhecido — ${data.sheets.length} aba(s) no formato esperado.`,
+      );
       toast.success("Arquivo analisado com sucesso.");
     } else {
       setStatus("");
@@ -174,7 +178,7 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
 
   const handlePreview = async () => {
     if (!file) {
-      fail("Selecione um arquivo Excel (.xlsx ou .xls).");
+      fail("Selecione um arquivo Excel (.xlsx ou .xls) ou PDF da OF.");
       return;
     }
     if (!validateForm()) return;
@@ -346,7 +350,7 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
                   aria-invalid={Boolean(error) && !customerName.trim()}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Digitado agora (a planilha traz o cliente do seu cliente). Vale para todas as OFs do arquivo.
+                  Digitado agora (nem a planilha nem o PDF trazem o cliente). Vale para todas as OFs do arquivo.
                 </p>
               </div>
 
@@ -371,7 +375,9 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
 
             {analysis && analysis.sheets.length > 1 ? (
               <div className="space-y-1.5">
-                <Label htmlFor="importacao-aba">Aba da planilha</Label>
+                <Label htmlFor="importacao-aba">
+                  {analysis.source === "pdf" ? "Seção do PDF" : "Aba da planilha"}
+                </Label>
                 <Select value={activeSheet} onValueChange={handleSheetChange} disabled={busy !== null}>
                   <SelectTrigger id="importacao-aba" className="w-[280px]">
                     <SelectValue placeholder="Selecione a aba" />
@@ -389,14 +395,23 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
 
             {analysis ? (
               <p className="text-xs text-muted-foreground">
-                {analysis.fileName} · {activeSheet} ·{" "}
-                {analysis.sheets.find((sheet) => sheet.name === activeSheet)?.columnCount ?? 0} coluna(s) técnicas ·
-                cabeçalho detectado automaticamente
+                {analysis.fileName} ·{" "}
+                {analysis.source === "pdf"
+                  ? `seção "${activeSheet}" (COMPOSIÇÃO DOS CONJUNTOS) · ${
+                      analysis.sheets[0]?.rowCount ?? 0
+                    } conjunto(s) lidos`
+                  : `${activeSheet} · ${
+                      analysis.sheets.find((sheet) => sheet.name === activeSheet)?.columnCount ?? 0
+                    } coluna(s) técnicas · cabeçalho detectado automaticamente`}
               </p>
             ) : null}
 
             <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-              <li>O modelo (.xlsx) traz o cabeçalho técnico e linhas de exemplo da hierarquia.</li>
+              <li>Planilha (.xlsx): o modelo traz o cabeçalho técnico e linhas de exemplo da hierarquia.</li>
+              <li>
+                PDF (.pdf): a seção <strong>COMPOSIÇÃO DOS CONJUNTOS</strong> da Ordem de Fabricação da A1 vira a
+                estrutura — conjuntos são itens pai, peças são filhos, perfis/chapas viram matéria-prima.
+              </li>
               <li>Não existe etapa de mapeamento: as colunas são reconhecidas pelo nome técnico.</li>
               <li>A prévia mostra a estrutura, erros/alertas e as diferenças por OF — nada é gravado antes da confirmação.</li>
             </ul>
@@ -463,7 +478,7 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
                   <dd className="font-medium">{file?.name ?? "—"}</dd>
                 </div>
                 <div className="flex gap-2">
-                  <dt className="text-muted-foreground">Aba:</dt>
+                  <dt className="text-muted-foreground">Origem:</dt>
                   <dd className="font-medium">{preview.sheetName}</dd>
                 </div>
                 <div className="flex gap-2">

@@ -142,9 +142,12 @@ function buildXlsx(sheets: Record<string, unknown[][]>): ArrayBuffer {
 // -------------------------------------------------------------
 
 describe("validateImportFile", () => {
-  it("aceita .xlsx e .xls e rejeita outros formatos", () => {
+  it("aceita .xlsx, .xls e .pdf e rejeita outros formatos", () => {
     const ok = new File([new Uint8Array([1, 2, 3])], "arquivo.xlsx");
     expect(validateImportFile(ok)).toEqual({ ok: true });
+
+    const pdf = new File([new Uint8Array([1, 2, 3])], "of.pdf");
+    expect(validateImportFile(pdf)).toEqual({ ok: true });
 
     const txt = new File([new Uint8Array([1, 2, 3])], "arquivo.txt");
     const result = validateImportFile(txt);

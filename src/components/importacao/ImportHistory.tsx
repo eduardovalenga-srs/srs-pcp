@@ -114,7 +114,7 @@ export function ImportHistory({ initialBatches, initialError }: ImportHistoryPro
     return (
       <EmptyState
         title="Nenhuma importação registrada"
-        description="As planilhas importadas aparecem aqui com o resumo de OFs e os erros de cada lote."
+        description="Os arquivos importados (planilha ou PDF) aparecem aqui com o resumo de OFs e os erros de cada lote."
       />
     );
   }

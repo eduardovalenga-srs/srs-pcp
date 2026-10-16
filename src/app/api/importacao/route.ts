@@ -5,7 +5,7 @@ import { getSessionUser, type SessionUser } from "@/lib/auth/session";
 import type { OfDecisionMap } from "@/lib/types/import";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import {
-  analyzeWorkbook,
+  analyzeImportFile,
   buildPreview,
   executeImport,
   readFileForImport,
@@ -17,7 +17,8 @@ import { firstZodMessage } from "@/lib/validators/common";
 import { importDecisionsSchema, importFormSchema } from "@/lib/validators/import.schema";
 
 /**
- * API da importação de planilhas (layout novo — estrutura OF).
+ * API da importação (layout novo — estrutura OF). Aceita planilha
+ * (.xlsx/.xls) ou PDF da A1 (.pdf).
  *
  * POST /api/importacao — multipart/form-data com `file`, `step`
  * ("analyze" | "preview" | "execute") e, conforme a etapa, `sheetName`,
@@ -26,8 +27,9 @@ import { importDecisionsSchema, importFormSchema } from "@/lib/validators/import
  *
  * Nunca redireciona: sem sessão responde 401 e sem a capacidade
  * `import.access` responde 403 (semântica de API). O arquivo é validado e
- * parseado pela camada de serviço com `xlsx` — macros e fórmulas nunca são
- * executadas. Toda a escrita usa o cliente da sessão do usuário (RLS ativa).
+ * parseado pela camada de serviço (`xlsx` para planilha, `pdfjs-dist`
+ * para PDF) — macros e fórmulas nunca são executadas. Toda a escrita
+ * usa o cliente da sessão do usuário (RLS ativa).
  */
 
 function jsonError(error: string, status: number): NextResponse {
@@ -117,7 +119,7 @@ export async function POST(request: Request) {
 
   const fileEntry = formData.get("file");
   if (!(fileEntry instanceof File)) {
-    return jsonError("Nenhum arquivo enviado. Selecione uma planilha .xlsx ou .xls.", 400);
+    return jsonError("Nenhum arquivo enviado. Selecione um arquivo .xlsx, .xls ou .pdf.", 400);
   }
 
   const step = readText(formData, "step");
@@ -133,9 +135,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Etapa 1: lê o arquivo e identifica as abas no formato reconhecido.
+    // Etapa 1: lê o arquivo e identifica abas (Excel) ou seção (PDF).
     if (step === "analyze") {
-      const analysis = analyzeWorkbook(parsed.buffer, parsed.fileName, parsed.fileSize);
+      const analysis = await analyzeImportFile(parsed.buffer, parsed.fileName, parsed.fileSize);
       return NextResponse.json(analysis);
     }
 
@@ -177,6 +179,6 @@ export async function POST(request: Request) {
       return jsonError("Não foi possível concluir a importação.", 500);
     }
   } catch (error) {
-    return jsonError(errorMessage(error, "Não foi possível processar a planilha."), 400);
+    return jsonError(errorMessage(error, "Não foi possível processar o arquivo."), 400);
   }
 }

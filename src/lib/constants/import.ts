@@ -3,15 +3,22 @@
 /** 20 MB — alterável via variável de ambiente IMPORT_MAX_FILE_SIZE. */
 export const DEFAULT_MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
 
-export const ALLOWED_IMPORT_EXTENSIONS = [".xlsx", ".xls"] as const;
+export const ALLOWED_IMPORT_EXTENSIONS = [".xlsx", ".xls", ".pdf"] as const;
 
 export const ALLOWED_IMPORT_MIME_TYPES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.ms-excel",
+  "application/pdf",
   "application/octet-stream",
   "application/zip",
   "",
 ] as const;
+
+/** Extensão do PDF da A1 Engenharia (Ordem de Fabricação). */
+export const PDF_IMPORT_EXTENSION = ".pdf";
+
+/** Nome da pseudo-aba do PDF na análise (seção lida). */
+export const PDF_COMPOSITION_SHEET_NAME = "Composição dos conjuntos";
 
 /** Máximo de linhas aceitas em uma planilha de importação. */
 export const MAX_IMPORT_ROWS = 20_000;

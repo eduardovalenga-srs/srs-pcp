@@ -65,7 +65,7 @@ const INSTRUCTIONS: [string, string][] = [
   ["Matéria-prima", "Filho: descrição em cp_DesMaterial, quantidade igual à do filho, unidade \"UN\" e código/qualidade em observações. Pai sem filhos: ps_DesMaterial com a mesma regra. Linhas com ps_Tipo = X são ignoradas."],
   ["Conflitos", "Se a OF já existir no sistema, a prévia mostra as diferenças de cada campo (sistema x arquivo) e pergunta o que fazer: atualizar diferenças, manter dados do sistema ou ignorar a OF. O status dos processos e a OP dos itens que permanecem nunca são alterados pela importação."],
   ["Prévia obrigatória", "Nada é gravado antes da confirmação: a prévia lista erros (excluem a OF inteira), alertas e a estrutura que será criada."],
-  ["Limites", "Arquivo .xlsx ou .xls de até 20 MB e no máximo 20.000 linhas. Macros e fórmulas não são executados."],
+  ["Limites", "Arquivo .xlsx, .xls ou .pdf (PDF da A1 — seção COMPOSIÇÃO DOS CONJUNTOS) de até 20 MB e no máximo 20.000 linhas. Macros e fórmulas não são executados."],
 ];
 
 export async function GET() {

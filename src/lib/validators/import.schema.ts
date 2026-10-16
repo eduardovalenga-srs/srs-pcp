@@ -14,7 +14,7 @@ export function validateImportFile(file: File): { ok: true } | { ok: false; erro
   const extension = name.toLowerCase().slice(name.lastIndexOf("."));
 
   if (!(ALLOWED_IMPORT_EXTENSIONS as readonly string[]).includes(extension)) {
-    return { ok: false, error: "Formato de arquivo não suportado. Envie .xlsx ou .xls." };
+    return { ok: false, error: "Formato de arquivo não suportado. Envie .xlsx, .xls ou .pdf." };
   }
 
   if (file.size === 0) {

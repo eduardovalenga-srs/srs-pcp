@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 
@@ -68,6 +71,8 @@ const TECH_HEADERS = [
 ];
 
 const FORM = { sheetName: "Fábrica", customerName: "ACME", deliveryDate: "2026-12-15" };
+
+const PDF_FIXTURE_PATH = path.join(process.cwd(), "tests", "fixtures", "of-2615-aa-4.pdf");
 
 function workbookBytes(sheets: Record<string, unknown[][]>): Uint8Array<ArrayBuffer> {
   const workbook = XLSX.utils.book_new();
@@ -196,6 +201,32 @@ describe("POST /api/importacao — etapa analyze", () => {
     const response = await postForm({ file: new File([bytes], "parcial.xlsx"), step: "analyze" });
     expect(response.status).toBe(400);
     expect((await response.json()).error).toMatch(/Colunas obrigatórias ausentes.*cp_comp/);
+  });
+
+  it("despacha por extensão: .pdf vira a pseudo-aba de composição", async () => {
+    const pdf = readFileSync(PDF_FIXTURE_PATH);
+    const file = new File(
+      [new Uint8Array(pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength))],
+      "OF 2615-AA-4.pdf",
+      { type: "application/pdf" },
+    );
+    const response = await postForm({ file, step: "analyze" });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.source).toBe("pdf");
+    expect(body.sheets).toEqual([
+      { name: "Composição dos conjuntos", rowCount: 77, columnCount: 9 },
+    ]);
+    expect(body.defaultSheet).toBe("Composição dos conjuntos");
+  });
+
+  it("PDF ilegível devolve erro amigável (400)", async () => {
+    const file = new File([new Uint8Array([1, 2, 3, 4])], "of-quebrado.pdf", {
+      type: "application/pdf",
+    });
+    const response = await postForm({ file, step: "analyze" });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/PDF legível|PDF da A1/);
   });
 });
 

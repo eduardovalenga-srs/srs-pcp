@@ -19,7 +19,7 @@ function validateFile(next: File): string | null {
   const extension = dotIndex >= 0 ? next.name.toLowerCase().slice(dotIndex) : "";
 
   if (!(ALLOWED_IMPORT_EXTENSIONS as readonly string[]).includes(extension)) {
-    return "Formato não suportado. Selecione um arquivo .xlsx ou .xls.";
+    return "Formato não suportado. Selecione um arquivo .xlsx, .xls ou .pdf.";
   }
   if (next.size === 0) {
     return "O arquivo está vazio. Escolha outro arquivo.";
@@ -60,13 +60,13 @@ export function FileDrop({ file, onChange, disabled = false }: FileDropProps) {
     <div className="space-y-3">
       <div className="space-y-1.5">
         <label htmlFor={inputId} className="block text-sm font-medium">
-          Arquivo da planilha
+          Arquivo da planilha ou PDF
         </label>
 
         <input
           id={inputId}
           type="file"
-          accept=".xlsx,.xls"
+          accept=".xlsx,.xls,.pdf"
           className="peer sr-only"
           disabled={disabled}
           aria-describedby={`${inputId}-ajuda`}
@@ -90,7 +90,7 @@ export function FileDrop({ file, onChange, disabled = false }: FileDropProps) {
             {file ? "Trocar arquivo" : "Arraste o arquivo aqui ou clique para selecionar"}
           </span>
           <span className="text-xs text-muted-foreground">
-            Formatos aceitos: .xlsx e .xls · até {formatFileSize(DEFAULT_MAX_FILE_SIZE_BYTES)}
+            Formatos aceitos: .xlsx, .xls e .pdf · até {formatFileSize(DEFAULT_MAX_FILE_SIZE_BYTES)}
           </span>
         </label>
       </div>
@@ -136,6 +136,10 @@ export function FileDrop({ file, onChange, disabled = false }: FileDropProps) {
           </a>{" "}
           — o modelo já contém a aba <strong>INSTRUÇÕES</strong> com os formatos de data, decimais, status de
           processo e a regra de duplicidade.
+        </p>
+        <p>
+          Também aceita o <strong>PDF da A1 Engenharia</strong> (Ordem de Fabricação): a seção
+          <strong> COMPOSIÇÃO DOS CONJUNTOS</strong> vira a estrutura OF → pais → filhos → matéria-prima.
         </p>
         <p>Limite de 20.000 linhas. Macros e fórmulas nunca são executadas.</p>
       </div>

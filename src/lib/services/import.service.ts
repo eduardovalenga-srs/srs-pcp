@@ -19,10 +19,12 @@ import {
 } from "@/lib/repositories/import.repository";
 import { parseExcelFile } from "@/lib/import/excel-parser";
 import { buildOfStructure, orderStatusOf } from "@/lib/import/of-structure";
+import { buildOfFromPdfRows, PDF_COMPOSITION_SHEET_NAME } from "@/lib/import/of-pdf";
+import { extractPdfRows } from "@/lib/import/pdf-text";
 import { buildOfImportPlan, computeOfDifferences } from "@/lib/import/of-plan";
 import type { OfImportPlan } from "@/lib/import/of-plan";
 import { getImportMaxFileSize } from "@/lib/env";
-import { ALLOWED_IMPORT_EXTENSIONS } from "@/lib/constants/import";
+import { ALLOWED_IMPORT_EXTENSIONS, PDF_IMPORT_EXTENSION } from "@/lib/constants/import";
 import { assertSheetStructure, validateImportFile } from "@/lib/validators/import.schema";
 import type { Json } from "@/lib/types/database";
 import { errorMessage } from "@/lib/utils/supabase-result";
@@ -45,16 +47,28 @@ export class ImportInputError extends Error {
  * O arquivo traz a árvore OF -> itens pai -> filhos -> matéria-prima;
  * cliente e data de entrega vêm do formulário e valem para todos os
  * registros. Não existe etapa de mapeamento: as colunas são reconhecidas
- * pelo NOME técnico e os processos são criados pelo catálogo (a
- * planilha não traz status de processo nem OP).
+ * pelo NOME técnico e os processos são criados pelo catálogo (o arquivo
+ * não traz status de processo nem OP).
+ *
+ * Duas fontes, o MESMO downstream: planilha (.xlsx/.xls, colunas
+ * técnicas) e PDF da A1 (.pdf, seção "COMPOSIÇÃO DOS CONJUNTOS").
+ * Ambas produzem `BuiltOf` — prévia, diffs, decisões, plano e RPC não
+ * mudam conforme a origem.
  */
 
 export interface AnalyzeOutput {
   fileName: string;
   fileSize: number;
-  /** Abas no formato reconhecido (cabeçalho técnico detectado). */
+  /** Origem do arquivo: planilha Excel ou PDF da A1 (seção de composição). */
+  source: "excel" | "pdf";
+  /** Abas (Excel) ou a seção reconhecida do PDF, no formato reconhecido. */
   sheets: { name: string; rowCount: number; columnCount: number }[];
   defaultSheet: string;
+}
+
+/** O arquivo é um PDF da A1 (Ordem de Fabricação)? */
+export function isPdfImport(fileName: string): boolean {
+  return fileName.toLowerCase().endsWith(PDF_IMPORT_EXTENSION);
 }
 
 /** Lê o arquivo validando extensão e tamanho (20 MB por padrão). */
@@ -72,14 +86,14 @@ export async function readFileForImport(file: File): Promise<{ buffer: ArrayBuff
 
   const extension = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
   if (!(ALLOWED_IMPORT_EXTENSIONS as readonly string[]).includes(extension)) {
-    throw new Error("Formato de arquivo não suportado. Envie .xlsx ou .xls.");
+    throw new Error("Formato de arquivo não suportado. Envie .xlsx, .xls ou .pdf.");
   }
 
   const buffer = await file.arrayBuffer();
   return { buffer, fileName: file.name, fileSize: file.size };
 }
 
-/** Etapa 1: lê o arquivo e identifica as abas no formato esperado. */
+/** Etapa 1 (Excel): lê o arquivo e identifica as abas no formato esperado. */
 export function analyzeWorkbook(buffer: ArrayBuffer, fileName: string, fileSize: number): AnalyzeOutput {
   const workbook = parseExcelFile(buffer, fileName, fileSize);
   const importable = workbook.sheets.filter((sheet) => workbook.headerBySheet[sheet.name]?.detected);
@@ -91,12 +105,13 @@ export function analyzeWorkbook(buffer: ArrayBuffer, fileName: string, fileSize:
   }
 
   const first = importable[0];
-  if (!first) return { fileName, fileSize, sheets: [], defaultSheet: "" };
+  if (!first) return { fileName, fileSize, source: "excel", sheets: [], defaultSheet: "" };
   assertSheetStructure(first.headers, first.rows.length);
 
   return {
     fileName,
     fileSize,
+    source: "excel",
     sheets: importable.map((sheet) => ({
       name: sheet.name,
       rowCount: sheet.rows.length,
@@ -104,6 +119,43 @@ export function analyzeWorkbook(buffer: ArrayBuffer, fileName: string, fileSize:
     })),
     defaultSheet: first.name,
   };
+}
+
+/** Etapa 1 (PDF): identifica a seção de composição e conta os conjuntos. */
+export async function analyzePdf(buffer: ArrayBuffer, fileName: string, fileSize: number): Promise<AnalyzeOutput> {
+  try {
+    const rows = await extractPdfRows(buffer);
+    const { orders } = buildOfFromPdfRows(rows, { customerName: "", deliveryDate: "" });
+    const parents = orders.reduce((total, order) => total + order.parents.length, 0);
+
+    return {
+      fileName,
+      fileSize,
+      source: "pdf",
+      sheets: [
+        {
+          name: PDF_COMPOSITION_SHEET_NAME,
+          rowCount: parents,
+          // Campos lidos por linha de composição (cabeçalho/filho/material).
+          columnCount: 9,
+        },
+      ],
+      defaultSheet: PDF_COMPOSITION_SHEET_NAME,
+    };
+  } catch (error) {
+    // PDF ilegível/sem seção esperada: entrada, não falha do sistema.
+    throw new Error(errorMessage(error, "Não foi possível processar o PDF."));
+  }
+}
+
+/** Etapa 1: despacha pela extensão (.pdf -> PDF da A1; senão -> Excel). */
+export async function analyzeImportFile(
+  buffer: ArrayBuffer,
+  fileName: string,
+  fileSize: number,
+): Promise<AnalyzeOutput> {
+  if (isPdfImport(fileName)) return analyzePdf(buffer, fileName, fileSize);
+  return analyzeWorkbook(buffer, fileName, fileSize);
 }
 
 export interface PreviewInput {
@@ -123,25 +175,37 @@ export async function buildPreview(client: SupabaseServer, input: PreviewInput):
   let orders: BuiltOf[];
   let ignoredColumns: string[];
   try {
-    const workbook = parseExcelFile(input.buffer, input.fileName, input.fileSize);
-    const sheet = workbook.sheets.find((entry) => entry.name === input.sheetName);
-    if (!sheet) throw new Error(`Planilha "${input.sheetName}" não encontrada.`);
+    if (isPdfImport(input.fileName)) {
+      // PDF da A1: seção "COMPOSIÇÃO DOS CONJUNTOS" -> mesma árvore.
+      const rows = await extractPdfRows(input.buffer);
+      const built = buildOfFromPdfRows(rows, {
+        customerName: input.customerName,
+        deliveryDate: input.deliveryDate,
+      });
+      orders = built.orders;
+      // Sem "colunas" no PDF: a seção inteira é consumida.
+      ignoredColumns = [];
+    } else {
+      const workbook = parseExcelFile(input.buffer, input.fileName, input.fileSize);
+      const sheet = workbook.sheets.find((entry) => entry.name === input.sheetName);
+      if (!sheet) throw new Error(`Planilha "${input.sheetName}" não encontrada.`);
 
-    const detection = workbook.headerBySheet[sheet.name];
-    if (!detection?.detected) {
-      throw new Error(`A aba "${input.sheetName}" não tem o cabeçalho técnico do layout novo.`);
+      const detection = workbook.headerBySheet[sheet.name];
+      if (!detection?.detected) {
+        throw new Error(`A aba "${input.sheetName}" não tem o cabeçalho técnico do layout novo.`);
+      }
+      assertSheetStructure(sheet.headers, sheet.rows.length);
+
+      const built = buildOfStructure(sheet, {
+        customerName: input.customerName,
+        deliveryDate: input.deliveryDate,
+      });
+      orders = built.orders;
+      ignoredColumns = built.ignoredColumns;
     }
-    assertSheetStructure(sheet.headers, sheet.rows.length);
-
-    const built = buildOfStructure(sheet, {
-      customerName: input.customerName,
-      deliveryDate: input.deliveryDate,
-    });
-    orders = built.orders;
-    ignoredColumns = built.ignoredColumns;
   } catch (error) {
     // Arquivo/aba/estrutura inválidos: entrada, não falha do sistema.
-    throw new ImportInputError(errorMessage(error, "Não foi possível processar a planilha."));
+    throw new ImportInputError(errorMessage(error, "Não foi possível processar o arquivo."));
   }
 
   const codes = [...new Set(orders.map((order) => order.code))];
