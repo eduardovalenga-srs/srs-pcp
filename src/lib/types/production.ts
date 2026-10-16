@@ -138,6 +138,8 @@ export interface ProductionOrderResult {
   weightTotal: number;
   /** Soma das quantidades da lista filtrada inteira — de todas as páginas. */
   qtyTotal: number;
+  /** 037: quebra por família do MESMO conjunto dos totais acima (card "OFs"). */
+  familyTotals: FamilyTotal[];
 }
 
 /** Processo do catálogo (ordem de exibição). */
@@ -187,6 +189,14 @@ export interface ProductionStats {
     qty: number;
     weight: number;
   };
+  /**
+   * 037: quebra por família dos MESMOS conjuntos dos cards — lista dos
+   * cards "Atrasados" e "Expedição" (F1, F2 e Gestão). Normalizada para
+   * array no repository (sem a 037 aplicada o RPC não traz as chaves e
+   * a lista nasce vazia — o card exibe "—").
+   */
+  overdueFamilies: FamilyTotal[];
+  expeditionFamilies: FamilyTotal[];
   processes: ProcessStat[];
 }
 

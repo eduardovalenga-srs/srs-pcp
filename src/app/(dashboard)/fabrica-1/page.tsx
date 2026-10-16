@@ -4,6 +4,7 @@ import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getChildItemsPage } from "@/lib/services/orders.service";
+import { getDashboardData } from "@/lib/services/production.service";
 import { parseChildItemFilters } from "@/lib/utils/filters";
 import { pluralize } from "@/lib/utils/formatting";
 import { AccessDenied } from "@/components/shared/AccessDenied";
@@ -44,9 +45,11 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
   }
 
   let data: Awaited<ReturnType<typeof getChildItemsPage>>;
+  let stats: Awaited<ReturnType<typeof getDashboardData>>;
   try {
     const client = await createClient();
-    data = await getChildItemsPage(client, filters);
+    // 037: os KPIs globais (Atrasados/Expedição) vêm junto — cards novos.
+    [data, stats] = await Promise.all([getChildItemsPage(client, filters), getDashboardData(client)]);
   } catch (error) {
     return (
       <>
@@ -89,6 +92,10 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
           qtyTotal={data.qtyTotal}
           weightTotal={data.weightTotal}
           familyTotals={data.familyTotals}
+          delivery={stats.delivery}
+          expedition={stats.expedition}
+          overdueFamilies={stats.overdueFamilies}
+          expeditionFamilies={stats.expeditionFamilies}
         />
 
         {/* Chips de filtros ativos: removem um a um ou limpam tudo. */}

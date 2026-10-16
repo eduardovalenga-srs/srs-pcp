@@ -1240,6 +1240,123 @@ describe("migrations", () => {
 
     await db.query(`delete from public.orders where code in ('OF-036', 'OF-036-B')`);
   });
+
+  it("037: quebra por família nos cards (stats global e Gestão por OF)", async () => {
+    await asSuperUser(db);
+
+    type FamilyEntry = { family: string | null; qty: number; weight: number };
+    type Stats = {
+      delivery: { overdue: number };
+      expedition: { count: number };
+      overdueFamilies: FamilyEntry[];
+      expeditionFamilies: FamilyEntry[];
+    };
+    const readStats = async (): Promise<Stats> => {
+      const { rows } = await db.query<{ stats: Stats | string }>(
+        `select public.get_production_stats(p_today => current_date) as stats`,
+      );
+      const raw = rows[0]?.stats;
+      return (typeof raw === "string" ? JSON.parse(raw) : raw) as Stats;
+    };
+    const qtyOf = (list: FamilyEntry[] | undefined, family: string | null): number =>
+      Number(list?.find((entry) => entry.family === family)?.qty ?? 0);
+    const weightOf = (list: FamilyEntry[] | undefined, family: string | null): number =>
+      Number(list?.find((entry) => entry.family === family)?.weight ?? 0);
+
+    // Grants refeitos após o DROP da by_order (037) e chaves novas do stats.
+    const { rows: meta } = await db.query<{ stats_grants: boolean; by_order_grants: boolean }>(
+      `select has_function_privilege('authenticated', 'public.get_production_stats(date)', 'EXECUTE') as stats_grants,
+              has_function_privilege('authenticated',
+                'public.get_production_rows_by_order(text, text, text, text, text, date, text, text, integer, integer, text, text, numeric, numeric, numeric, numeric, date, date)',
+                'EXECUTE') as by_order_grants`,
+    );
+    expect(meta[0]?.stats_grants).toBe(true);
+    expect(meta[0]?.by_order_grants).toBe(true);
+
+    // Baseline: as duas listas existem e são arrays (com a 037 aplicada).
+    const before = await readStats();
+    expect(Array.isArray(before.overdueFamilies)).toBe(true);
+    expect(Array.isArray(before.expeditionFamilies)).toBe(true);
+
+    // Duas OFs: A atrasada (sem expedição), B com EXPEDIÇÃO concluída.
+    const { rows: orderRows } = await db.query<{ id: string; code: string }>(
+      `insert into public.orders (code, type, customer_name, delivery_date)
+       values ('OF-037-A', 'OF', 'Cliente 037', current_date - 2),
+              ('OF-037-B', 'OF', 'Cliente 037', current_date + 9)
+       returning id, code`,
+    );
+    const orderA = orderRows.find((order) => order.code === "OF-037-A")?.id as string;
+    const orderB = orderRows.find((order) => order.code === "OF-037-B")?.id as string;
+
+    // Raízes de A: GC 2×5 + GC 3×1 (5 un / 13 kg) e sem família 1×3.
+    await db.query(
+      `insert into public.order_items (order_id, family, parent_item, description, quantity, unit_weight_kg)
+       values ($1, 'GC', 'P-037-A1', 'Guarda-corpo', 2, 5),
+              ($1, 'GC', 'P-037-A2', 'Estante', 3, 1),
+              ($1, null, 'P-037-A3', 'Parafuso', 1, 3)`,
+      [orderA],
+    );
+    // Raízes de B: TP 4×2 e TB 1×10.
+    const { rows: rootsB } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, family, parent_item, description, quantity, unit_weight_kg)
+       values ($1, 'TP', 'P-037-B1', 'Tampo', 4, 2),
+              ($1, 'TB', 'P-037-B2', 'Barraca', 1, 10)
+       returning id`,
+      [orderB],
+    );
+    const { rows: expRows } = await db.query<{ id: string }>(
+      `select id from public.processes where code = 'EXP'`,
+    );
+    const expId = expRows[0]?.id as string;
+    for (const root of rootsB) {
+      await db.query(
+        `insert into public.production_processes (order_item_id, process_id, status)
+         values ($1, $2, 'CONCLUIDO')`,
+        [root.id, expId],
+      );
+    }
+
+    // Stats global: as duas listas somam os MESMOS conjuntos dos números
+    // (comparadas por delta — o banco pode ter dados de outros testes).
+    const after = await readStats();
+    expect(qtyOf(after.overdueFamilies, "GC") - qtyOf(before.overdueFamilies, "GC")).toBe(5);
+    expect(weightOf(after.overdueFamilies, "GC") - weightOf(before.overdueFamilies, "GC")).toBe(13);
+    expect(qtyOf(after.overdueFamilies, null) - qtyOf(before.overdueFamilies, null)).toBe(1);
+    expect(weightOf(after.overdueFamilies, null) - weightOf(before.overdueFamilies, null)).toBe(3);
+    expect(qtyOf(after.expeditionFamilies, "TP") - qtyOf(before.expeditionFamilies, "TP")).toBe(4);
+    expect(weightOf(after.expeditionFamilies, "TP") - weightOf(before.expeditionFamilies, "TP")).toBe(8);
+    expect(qtyOf(after.expeditionFamilies, "TB") - qtyOf(before.expeditionFamilies, "TB")).toBe(1);
+    expect(weightOf(after.expeditionFamilies, "TB") - weightOf(before.expeditionFamilies, "TB")).toBe(10);
+    expect(Number(after.expedition.count) - Number(before.expedition.count)).toBe(2);
+
+    // Gestão por OF: family_totals cobre os ITENS RAIZ das OFs filtradas e
+    // bate com o qty_total do card (2+3+1+4+1 = 11), ordenado por qtd. desc.
+    const { rows: byOrder } = await db.query<{
+      order_code: string;
+      qty_total: string;
+      family_totals: FamilyEntry[];
+    }>(`select order_code, qty_total, family_totals
+          from public.get_production_rows_by_order(p_search => 'OF-037')
+          order by order_code`);
+    expect(byOrder.map((row) => row.order_code)).toEqual(["OF-037-A", "OF-037-B"]);
+    expect(Number(byOrder[0]?.qty_total)).toBe(11);
+    const expectedFamilies: FamilyEntry[] = [
+      { family: "GC", qty: 5, weight: 13 },
+      { family: "TP", qty: 4, weight: 8 },
+      { family: "TB", qty: 1, weight: 10 },
+      { family: null, qty: 1, weight: 3 },
+    ];
+    expect(byOrder[0]?.family_totals).toEqual(expectedFamilies);
+    expect(byOrder[1]?.family_totals).toEqual(expectedFamilies);
+
+    // Busca sem correspondência: nenhuma linha (sem conjunto, sem lista).
+    const { rows: noRows } = await db.query(
+      `select * from public.get_production_rows_by_order(p_search => 'zzz-037-nada')`,
+    );
+    expect(noRows).toHaveLength(0);
+
+    await db.query(`delete from public.orders where code in ('OF-037-A', 'OF-037-B')`);
+  });
 });
 
 describe("RLS", () => {

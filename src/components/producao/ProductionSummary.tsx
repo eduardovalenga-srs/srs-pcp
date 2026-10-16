@@ -2,7 +2,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { AlertTriangle, Inbox, Truck } from "lucide-react";
 
-import type { ProductionFilters } from "@/lib/types/production";
+import { FamilyTotalsList } from "@/components/shared/FamilyTotalsList";
+import type { FamilyTotal, ProductionFilters } from "@/lib/types/production";
 import { productionQueryString } from "@/lib/utils/filters";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,8 @@ interface ProductionSummaryProps {
   qtyTotal: number;
   /** Peso total (kg) da lista filtrada inteira — soma da coluna "Peso total". */
   weightTotal: number;
+  /** 037: quebra por família do MESMO conjunto dos três números (card "OFs"). */
+  familyTotals: FamilyTotal[];
   filters: ProductionFilters;
   /**
    * KPIs globais de entrega (019 soma peças e peso do MESMO conjunto de atraso).
@@ -30,6 +33,10 @@ interface ProductionSummaryProps {
     qty: number;
     weight: number;
   };
+  /** 037: quebra por família do MESMO conjunto de atraso (card "Atrasados"). */
+  overdueFamilies: FamilyTotal[];
+  /** 037: quebra por família do MESMO conjunto de expedição (card "Expedição"). */
+  expeditionFamilies: FamilyTotal[];
 }
 
 interface Chip {
@@ -40,6 +47,8 @@ interface Chip {
   tone?: "danger" | "warning" | "success" | "muted";
   /** Três números lado a lado (Registros, Qtd. total, Peso total). */
   details: { label: string; value: string }[];
+  /** 037: lista de famílias — nos três cards (ausente = não renderiza). */
+  families?: FamilyTotal[];
   /** Card clicável: filtro aplicado ao clicar (os demais filtros são mantidos). */
   filter?: Partial<ProductionFilters>;
   /** true quando o filtro deste chip já está ativo. */
@@ -51,9 +60,12 @@ export function ProductionSummary({
   total,
   qtyTotal,
   weightTotal,
+  familyTotals,
   filters,
   delivery,
   expedition,
+  overdueFamilies,
+  expeditionFamilies,
 }: ProductionSummaryProps) {
   const chips: Chip[] = [
     {
@@ -67,6 +79,8 @@ export function ProductionSummary({
         { label: "Qtd. total", value: formatQuantity(qtyTotal) },
         { label: "Peso total", value: `${formatWeight(weightTotal)} kg` },
       ],
+      // 037: quebra por família dos ITENS RAIZ das OFs filtradas.
+      families: familyTotals,
     },
     {
       // Card GLOBAL (itens atrasados, de todas as OFs) — não confundir com
@@ -83,6 +97,8 @@ export function ProductionSummary({
         { label: "Qtd. total", value: formatQuantity(delivery.overdueQty) },
         { label: "Peso total", value: `${formatWeight(delivery.overdueWeight)} kg` },
       ],
+      // 037: mesma quebra por família dos números acima.
+      families: overdueFamilies,
     },
     {
       key: "expedition",
@@ -97,6 +113,8 @@ export function ProductionSummary({
         { label: "Qtd. total", value: formatQuantity(expedition?.qty) },
         { label: "Peso total", value: `${formatWeight(expedition?.weight)} kg` },
       ],
+      // 037: mesma quebra por família dos números acima.
+      families: expeditionFamilies,
     },
   ];
 
@@ -124,6 +142,8 @@ export function ProductionSummary({
           <>
             {title}
             {body}
+            {/* 037: lista de famílias — nos três cards (OFs/Atrasados/Expedição). */}
+            {chip.families !== undefined && <FamilyTotalsList entries={chip.families} />}
           </>
         );
         const className = cn(

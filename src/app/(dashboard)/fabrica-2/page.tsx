@@ -83,6 +83,8 @@ export default async function Fabrica2Page({ searchParams }: PageProps<"/fabrica
           filters={filters}
           delivery={stats.delivery}
           expedition={stats.expedition}
+          overdueFamilies={stats.overdueFamilies}
+          expeditionFamilies={stats.expeditionFamilies}
         />
 
         {/* Chips de filtros ativos: removem um a um ou limpam tudo. */}

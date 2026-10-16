@@ -23,6 +23,18 @@ function toNumber(value: number | string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** 037: quebra por família vinda em jsonb (qty/peso podem chegar como texto). */
+function toFamilyTotals(value: unknown): FamilyTotal[] {
+  if (!Array.isArray(value)) return [];
+  return (
+    value as { family: string | null; qty: number | string; weight: number | string }[]
+  ).map((entry) => ({
+    family: entry.family ?? null,
+    qty: toNumber(entry.qty) ?? 0,
+    weight: toNumber(entry.weight) ?? 0,
+  }));
+}
+
 function mapProductionRow(raw: ProductionRowRecord): ProductionRow {
   const processes: Record<string, ProcessCell> = {};
   for (const [code, cell] of Object.entries(raw.processes ?? {})) {
@@ -181,8 +193,11 @@ export async function getProductionOrderRows(
   const weightTotal = rawRows.length > 0 ? Number(rawRows[0].weight_total ?? 0) : 0;
   const qtyTotal = rawRows.length > 0 ? Number(rawRows[0].qty_total ?? 0) : 0;
   const rows = rawRows.map((row) => mapProductionOrderRow(row));
+  // 037: a quebra por família vem no registro da primeira linha e cobre os
+  // ITENS RAIZ das OFs filtradas inteiras (mesma janela do qty_total).
+  const familyTotals = toFamilyTotals(rawRows.length > 0 ? rawRows[0].family_totals : null);
 
-  return { rows, total, weightTotal, qtyTotal };
+  return { rows, total, weightTotal, qtyTotal, familyTotals };
 }
 
 export interface OrderProcessTarget {
@@ -267,11 +282,19 @@ export async function getOrderProcessTargets(
   }));
 }
 
-/** Estatísticas do dashboard. */
+/** Estatísticas do dashboard e dos cards (037: listas por família normalizadas). */
 export async function getProductionStats(client: SupabaseServer, today: string): Promise<ProductionStats> {
   const { data, error } = await client.rpc("get_production_stats", { p_today: today });
   if (error) throw new Error(`Não foi possível carregar o dashboard: ${error.message}`);
-  return data as unknown as ProductionStats;
+  const stats = data as unknown as Omit<ProductionStats, "overdueFamilies" | "expeditionFamilies"> &
+    Partial<Pick<ProductionStats, "overdueFamilies" | "expeditionFamilies">>;
+  return {
+    ...stats,
+    // 037: as listas só existem com a migration aplicada — sem ela o RPC
+    // não traz as chaves e os cards novos exibem "—".
+    overdueFamilies: toFamilyTotals(stats.overdueFamilies),
+    expeditionFamilies: toFamilyTotals(stats.expeditionFamilies),
+  };
 }
 
 /** Catálogo de processos ativos, na ordem de exibição. */

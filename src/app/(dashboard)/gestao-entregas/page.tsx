@@ -98,9 +98,12 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
           total={data.total}
           qtyTotal={data.qtyTotal}
           weightTotal={data.weightTotal}
+          familyTotals={data.familyTotals}
           filters={filters}
           delivery={stats.delivery}
           expedition={stats.expedition}
+          overdueFamilies={stats.overdueFamilies}
+          expeditionFamilies={stats.expeditionFamilies}
         />
 
         {/* Chips de filtros ativos (todas as telas): removem um a um ou limpam tudo. */}

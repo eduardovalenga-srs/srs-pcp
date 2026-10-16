@@ -213,6 +213,8 @@ export type ProductionOrderRowRecord = {
   overdue: boolean;
   /** 036: menor seq entre os itens raiz da OF (null = nenhuma linha numerada). */
   seq: number | string | null;
+  /** 037: quebra por família dos itens raiz das OFs filtradas (card "OFs"). */
+  family_totals: { family: string | null; qty: number | string; weight: number | string }[] | null;
   /** Célula agregada por processo (sem id/notes: é lote, não item). */
   processes: Record<
     string,

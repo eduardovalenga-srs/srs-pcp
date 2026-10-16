@@ -70,6 +70,7 @@ cp .env.example .env.local
 #    supabase/migrations/034_import_material_prefix_serra.sql
 #    supabase/migrations/035_card_family_totals.sql
 #    supabase/migrations/036_order_item_seq.sql
+#    supabase/migrations/037_family_totals_by_card.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -136,7 +137,7 @@ src/
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..036 (ordem obrigatória)
+  migrations/               001..037 (ordem obrigatória)
   seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
@@ -323,12 +324,18 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   quando nenhum se aplica, e no meio `NAO_INICIADO` com Σconcluído/Σplanejado dos
   aplicáveis; nunca só cor). A **MP herdada agrega os pais do grupo** (pior situação,
   menor entrega, data efetiva mais recente entre os concluídos). Acima da
-  lista, o **card "Eventos"** no mesmo modelo da gestão (Registros = nº de linhas
-  agrupadas, Qtd. total e Peso total do **conjunto filtrado inteiro**, somados pela RPC
-  `get_child_items_totals` — migração 024, redefinida pela **035**). Abaixo dos três
-  números, a lista **Famílias** (035): cada família (coluna TP) com Σ de quantidade e
-  peso — `GC — 120 un · 1.500 kg` — em ordem de qtd. desc, **mesma janela dos totais**
-  (o conjunto filtrado inteiro, todas as páginas, itens **filhos**); família vazia
+  lista, três **cards de resumo** (037 — mesmos chips da Fábrica 2, mas aqui
+  **informativos**, sem clique/filtro, pois esta tela não tem atalho OVERDUE/EXP):
+  **Eventos** com Registros = nº de linhas agrupadas, Qtd. total e Peso total do
+  **conjunto filtrado inteiro** (RPC `get_child_items_totals` — migração 024,
+  redefinida pela **035**) e os KPIs globais **Atrasados** e **Expedição**
+  (objetos `delivery`/`expedition` da RPC `get_production_stats`, migrações 019/020 —
+  contam **itens raiz**, onde a regra de atraso e a EXPEDIÇÃO valem; os filhos da
+  cadeia não têm expedição própria). Abaixo dos três números de CADA card, a lista
+  **Famílias** (035/037): cada família (coluna TP) com Σ de quantidade e
+  peso — `GC — 120 un · 1.500 kg` — em ordem de qtd. desc, **mesma janela dos
+  números daquele card** (Eventos = conjunto filtrado inteiro, itens **filhos**;
+  Atrasados/Expedição = os KPIs globais); família vazia
   exibe "—" e sem nenhuma família o bloco mostra só "—".
   A página vem da RPC **`get_child_item_groups`** (migração 033): aplica os **mesmos 11
   filtros** da `get_child_items_totals` (clonados da 024), agrupa por **(OF, código do
@@ -366,9 +373,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   em relação ao original: **cabeçalho sem botões** (sem "Novo pedido" nem "Importar Excel")
   e acesso restrito a **ADMIN/GESTOR** (`menu.fabrica2` no item de menu, `fabrica2.view`
   no guard da página — VISUALIZADOR e OPERADOR caem em "Acesso negado" mesmo por URL).
-  O card **Eventos** traz a lista **Famílias** (035) junto dos três números — mesma
-  quebra da Fábrica 1, mas sobre os itens **raiz** do conjunto filtrado inteiro; os
-  chips clicáveis (Atrasados/Expedição) não mudam.
+  Os três cards trazem a lista **Famílias** (035/037) junto dos três números —
+  mesma quebra da Fábrica 1, mas sobre os itens **raiz**: Eventos cobre o
+  conjunto filtrado inteiro e Atrasados/Expedição os KPIs globais; os chips
+  clicáveis continuam aplicando os mesmos filtros.
 - **Gestão como hub**: o código da OF/OS na tabela de entregas (desktop e mobile) abre a
   tela de detalhes `/pedidos/[id]` — sub-itens, processos e materiais num só lugar; a
   criação termina lá e o menu superior não expõe "Pedidos" (a lista `/pedidos` segue como
@@ -414,6 +422,18 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   pais e filhos — pode ser refinado item a item nas Fábricas). A importação não toca na
   coluna: a re-importação preserva o número e itens novos nascem sem seq. Redefinidas
   pela 036: `get_child_item_groups`, `get_production_rows` e `get_production_rows_by_order`.
+- **Quebra por família em todos os cards** (migração 037): sob os três números de
+  cada card de resumo (Fábrica 1, Fábrica 2 e Gestão) aparece a lista **Famílias** —
+  cada família (coluna TP) com Σ de quantidade e Σ de peso, em ordem de qtd. desc
+  (mesmo formato da 035; família vazia vira "—"). Duas fontes novas:
+  `get_production_stats` ganhou `overdueFamilies` e `expeditionFamilies` (quebra dos
+  MESMOS conjuntos dos números de atraso/expedição — KPIs globais de **item raiz**,
+  lidos pelas três telas; o repositório normaliza para array e, sem a migration
+  aplicada, as listas nascem vazias e os cards exibem "—") e
+  `get_production_rows_by_order` ganhou `family_totals` (quebra dos itens raiz das
+  OFs filtradas, na mesma janela do `qty_total` — subconsulta não correlacionada da
+  035; DROP + recriação com os mesmos 18 params e grants refeitos). Chaves aditivas:
+  o dashboard continua lendo só as chaves antigas, sem mudança.
 - **Filtros da gestão de OF**: busca, situação, processos, colunas (contém/faixas —
   as faixas de quantidade e peso valem sobre os **totais da OF**), janelas de entrega
   (Atrasado, Hoje, Próx. 7/30 dias) e **período De → Até pela data de entrega do PEDIDO**
@@ -434,6 +454,11 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
     RPC `get_production_stats`, migração 019);
   - **Expedição** — itens cuja etapa EXPEDIÇÃO está **concluída** (objeto
     `expedition` da mesma RPC, migração 020).
+  Cada card exibe ainda a lista **Famílias** (037) — mesma quebra das fábricas,
+  sempre **sob os três números do próprio card**: no **OFs** são os itens **raiz**
+  das OFs filtradas (`family_totals` da RPC `get_production_rows_by_order`, na
+  mesma janela do `qty_total` do card) e em Atrasados/Expedição as listas
+  `overdueFamilies`/`expeditionFamilies` da RPC de stats (conjuntos globais).
   Atenção às unidades: o card **OFs conta PEDIDOS** (a lista é por OF) e Atrasados /
   Expedição são KPIs globais que contam **ITENS** (escopo dos antigos chips de entrega,
   que saíram junto com "Em produção" e "Concluídos"); os dois são clicáveis e aplicam
