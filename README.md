@@ -66,6 +66,7 @@ cp .env.example .env.local
 #    supabase/migrations/031_process_completed_at.sql
 #    supabase/migrations/032_import_process_final_chain.sql
 #    supabase/migrations/033_get_child_item_groups.sql
+#    supabase/migrations/034_import_material_prefix_serra.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -131,7 +132,7 @@ src/
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..033 (ordem obrigatória)
+  migrations/               001..034 (ordem obrigatória)
   seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
@@ -251,7 +252,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   (`NAO_INICIADO`, obrigatório) e os demais nascem desmarcados (`NAO_APLICAVEL`,
   migração 027). O prefixo do material decide mais no nascer da linha: **TB** nas duas
   primeiras letras marca **SERRA** e **DB TB**; **CH** marca **DB CH** e **LASER**
-  (migração 030, corrigindo o CH da 028). A **cadeia final** também nasce
+  (migração 030, corrigindo o CH da 028); **L** ou **F** na primeira letra marca só
+  **SERRA** (migração 034, pai e filho como as demais regras — sem backfill: re-importação
+  não altera status já gravado). A **cadeia final** também nasce
   marcada, por tipo de item (migração 032): no **pai**, `PRE_MTG`, `SOLDA`,
   `ACAB`, `QUALITY` e `EXP` (o kit montado acontece nele); no **filho**, o
   `KIT` (encerra a cadeia da Fábrica 1) — os dois entram assim na previsão de

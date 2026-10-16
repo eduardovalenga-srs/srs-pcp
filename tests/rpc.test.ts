@@ -1527,6 +1527,127 @@ describe("apply_of_import (016)", () => {
     );
     await db.query("delete from public.orders where code = 'OF-800'");
   });
+
+  it("material começando com L ou F marca só o SERRA ao nascer (034)", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    await callApplyOfPlan({
+      operations: [
+        {
+          action: "CREATE",
+          order: {
+            code: "OF-910",
+            type: "OF",
+            customerName: "Cliente Latao",
+            description: "Regra L/F do material",
+            deliveryDate: "2026-12-30",
+          },
+          parents: [
+            {
+              code: "B-1",
+              description: "PAI COM LATAO",
+              family: "TB",
+              quantity: 1,
+              unitWeightKg: 1,
+              totalWeightKg: 1,
+              deliveryDate: "2026-12-30",
+              materials: [{ description: "  latao 1mm", quantity: 1, unit: "UN", notes: null }],
+              children: [
+                {
+                  code: "B-1-F",
+                  description: "FILHO COM FERRO",
+                  family: "TB",
+                  quantity: 1,
+                  unitWeightKg: 1,
+                  totalWeightKg: 1,
+                  deliveryDate: "2026-12-30",
+                  materials: [{ description: "Ferragem 5mm", quantity: 1, unit: "UN", notes: null }],
+                },
+              ],
+            },
+            {
+              code: "B-2",
+              description: "PAI COM COBRE",
+              family: "CH",
+              quantity: 1,
+              unitWeightKg: 1,
+              totalWeightKg: 1,
+              deliveryDate: "2026-12-30",
+              materials: [{ description: "Cobre 2mm", quantity: 1, unit: "UN", notes: null }],
+              children: [],
+            },
+            {
+              code: "B-3",
+              description: "TB E L JUNTOS",
+              family: "TB",
+              quantity: 1,
+              unitWeightKg: 1,
+              totalWeightKg: 1,
+              deliveryDate: "2026-12-30",
+              materials: [
+                { description: "tb40x40", quantity: 1, unit: "UN", notes: null },
+                { description: "Latao 2mm", quantity: 1, unit: "UN", notes: null },
+              ],
+              children: [],
+            },
+            {
+              code: "B-4",
+              description: "CH E F JUNTOS",
+              family: "CH",
+              quantity: 1,
+              unitWeightKg: 1,
+              totalWeightKg: 1,
+              deliveryDate: "2026-12-30",
+              materials: [
+                { description: "CH100X100", quantity: 1, unit: "UN", notes: null },
+                { description: "ferro 8mm", quantity: 1, unit: "UN", notes: null },
+              ],
+              children: [],
+            },
+          ],
+        },
+      ],
+    });
+
+    const { rows } = await db.query<{ parent_item: string; code: string; status: string }>(
+      `select oi.parent_item, p.code, pp.status
+         from public.production_processes pp
+         join public.processes p on p.id = pp.process_id
+         join public.order_items oi on oi.id = pp.order_item_id
+         join public.orders o on o.id = oi.order_id
+        where o.code = 'OF-910'
+          and p.code in ('SERRA', 'DB_TB', 'DB_CH', 'LASER')`,
+    );
+    const statusOf = (item: string, code: string) =>
+      rows.find((row) => row.parent_item === item && row.code === code)?.status;
+
+    // Pai com material L (espaço e minúsculo — normaliza): só o SERRA.
+    expect(statusOf("B-1", "SERRA")).toBe("NAO_INICIADO");
+    expect(statusOf("B-1", "DB_TB")).toBe("NAO_APLICAVEL");
+    // Filho com material F: o SERRA nasce marcado nele também.
+    expect(statusOf("B-1-F", "SERRA")).toBe("NAO_INICIADO");
+    expect(statusOf("B-1-F", "DB_TB")).toBe("NAO_APLICAVEL");
+
+    // Outra letra inicial (C): nada muda.
+    expect(statusOf("B-2", "SERRA")).toBe("NAO_APLICAVEL");
+
+    // União TB + L: SERRA e DB TB (o TB manda no DB TB).
+    expect(statusOf("B-3", "SERRA")).toBe("NAO_INICIADO");
+    expect(statusOf("B-3", "DB_TB")).toBe("NAO_INICIADO");
+
+    // União CH + F: LASER + DB CH pelo CH e SERRA pelo F.
+    expect(statusOf("B-4", "LASER")).toBe("NAO_INICIADO");
+    expect(statusOf("B-4", "DB_CH")).toBe("NAO_INICIADO");
+    expect(statusOf("B-4", "SERRA")).toBe("NAO_INICIADO");
+    expect(statusOf("B-4", "DB_TB")).toBe("NAO_APLICAVEL");
+
+    // Limpeza: a OF-910 não pode vazar para os testes seguintes.
+    await asSuperUser(db);
+    await db.query(
+      "delete from public.order_items where order_id = (select id from public.orders where code = 'OF-910')",
+    );
+    await db.query("delete from public.orders where code = 'OF-910'");
+  });
 });
 
 // ---------------------------------------------------------------------------
