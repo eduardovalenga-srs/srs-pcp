@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseServer } from "@/lib/supabase/types";
-import type { ChildItemFilters, ChildItemMaterialsResult, OrderFilters, OrderListResult, OrderDetails, OrderItemPayload } from "@/lib/types/order";
+import type { ChildItemFilters, ChildItemGroupsResult, OrderFilters, OrderListResult, OrderDetails, OrderItemPayload } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
 import type { Json } from "@/lib/types/database";
 import type { ProcessStatus } from "@/lib/constants/production";
@@ -15,7 +15,7 @@ import {
   listOrders,
 } from "@/lib/repositories/orders.repository";
 import { replaceItemMaterials } from "@/lib/repositories/materials.repository";
-import { getOrderItemWithProcesses, listChildItemsWithMaterials } from "@/lib/repositories/order-items.repository";
+import { getOrderItemWithProcesses, listChildItemGroups } from "@/lib/repositories/order-items.repository";
 import { applyPlan } from "@/lib/repositories/import.repository";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { orderWithItemsSchema, type OrderWithItemsOutput } from "@/lib/validators/order-item.schema";
@@ -28,7 +28,7 @@ export async function getOrdersPage(client: SupabaseServer, filters: OrderFilter
   return listOrders(client, filters);
 }
 
-export interface ChildItemPage extends ChildItemMaterialsResult {
+export interface ChildItemPage extends ChildItemGroupsResult {
   /** Catálogo ativo (com durações) — colunas do grupo PROCESSOS e folha de edição. */
   processes: ProcessDefinition[];
   /** Data de referência (AAAA-MM-DD) — mesma base da regra de atraso. */
@@ -57,7 +57,7 @@ export async function getChildItemsPage(
     return { items: [], total: 0, qtyTotal: 0, weightTotal: 0, processes, today };
   }
 
-  const result = await listChildItemsWithMaterials(client, filters, processId);
+  const result = await listChildItemGroups(client, filters, processId);
   return { ...result, processes, today };
 }
 

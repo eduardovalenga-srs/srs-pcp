@@ -19,9 +19,11 @@ export const metadata = { title: "Fábrica 1" };
 
 /**
  * Fábrica 1: lista de itens FILHOS das OFs com suas matérias-primas e
- * quantidades — visão de insumos/compras. Uma linha por filho e uma coluna
- * por processo da cadeia da Fábrica 1 (MP herdado do pai; sub-item e KIT
- * editáveis aqui).
+ * quantidades — visão de insumos/compras. Uma linha por CÓDIGO de filho
+ * dentro da OF (033): itens repetidos somam quantidade/peso e a situação
+ * dos processos agrega. Uma coluna por processo da cadeia da Fábrica 1
+ * (MP herdado dos pais; sub-item e KIT editáveis aqui — no grupo, a
+ * célula aplica a situação a todos os membros).
  */
 export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica-1">) {
   const sessionUser = await getSessionUser();
@@ -71,7 +73,7 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
     <>
       <Header
         title="Fábrica 1"
-        description={`Itens filhos das OFs com matérias-primas — ${pluralize(data.total, "item filho")}.`}
+        description={`Itens filhos das OFs agrupados por código — ${pluralize(data.total, "linha")}.`}
       />
 
       <div className="space-y-3">

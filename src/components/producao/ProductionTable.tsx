@@ -11,8 +11,9 @@ import type {
   ProductionFilters,
   ProductionOrderRow,
 } from "@/lib/types/production";
+import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
-import { formatDate, formatDayMonth } from "@/lib/utils/dates";
+import { formatBusinessDate, formatBusinessDayMonth, formatDate, formatDayMonth } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import {
   computeProcessSchedule,
@@ -100,7 +101,7 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
   if (!cell || cell.applicable === 0) {
     return (
       <span
-        className="inline-flex h-7 w-full items-center justify-center rounded border border-dashed text-muted-foreground"
+        className="inline-flex h-8 w-full items-center justify-center rounded border border-dashed text-muted-foreground"
         title={`${processName}: não aplicável nesta OF`}
         aria-label={`${processName}: não aplicável nesta OF`}
       >
@@ -122,6 +123,11 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
   // Início vencido (anterior à data de referência) → fonte vermelha;
   // processo CONCLUIDO nunca fica vermelho (regra em utils/production).
   const plannedDayPast = isProcessStartOverdue(plan?.start ?? null, cell.status, today);
+  // 031: MP concluído — a data efetiva do recebimento, exibida ACIMA da prevista.
+  const receivedDay =
+    context.processCode === MP_PROCESS_CODE && cell.status === "CONCLUIDO" && cell.completedAt
+      ? formatBusinessDayMonth(cell.completedAt)
+      : null;
 
   return (
     <button
@@ -137,17 +143,21 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
         })
       }
       className={cn(
-        "inline-flex h-7 w-full flex-col items-center justify-center gap-0.5 rounded border px-1 text-[10px] font-semibold leading-none transition-colors",
+        "inline-flex h-8 w-full flex-col items-center justify-center rounded border px-1 text-[10px] font-semibold leading-none transition-colors",
+        // 3 linhas (símbolo + recebida + prevista) cabem no h-8 sem folga.
+        receivedDay && plannedDay ? "gap-0" : "gap-0.5",
         "hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70",
         statusClass(cell.status),
       )}
-      title={`${processName} — ${context.orderCode}: ${label} em ${counter} ${cell.applicable === 1 ? "item" : "itens"}${quantities ? ` · quantidades somadas ${quantities}` : ""}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}. Clique para aplicar a situação a toda a OF.`}
-      aria-label={`${processName} de ${context.orderCode}: ${label} em ${cell.done} de ${cell.applicable} itens${plan ? `, previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}`}
+      title={`${processName} — ${context.orderCode}: ${label} em ${counter} ${cell.applicable === 1 ? "item" : "itens"}${quantities ? ` · quantidades somadas ${quantities}` : ""}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(cell.completedAt)}` : ""}. Clique para aplicar a situação a toda a OF.`}
+      aria-label={`${processName} de ${context.orderCode}: ${label} em ${cell.done} de ${cell.applicable} itens${plan ? `, previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? `, recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`}
     >
       <span className="inline-flex items-center gap-1">
         <span aria-hidden>{PROCESS_STATUS_SYMBOLS[cell.status]}</span>
         <span className="tabular-nums">{counter}</span>
       </span>
+      {/* 031: MP concluído — a data efetiva do recebimento ACIMA da prevista. */}
+      {receivedDay ? <span className="tabular-nums text-[10px]">{receivedDay}</span> : null}
       {plannedDay ? (
         <span className={cn("tabular-nums text-[10px]", plannedDayPast && "text-status-late")}>
           {plannedDay}

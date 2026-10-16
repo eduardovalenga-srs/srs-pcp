@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   insertProductionEvent: vi.fn<(client: unknown, event: unknown) => Promise<void>>(),
   // order-items.repository — re-derivação do status do item atingido.
   getItemAggregate: vi.fn<(client: unknown, itemId: string) => Promise<unknown>>(),
+  // cadeia do item usada pela cascata de conclusão/desconclusão.
+  getItemProcessChain: vi.fn<(client: unknown, orderItemId: string) => Promise<unknown[]>>(),
   refreshOrderStatuses: vi.fn<
     (client: unknown, orderItemId: string, status: string) => Promise<void>
   >(),
@@ -32,6 +34,7 @@ vi.mock("@/lib/repositories/production.repository", () => ({
 }));
 vi.mock("@/lib/repositories/order-items.repository", () => ({
   getItemAggregate: mocks.getItemAggregate,
+  getItemProcessChain: mocks.getItemProcessChain,
   refreshOrderStatuses: mocks.refreshOrderStatuses,
 }));
 
@@ -68,6 +71,7 @@ describe("updateProcessBatchAction (025 — edição em lote por OF)", () => {
     mocks.updateProductionProcess.mockResolvedValue(undefined);
     mocks.insertProductionEvent.mockResolvedValue(undefined);
     mocks.getItemAggregate.mockResolvedValue(null);
+    mocks.getItemProcessChain.mockResolvedValue([]);
     mocks.refreshOrderStatuses.mockResolvedValue(undefined);
   });
 

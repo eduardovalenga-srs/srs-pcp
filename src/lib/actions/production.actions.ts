@@ -59,6 +59,7 @@ export async function updateProcessAction(input: {
 
     if (result.changed) {
       revalidatePath("/gestao-entregas");
+      revalidatePath("/fabrica-1");
       revalidatePath("/fabrica-2");
       revalidatePath("/dashboard");
       revalidatePath("/(dashboard)/pedidos/[id]", "page");
@@ -83,7 +84,8 @@ export interface ProcessBatchActionResult {
 
 /**
  * Edição EM LOTE de um processo em TODOS os itens aplicáveis da OF
- * (025 — a célula de processo da gestão de entregas consolidada).
+ * (025 — a célula de processo da gestão de entregas consolidada) ou num
+ * conjunto explícito de itens (033 — célula AGRUPADA da Fábrica 1).
  * Só a situação muda; quantidades/observações por item ficam intactas
  * e cada item alterado gera seu evento de histórico.
  */
@@ -91,11 +93,24 @@ export async function updateProcessBatchAction(input: {
   orderId: string;
   processCode: string;
   status: string;
+  /** 033: escopo explícito de itens (linha agrupada da Fábrica 1). */
+  orderItemIds?: string[];
 }): Promise<ProcessBatchActionResult> {
   try {
     const sessionUser = await requireCapability("production.update_status");
     if (!isProcessStatus(input.status)) {
       return { success: false, message: "Status inválido.", changed: false, updated: 0, total: 0 };
+    }
+    // Escopo explícito: só ids não vazios, com teto para não estourar o in().
+    const orderItemIds = (input.orderItemIds ?? []).filter((id) => id.trim() !== "");
+    if (input.orderItemIds !== undefined && (orderItemIds.length === 0 || orderItemIds.length > 500)) {
+      return {
+        success: false,
+        message: "Escopo de itens inválido.",
+        changed: false,
+        updated: 0,
+        total: 0,
+      };
     }
 
     const client = await createClient();
@@ -103,10 +118,12 @@ export async function updateProcessBatchAction(input: {
       orderId: input.orderId,
       processCode: input.processCode,
       status: input.status,
+      orderItemIds: input.orderItemIds !== undefined ? orderItemIds : undefined,
     });
 
     if (result.changed) {
       revalidatePath("/gestao-entregas");
+      revalidatePath("/fabrica-1");
       revalidatePath("/fabrica-2");
       revalidatePath("/dashboard");
       revalidatePath("/(dashboard)/pedidos/[id]", "page");

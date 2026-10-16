@@ -2,13 +2,15 @@ import type { OrderStatus } from "@/lib/constants/orders";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type {
   ChildItemFilters,
-  ChildItemMaterialsResult,
+  ChildItemGroupMember,
+  ChildItemGroupsResult,
   ChildItemProcess,
-  ChildItemWithMaterials,
   OrderItemDetails,
   OrderItemMaterial,
 } from "@/lib/types/order";
+import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { ProcessStatus } from "@/lib/constants/production";
+import { buildChildItemGroup } from "@/lib/utils/child-item-groups";
 import { escapeFilterTerm } from "@/lib/utils/filters";
 import { assertOk } from "@/lib/utils/supabase-result";
 
@@ -28,7 +30,7 @@ export async function getOrderItemWithProcesses(
     .select(
       `id, order_id, parent_order_item_id, family, parent_item, description, quantity, unit_weight_kg, total_weight_kg, delivery_date, status, op,
        production_processes (
-         id, process_id, status, quantity_planned, quantity_completed, notes,
+         id, process_id, status, quantity_planned, quantity_completed, notes, completed_at,
          processes ( id, code, name, display_order )
        ),
        order_item_materials ( id, description, quantity, unit, notes )`,
@@ -59,6 +61,7 @@ export async function getOrderItemWithProcesses(
       quantity_planned: number | string | null;
       quantity_completed: number | string | null;
       notes: string | null;
+      completed_at: string | null;
       processes: { id: string; code: string; name: string; display_order: number };
     }[];
     order_item_materials: {
@@ -95,6 +98,7 @@ export async function getOrderItemWithProcesses(
         quantityPlanned: toNumber(process.quantity_planned),
         quantityCompleted: toNumber(process.quantity_completed),
         notes: process.notes,
+        completedAt: process.completed_at ?? null,
       }))
       .sort((a, b) => a.displayOrder - b.displayOrder),
     materials: (row.order_item_materials ?? []).map((material) => ({
@@ -173,6 +177,58 @@ export async function getItemAggregate(
   };
 }
 
+/**
+ * Processos do item para a cascata da linha do tempo: situação, posição na
+ * cadeia e quantidades/notas (preservadas quando a cascata muda o status).
+ */
+export async function getItemProcessChain(
+  client: SupabaseServer,
+  orderItemId: string,
+): Promise<
+  {
+    id: string;
+    status: ProcessStatus;
+    code: string;
+    displayOrder: number;
+    quantityPlanned: number | null;
+    quantityCompleted: number | null;
+    notes: string | null;
+  }[]
+> {
+  const { data, error } = await client
+    .from("order_items")
+    .select(
+      "production_processes ( id, status, quantity_planned, quantity_completed, notes, processes ( code, display_order ) )",
+    )
+    .eq("id", orderItemId)
+    .maybeSingle();
+
+  assertOk(error, "Não foi possível carregar os processos do item");
+  if (!data) return [];
+
+  type Raw = {
+    production_processes: {
+      id: string;
+      status: ProcessStatus;
+      quantity_planned: number | string | null;
+      quantity_completed: number | string | null;
+      notes: string | null;
+      processes: { code: string; display_order: number };
+    }[];
+  };
+
+  const row = data as unknown as Raw;
+  return (row.production_processes ?? []).map((process) => ({
+    id: process.id,
+    status: process.status,
+    code: process.processes.code,
+    displayOrder: process.processes.display_order,
+    quantityPlanned: toNumber(process.quantity_planned),
+    quantityCompleted: toNumber(process.quantity_completed),
+    notes: process.notes,
+  }));
+}
+
 /** UUID nulo — sentinela para `in (...)` vazio (o PostgREST rejeita lista vazia). */
 const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 
@@ -188,32 +244,32 @@ const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 const PARENT_ID_LOOKUP_LIMIT = 500;
 
 /**
- * Itens FILHOS (parent_order_item_id preenchido) com seus materiais —
- * base da tela Fábrica 1 (lista de insumos por peça).
+ * Itens FILHOS agrupados por código dentro da OF (033) — base da tela
+ * Fábrica 1 (visão de insumos: o componente repetido vira UMA linha).
  *
- * O embed de materiais vira `!inner` somente quando há filtro de material:
- * o filtro passa a limitar os itens aos que têm o material casado (e a
- * célula mostra apenas esses materiais), sem esconder filhos sem material
- * quando não há filtro.
+ * Três passos:
+ *  1. RPC `get_child_item_groups` (página de grupos + nº de grupos) em
+ *     paralelo com a `get_child_items_totals` (soma do card) — os 11
+ *     filtros são os mesmos das duas;
+ *  2. busca dos membros da página pelos ids, com os embeds de exibição
+ *     (processos/materiais) e os PAIS numa consulta própria — o
+ *     self-join do PostgREST só resolve a direção "filhos";
+ *  3. montagem: `buildChildItemGroup` soma quantidade/peso, agrega
+ *     processos/materiais e a coluna MP herdada dos pais.
  *
- * `processId` vem do catálogo (o serviço resolve `filters.processCode`) e
- * liga o embed extra `pp_filter`: ele restringe as LINHAS sem mexer no
- * embed de exibição, então a célula continua mostrando todos os processos
- * do filho mesmo com filtro de situação ativo.
+ * O embed de materiais continua `!inner` com o ilike quando há filtro:
+ * os membros já casam o filtro (a RPC decidiu a pertinência) e o embed
+ * entrega só os materiais casados — mesmo comportamento de antes.
  *
- * A coluna MP não é filtrável aqui: o valor exibido vem do PAI
- * (`parentProcessStatuses`) e é editado na gestão de entregas.
- *
- * Ordenação em colunas próprias do item (entrega → código do pai →
- * descrição → id) — determinística para a paginação.
+ * A coluna MP não é editável aqui: o valor vem do PAI (agregado entre
+ * os pais do grupo) e é editado na gestão de entregas.
  */
-export async function listChildItemsWithMaterials(
+export async function listChildItemGroups(
   client: SupabaseServer,
   filters: ChildItemFilters,
   processId: string | null = null,
-): Promise<ChildItemMaterialsResult> {
+): Promise<ChildItemGroupsResult> {
   const search = escapeFilterTerm(filters.search);
-  const searchOr = search ? `description.ilike.%${search}%,parent_item.ilike.%${search}%` : null;
   const orderCode = filters.orderCode.trim();
   const customer = filters.customer.trim();
   const childItem = filters.childItem.trim();
@@ -221,8 +277,6 @@ export async function listChildItemsWithMaterials(
   const materialFilter = filters.material.trim();
   const materialEmbed = materialFilter ? "order_item_materials!inner" : "order_item_materials";
   const materialIlike = materialFilter ? `%${materialFilter}%` : null;
-  // Filtro de processo: embed extra (inner) — nunca altera o embed de exibição.
-  const processFilter = processId !== null || filters.processStatus !== "ALL";
 
   const parentItem = filters.parentItem.trim();
   let parentIds: string[] | null = null;
@@ -238,104 +292,96 @@ export async function listChildItemsWithMaterials(
     parentIds = (data ?? []).map((row) => row.id);
   }
 
+  // 033: página de GRUPOS (código do filho, dentro da OF) + contagem de
+  // grupos, em paralelo com a soma do card (024) — os filtros são os
+  // mesmos das duas RPCs.
+  const rpcFilters = {
+    p_search: search || null,
+    p_order_code: orderCode || null,
+    p_customer: customer || null,
+    p_child_item: childItem || null,
+    p_description: description || null,
+    p_material: materialFilter || null,
+    p_parent_ids: parentIds !== null
+      ? parentIds.length > 0
+        ? parentIds
+        : [NIL_UUID]
+      : null,
+    p_delivery_from: filters.deliveryFrom || null,
+    p_delivery_to: filters.deliveryTo || null,
+    p_process_id: processId,
+    p_process_status: filters.processStatus !== "ALL" ? filters.processStatus : null,
+  };
+  const from = (filters.page - 1) * filters.pageSize;
+  const [groupsResult, totalsResult] = await Promise.all([
+    client.rpc("get_child_item_groups", {
+      ...rpcFilters,
+      p_offset: from,
+      p_limit: filters.pageSize,
+    }),
+    client.rpc("get_child_items_totals", rpcFilters),
+  ]);
+
+  assertOk(groupsResult.error, "Não foi possível carregar os itens filhos");
+  assertOk(totalsResult.error, "Não foi possível carregar os itens filhos");
+
+  type GroupRow = { orderId: string; key: string; itemIds: string[] };
+  const groupsPayload = (groupsResult.data ?? {}) as unknown as {
+    total?: number | string;
+    groups?: GroupRow[];
+  };
+  const groupRows = groupsPayload.groups ?? [];
+  const memberIds = [
+    ...new Set(groupRows.flatMap((group) => group.itemIds ?? [])),
+  ];
+
+  type TotalsRow = {
+    total: number | string;
+    qtyTotal: number | string;
+    weightTotal: number | string;
+  };
+  const totals = (totalsResult.data ?? {}) as unknown as TotalsRow;
+  const aggregated = {
+    //033: card e paginação contam GRUPOS; os somatórios seguem Σ por item.
+    total: toNumber(groupsPayload.total ?? null) ?? 0,
+    qtyTotal: toNumber(totals.qtyTotal) ?? 0,
+    weightTotal: toNumber(totals.weightTotal) ?? 0,
+  };
+  if (memberIds.length === 0) {
+    return { items: [], ...aggregated };
+  }
+
   // ATENÇÃO: o pai NÃO entra por embed. `order_items.parent_order_item_id` é
   // FK para a PRÓPRIA tabela e, em self-join, o PostgREST só resolve por FK a
   // direção "filhos" (to-many) — a direção "pai" (to-one) exigiria uma
   // Computed Relationship (função SQL). O embed `parent:order_items!…` voltava
   // `[]` e apagava o badge "Item pai", a descrição do pai e a coluna MP. Os
-  // pais são buscados numa consulta própria, logo após a página.
-  const pageColumns = `id, parent_order_item_id, parent_item, description, quantity, unit_weight_kg, delivery_date, status,
+  // pais são buscados numa consulta própria, logo após os membros.
+  const pageColumns = `id, parent_order_item_id, parent_item, description, quantity, unit_weight_kg, delivery_date,
    orders!inner ( id, code, customer_name, delivery_date ),
    production_processes ( id, status, quantity_planned, quantity_completed, notes, processes ( code, name, display_order ) ),
-   ${materialEmbed} ( id, description, quantity, unit, notes )${
-     processFilter ? ", pp_filter:production_processes!inner ( process_id, status )" : ""
-   }`;
+   ${materialEmbed} ( id, description, quantity, unit, notes )`;
 
-  // Os embeds de join (`orders` e, com filtro, materiais/processos `!inner`)
-  // precisam estar presentes em CADA consulta que filtra por eles.
-  let pageQuery = client
-    .from("order_items")
-    .select(pageColumns, { count: "exact" })
-    .not("parent_order_item_id", "is", null);
-
-  if (searchOr) {
-    pageQuery = pageQuery.or(searchOr);
-  }
-  if (orderCode) {
-    pageQuery = pageQuery.ilike("orders.code", `%${orderCode}%`);
-  }
-  if (customer) {
-    pageQuery = pageQuery.ilike("orders.customer_name", `%${customer}%`);
-  }
-  if (childItem) {
-    pageQuery = pageQuery.ilike("parent_item", `%${childItem}%`);
-  }
-  if (description) {
-    pageQuery = pageQuery.ilike("description", `%${description}%`);
-  }
+  let memberQuery = client.from("order_items").select(pageColumns).in("id", memberIds);
   if (materialIlike) {
-    pageQuery = pageQuery.ilike("order_item_materials.description", materialIlike);
+    // Com filtro de material, o embed entrega só os materiais casados
+    // (quem casou o filtro na RPC tem o material — ninguém cai fora).
+    memberQuery = memberQuery.ilike("order_item_materials.description", materialIlike);
   }
-  if (parentIds !== null) {
-    // Lista vazia = nenhum pai casou: sentinel mantém o filtro honesto.
-    const ids = parentIds.length > 0 ? parentIds : [NIL_UUID];
-    pageQuery = pageQuery.in("parent_order_item_id", ids);
-  }
-  // Período sobre a data do próprio filho (itens sem data ficam de fora,
-  // mesma semântica do filtro de período da gestão de entregas).
-  if (filters.deliveryFrom) {
-    pageQuery = pageQuery.gte("delivery_date", filters.deliveryFrom);
-  }
-  if (filters.deliveryTo) {
-    pageQuery = pageQuery.lte("delivery_date", filters.deliveryTo);
-  }
-  if (processFilter) {
-    if (processId !== null) {
-      pageQuery = pageQuery.eq("pp_filter.process_id", processId);
-    }
-    if (filters.processStatus !== "ALL") {
-      pageQuery = pageQuery.eq("pp_filter.status", filters.processStatus);
-    }
-  }
-
-  // 024: página (com embeds) + contagem/soma do conjunto filtrado inteiro
-  // em UMA RPC — antes a tela baixava TODAS as linhas filtradas (com
-  // embeds de materiais e processos) só para somar no JavaScript.
-  const from = (filters.page - 1) * filters.pageSize;
-  const [pageResult, totalsResult] = await Promise.all([
-    pageQuery
-      .order("delivery_date", { ascending: true, nullsFirst: false })
-      .order("parent_item", { ascending: true, nullsFirst: true })
-      .order("description", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, from + filters.pageSize - 1),
-    client.rpc("get_child_items_totals", {
-      p_search: search || null,
-      p_order_code: orderCode || null,
-      p_customer: customer || null,
-      p_child_item: childItem || null,
-      p_description: description || null,
-      p_material: materialFilter || null,
-      p_parent_ids: parentIds !== null
-        ? parentIds.length > 0
-          ? parentIds
-          : [NIL_UUID]
-        : null,
-      p_delivery_from: filters.deliveryFrom || null,
-      p_delivery_to: filters.deliveryTo || null,
-      p_process_id: processId,
-      p_process_status: filters.processStatus !== "ALL" ? filters.processStatus : null,
-    }),
-  ]);
-
-  assertOk(pageResult.error, "Não foi possível carregar os itens filhos");
-  assertOk(totalsResult.error, "Não foi possível carregar os itens filhos");
+  const { data: memberRows, error: membersError } = await memberQuery;
+  assertOk(membersError, "Não foi possível carregar os itens filhos");
 
   type RawParent = {
     id: string;
     parent_item: string | null;
     description: string;
-    production_processes: { status: ProcessStatus; processes: { code: string } }[];
+    delivery_date: string | null;
+    orders: { delivery_date: string | null };
+    production_processes: {
+      status: ProcessStatus;
+      completed_at: string | null;
+      processes: { code: string };
+    }[];
   };
 
   // PAIS da página (≤ pageSize ids, com repetição removida): busca própria em
@@ -343,7 +389,7 @@ export async function listChildItemsWithMaterials(
   // do mesmo pai sem repetir dado.
   const pageParentIds = [
     ...new Set(
-      ((pageResult.data ?? []) as unknown as { parent_order_item_id: string | null }[])
+      ((memberRows ?? []) as unknown as { parent_order_item_id: string | null }[])
         .map((row) => row.parent_order_item_id)
         .filter((id): id is string => id !== null),
     ),
@@ -353,7 +399,9 @@ export async function listChildItemsWithMaterials(
   if (pageParentIds.length > 0) {
     const { data, error } = await client
       .from("order_items")
-      .select("id, parent_item, description, production_processes ( status, processes ( code ) )")
+      .select(
+        "id, parent_item, description, delivery_date, orders ( delivery_date ), production_processes ( status, completed_at, processes ( code ) )",
+      )
       .in("id", pageParentIds);
     assertOk(error, "Não foi possível carregar os itens pai");
     for (const parent of (data ?? []) as unknown as RawParent[]) {
@@ -368,7 +416,6 @@ export async function listChildItemsWithMaterials(
     quantity: number | string;
     unit_weight_kg: number | string | null;
     delivery_date: string | null;
-    status: OrderStatus;
     orders: { id: string; code: string; customer_name: string | null; delivery_date: string | null };
     parent_order_item_id: string | null;
     production_processes: {
@@ -388,72 +435,98 @@ export async function listChildItemsWithMaterials(
     }[];
   };
 
-  const items: ChildItemWithMaterials[] = ((pageResult.data ?? []) as unknown as Raw[]).map(
-    (row) => {
-      const parent = row.parent_order_item_id
-        ? parentsById.get(row.parent_order_item_id)
-        : undefined;
-
-      return {
-        id: row.id,
-        orderId: row.orders.id,
-        orderCode: row.orders.code,
-        customerName: row.orders.customer_name,
-        parentItem: parent?.parent_item ?? null,
-        parentDescription: parent?.description ?? null,
-        childItem: row.parent_item,
-        description: row.description,
-        quantity: toNumber(row.quantity) ?? 0,
-        unitWeightKg: toNumber(row.unit_weight_kg),
-        deliveryDate: row.delivery_date ?? row.orders.delivery_date,
-        status: row.status,
-        processes: (row.production_processes ?? [])
-          .map(
-            (process): ChildItemProcess => ({
-              id: process.id,
-              code: process.processes.code,
-              name: process.processes.name,
-              displayOrder: process.processes.display_order,
-              status: process.status,
-              quantityPlanned: toNumber(process.quantity_planned),
-              quantityCompleted: toNumber(process.quantity_completed),
-              notes: process.notes ?? null,
-            }),
-          )
-          .sort((left, right) => left.displayOrder - right.displayOrder),
-        // Situação dos processos do PAI (a coluna MP da Fábrica 1 mostra este valor).
-        parentProcessStatuses: (parent?.production_processes ?? []).reduce<
-          Record<string, ProcessStatus>
-        >((statuses, entry) => {
-          statuses[entry.processes.code] = entry.status;
-          return statuses;
-        }, {}),
-        materials: (row.order_item_materials ?? [])
-          .map((material): OrderItemMaterial => ({
-            id: material.id,
-            description: material.description,
-            quantity: toNumber(material.quantity) ?? 0,
-            unit: material.unit,
-            notes: material.notes,
-          }))
-          .sort((left, right) => left.description.localeCompare(right.description)),
-      };
-    },
+  // Ordenação determinística dos membros (pai → descrição → id): define
+  // o "primeiro" membro de cada grupo (badge do pai, descrição, notas).
+  const rows = ((memberRows ?? []) as unknown as Raw[]).slice().sort(
+    (left, right) =>
+      (left.parent_item ?? "").localeCompare(right.parent_item ?? "") ||
+      left.description.localeCompare(right.description) ||
+      left.id.localeCompare(right.id),
   );
 
-  // Contagem e soma de TODO o conjunto filtrado (todas as páginas) —
-  // total, Qtd. total e Peso total (qtd × peso unit., 023) do card.
-  type TotalsRow = {
-    total: number | string;
-    qtyTotal: number | string;
-    weightTotal: number | string;
-  };
-  const totals = (totalsResult.data ?? {}) as unknown as TotalsRow;
+  // Bruto → insumo do agregador (uma entrada por membro).
+  const membersById = new Map<string, ChildItemGroupMember>();
+  const rawById = new Map<string, Raw>();
+  const ordersById = new Map<string, { code: string; customerName: string | null }>();
+  for (const row of rows) {
+    const parent = row.parent_order_item_id
+      ? parentsById.get(row.parent_order_item_id)
+      : undefined;
 
-  return {
-    items,
-    total: toNumber(totals.total) ?? 0,
-    qtyTotal: toNumber(totals.qtyTotal) ?? 0,
-    weightTotal: toNumber(totals.weightTotal) ?? 0,
-  };
+    rawById.set(row.id, row);
+    ordersById.set(row.orders.id, {
+      code: row.orders.code,
+      customerName: row.orders.customer_name,
+    });
+    membersById.set(row.id, {
+      id: row.id,
+      description: row.description,
+      parentItem: parent?.parent_item ?? null,
+      parentDescription: parent?.description ?? null,
+      // Entrega do PAI (item, com fallback para a OF) — base da janela do
+      // MP exibida na coluna herdada da Fábrica 1.
+      parentDeliveryDate: parent?.delivery_date ?? parent?.orders.delivery_date ?? null,
+      // 031: data efetiva do MP concluído no PAI (coluna MP da Fábrica 1).
+      parentMpCompletedAt:
+        (parent?.production_processes ?? []).find(
+          (entry) => entry.processes.code === MP_PROCESS_CODE && entry.status === "CONCLUIDO",
+        )?.completed_at ?? null,
+      // Situação dos processos do PAI (a coluna MP da Fábrica 1 mostra este valor).
+      parentProcessStatuses: (parent?.production_processes ?? []).reduce<
+        Record<string, ProcessStatus>
+      >((statuses, entry) => {
+        statuses[entry.processes.code] = entry.status;
+        return statuses;
+      }, {}),
+      quantity: toNumber(row.quantity) ?? 0,
+      unitWeightKg: toNumber(row.unit_weight_kg),
+      deliveryDate: row.delivery_date ?? row.orders.delivery_date,
+      processes: (row.production_processes ?? [])
+        .map(
+          (process): ChildItemProcess => ({
+            id: process.id,
+            code: process.processes.code,
+            name: process.processes.name,
+            displayOrder: process.processes.display_order,
+            status: process.status,
+            quantityPlanned: toNumber(process.quantity_planned),
+            quantityCompleted: toNumber(process.quantity_completed),
+            notes: process.notes ?? null,
+          }),
+        )
+        .sort((left, right) => left.displayOrder - right.displayOrder),
+      materials: (row.order_item_materials ?? [])
+        .map((material): OrderItemMaterial => ({
+          id: material.id,
+          description: material.description,
+          quantity: toNumber(material.quantity) ?? 0,
+          unit: material.unit,
+          notes: material.notes,
+        }))
+        .sort((left, right) => left.description.localeCompare(right.description)),
+    });
+  }
+
+  // Linhas na ordem dos grupos da RPC (paginação decidida no banco).
+  const items = groupRows.flatMap((group) => {
+    const members = (group.itemIds ?? [])
+      .map((id) => membersById.get(id))
+      .filter((member): member is ChildItemGroupMember => member !== undefined);
+    const order = ordersById.get(group.orderId);
+    if (members.length === 0 || !order) return [];
+
+    const firstCode = rawById.get(members[0]?.id ?? "")?.parent_item?.trim();
+    return [
+      buildChildItemGroup({
+        order: { id: group.orderId, code: order.code, customerName: order.customerName },
+        key: group.key,
+        childItem: firstCode ? firstCode : null,
+        members,
+      }),
+    ];
+  });
+
+  // Soma de TODO o conjunto filtrado (todas as páginas) — Qtd. total e
+  // Peso total (qtd × peso unit., 023) do card; `total` = nº de grupos.
+  return { items, ...aggregated };
 }

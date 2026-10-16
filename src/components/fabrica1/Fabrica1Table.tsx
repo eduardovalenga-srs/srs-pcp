@@ -7,10 +7,10 @@ import { coreFeatures, createColumnHelper, flexRender, useTable, type CoreFeatur
 import { FABRICA1_EDITABLE_PROCESS_CODES, MP_PROCESS_CODE } from "@/lib/constants/processes";
 import { MATERIAL_UNIT_LABELS, type MaterialUnit } from "@/lib/constants/materials";
 import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
-import type { ChildItemFilters, ChildItemProcess, ChildItemWithMaterials, OrderItemMaterial } from "@/lib/types/order";
+import type { ChildItemFilters, ChildItemGroup, ChildItemProcess, OrderItemMaterial } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
-import { formatDate, formatDayMonth } from "@/lib/utils/dates";
-import { calculateTotalWeight, formatQuantity, formatWeight, truncate } from "@/lib/utils/formatting";
+import { formatBusinessDate, formatBusinessDayMonth, formatDate, formatDayMonth } from "@/lib/utils/dates";
+import { formatQuantity, formatWeight, truncate } from "@/lib/utils/formatting";
 import {
   computeProcessSchedule,
   scheduleProcessesForItem,
@@ -34,7 +34,8 @@ import {
 } from "@/components/fabrica1/Fabrica1ColumnHeaders";
 
 interface Fabrica1TableProps {
-  items: ChildItemWithMaterials[];
+  /** Linhas agrupadas por código do filho dentro da OF (033). */
+  items: ChildItemGroup[];
   /** Catálogo ativo — colunas do grupo PROCESSOS e datas previstas. */
   processes: ProcessDefinition[];
   filters: ChildItemFilters;
@@ -43,7 +44,7 @@ interface Fabrica1TableProps {
   today: string;
 }
 
-const helper = createColumnHelper<CoreFeatures, ChildItemWithMaterials>();
+const helper = createColumnHelper<CoreFeatures, ChildItemGroup>();
 
 /** Processo editável nesta tela: as etapas de sub-item e o KIT (nunca o MP). */
 function isEditableProcess(code: string): boolean {
@@ -66,25 +67,34 @@ interface ProcessCellButtonProps {
   processName: string;
   disabled: boolean;
   onSelect: (selection: ProcessSelection) => void;
+  /**
+   * Seleção pronta da linha (033: grupo de N membros vira lote de
+   * situação; 1 membro mantém a edição completa). Null → sem registro.
+   */
+  selection: ProcessSelection | null;
   /** Janela prevista de execução (dias úteis contados de trás para frente da entrega). */
   plan: ProcessWindow | null;
   /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
   today: string;
-  context: {
-    orderItemId: string;
-    orderCode: string;
-    itemDescription: string;
-    processCode: string;
-    deliveryDate: string | null;
-  };
+  /** Descrição exibida nos textos da célula (a do grupo quando agrupada). */
+  itemLabel: string;
 }
 
-function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today, context }: ProcessCellButtonProps) {
-  if (!cell) {
+function ProcessCellButton({
+  cell,
+  processName,
+  disabled,
+  onSelect,
+  selection,
+  plan,
+  today,
+  itemLabel,
+}: ProcessCellButtonProps) {
+  if (!cell || !selection) {
     return (
       <span
-        className="inline-flex h-7 w-full items-center justify-center rounded border border-border bg-background text-[10px] text-muted-foreground"
-        title={`${processName} de ${context.itemDescription}: sem registro`}
+        className="inline-flex h-8 w-full items-center justify-center rounded border border-border bg-background text-[10px] text-muted-foreground"
+        title={`${processName} de ${itemLabel}: sem registro`}
       >
         —
       </span>
@@ -105,28 +115,14 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
     <button
       type="button"
       disabled={disabled}
-      onClick={() =>
-        onSelect({
-          productionProcessId: cell.id,
-          orderItemId: context.orderItemId,
-          orderCode: context.orderCode,
-          itemDescription: context.itemDescription,
-          processName,
-          processCode: context.processCode,
-          deliveryDate: context.deliveryDate,
-          status: cell.status,
-          quantityPlanned: cell.quantityPlanned,
-          quantityCompleted: cell.quantityCompleted,
-          notes: cell.notes,
-        })
-      }
+      onClick={() => onSelect(selection)}
       className={cn(
-        "inline-flex h-7 w-full flex-col items-center justify-center gap-0.5 rounded border px-1 text-[10px] font-semibold leading-none transition-colors",
+        "inline-flex h-8 w-full flex-col items-center justify-center gap-0.5 rounded border px-1 text-[10px] font-semibold leading-none transition-colors",
         "hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70",
         statusClass(cell.status),
       )}
-      title={`${processName} — ${context.itemDescription}: ${label}${quantity ? ` (${quantity})` : ""}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}`}
-      aria-label={`${processName} de ${context.itemDescription}: ${label}${quantity ? `, produzido ${quantity}` : ""}${plan ? `, previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}`}
+      title={`${processName} — ${itemLabel}: ${label}${quantity ? ` (${quantity})` : ""}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}`}
+      aria-label={`${processName} de ${itemLabel}: ${label}${quantity ? `, produzido ${quantity}` : ""}${plan ? `, previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}`}
     >
       <span className="inline-flex items-center gap-1">
         <span aria-hidden>{PROCESS_STATUS_SYMBOLS[cell.status]}</span>
@@ -144,13 +140,28 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
 
 /**
  * Célula do MP: somente leitura, com o status do ITEM PAI — o valor é o
- * mesmo editado na gestão de entregas, então não se edita aqui.
+ * mesmo editado na gestão de entregas, então não se edita aqui. A janela
+ * prevista vem do PAI (entrega + status do pai, memo `parentMpPlanByItem`)
+ * e, concluído (031), a data efetiva do recebimento aparece ACIMA da
+ * prevista — mesmo desenho das demais células de processo.
  */
-function InheritedProcessCell({ status }: { status: ProcessStatus | undefined }) {
+function InheritedProcessCell({
+  status,
+  completedAt,
+  plan,
+  today,
+}: {
+  status: ProcessStatus | undefined;
+  completedAt: string | null;
+  /** Janela prevista do MP, contada da entrega do PAI. */
+  plan: ProcessWindow | null;
+  /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
+  today: string;
+}) {
   if (!status) {
     return (
       <span
-        className="inline-flex h-7 w-full items-center justify-center rounded border border-border bg-background text-[10px] text-muted-foreground"
+        className="inline-flex h-8 w-full items-center justify-center rounded border border-border bg-background text-[10px] text-muted-foreground"
         title="Matéria-prima: sem registro no item pai"
       >
         —
@@ -158,19 +169,85 @@ function InheritedProcessCell({ status }: { status: ProcessStatus | undefined })
     );
   }
 
+  const receivedDay =
+    status === "CONCLUIDO" && completedAt ? formatBusinessDayMonth(completedAt) : null;
+  const plannedDay = plan ? formatDayMonth(plan.start) : null;
+  // Início vencido (anterior à data de referência) → fonte vermelha;
+  // MP CONCLUIDO nunca fica vermelho (regra em utils/production).
+  const plannedDayPast = isProcessStartOverdue(plan?.start ?? null, status, today);
+
   return (
     <span
       className={cn(
-        "inline-flex h-7 w-full flex-col items-center justify-center gap-0.5 rounded border px-1 text-[10px] font-semibold leading-none",
+        "inline-flex h-8 w-full flex-col items-center justify-center rounded border px-1 text-[10px] font-semibold leading-none",
+        // 3 linhas (símbolo + recebida + prevista) cabem no h-8 sem folga.
+        receivedDay && plannedDay ? "gap-0" : "gap-0.5",
         statusClass(status),
       )}
-      title={`Matéria-prima — status do item pai (editado na Gestão de Entregas): ${PROCESS_STATUS_LABELS[status]}`}
+      title={`Matéria-prima — status do item pai (editado na Gestão de Entregas): ${PROCESS_STATUS_LABELS[status]}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(completedAt)}` : ""}`}
     >
       <span aria-hidden>{PROCESS_STATUS_SYMBOLS[status]}</span>
+      {/* 031: recebimento efetivo em CIMA da prevista (mesmo formato das listas). */}
+      {receivedDay ? <span className="tabular-nums text-[10px]">{receivedDay}</span> : null}
+      {plannedDay ? (
+        <span className={cn("tabular-nums text-[10px]", plannedDayPast && "text-status-late")}>
+          {plannedDay}
+        </span>
+      ) : null}
       <span className="sr-only">
         Matéria-prima: {PROCESS_STATUS_LABELS[status]} — status do item pai
       </span>
     </span>
+  );
+}
+
+/**
+ * Chip do MP no card (mobile): rótulo `MP` + datas empilhadas à direita —
+ * o recebimento efetivo (031) em cima da prevista, sem as palavras.
+ */
+function InheritedMpChip({
+  item,
+  plan,
+  today,
+}: {
+  /** Linha agrupada (033) — a coluna MP agrega os pais do grupo. */
+  item: ChildItemGroup;
+  plan: ProcessWindow | null;
+  today: string;
+}) {
+  const status = item.parentProcessStatuses[MP_PROCESS_CODE];
+  if (!status) return null;
+
+  const receivedDay =
+    status === "CONCLUIDO" && item.parentMpCompletedAt
+      ? formatBusinessDayMonth(item.parentMpCompletedAt)
+      : null;
+  const plannedDay = plan ? formatDayMonth(plan.start) : null;
+  const plannedDayPast = isProcessStartOverdue(plan?.start ?? null, status, today);
+
+  return (
+    <li>
+      <span
+        className="inline-flex items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-[11px] tabular-nums"
+        title={`Matéria-prima — status do item pai: ${PROCESS_STATUS_LABELS[status]}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(item.parentMpCompletedAt)}` : ""}`}
+      >
+        <span aria-hidden>{PROCESS_STATUS_SYMBOLS[status]}</span>
+        MP
+        {receivedDay || plannedDay ? (
+          <span className="flex flex-col items-end leading-none text-[10px]">
+            {receivedDay ? <span className="tabular-nums">{receivedDay}</span> : null}
+            {plannedDay ? (
+              <span className={cn("tabular-nums", plannedDayPast && "text-status-late")}>
+                {plannedDay}
+              </span>
+            ) : null}
+          </span>
+        ) : null}
+        <span className="sr-only">
+          Matéria-prima: {PROCESS_STATUS_LABELS[status]} — status do item pai
+        </span>
+      </span>
+    </li>
   );
 }
 
@@ -200,6 +277,35 @@ function MaterialsList({ materials }: { materials: OrderItemMaterial[] }) {
   );
 }
 
+/**
+ * Seleção de uma célula de processo da Fábrica 1 (033): a linha agrupada
+ * com N membros abre a folha em modo LOTE (só a situação, aplicada a
+ * todos os itens do grupo); com 1 membro, a edição completa de antes.
+ */
+function cellSelection(row: ChildItemGroup, process: ChildItemProcess): ProcessSelection {
+  const grouped = row.memberCount > 1;
+  return {
+    // id do primeiro membro: serve de chave de remontagem da folha; a
+    // gravação do grupo usa os memberIds, nunca este id.
+    productionProcessId: process.id,
+    orderItemId: row.memberIds[0] ?? row.id,
+    orderId: row.orderId,
+    orderCode: row.orderCode,
+    itemDescription: grouped ? `${row.description} (×${row.memberCount})` : row.description,
+    processName: process.name,
+    processCode: process.code,
+    deliveryDate: row.deliveryDate,
+    status: process.status,
+    quantityPlanned: process.quantityPlanned,
+    quantityCompleted: process.quantityCompleted,
+    notes: process.notes,
+    // Só o MP tem data efetiva e nesta tela ele nunca é editável
+    // (célula herdada do pai) — a folha daqui nunca abre o MP.
+    completedAt: null,
+    ...(grouped ? { groupItemIds: row.memberIds } : {}),
+  };
+}
+
 /** Tabela da Fábrica 1 (desktop) + cards (mobile), no mesmo desenho da gestão de entregas. */
 export function Fabrica1Table({ items, processes, filters, capabilities, today }: Fabrica1TableProps) {
   const [selection, setSelection] = useState<ProcessSelection | null>(null);
@@ -224,6 +330,27 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
             ),
           ] as const;
         }),
+      ),
+    [items, processes],
+  );
+
+  // Janela prevista do MP no ITEM PAI (a coluna MP é herdada do pai):
+  // contada da entrega do pai com os status do pai — a mesma regra das
+  // janelas por item da Fábrica 2, aplicada ao pai desta linha.
+  const parentMpPlanByItem = useMemo(
+    () =>
+      new Map<string, ProcessWindow | null>(
+        items.map(
+          (item): [string, ProcessWindow | null] => [
+            item.id,
+            item.parentDeliveryDate
+              ? computeProcessSchedule(
+                  item.parentDeliveryDate,
+                  scheduleProcessesForItem(processes, (code) => item.parentProcessStatuses[code]),
+                ).get(MP_PROCESS_CODE) ?? null
+              : null,
+          ],
+        ),
       ),
     [items, processes],
   );
@@ -280,40 +407,59 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
             }
           />
         ),
-        cell: (info) => (
-          <span className="flex min-w-0 items-center gap-1.5">
-            {info.getValue() ? (
-              <Badge variant="outline" className="px-1 py-0 tabular-nums">
-                {info.getValue()}
-              </Badge>
-            ) : null}
-            <span
-              className="min-w-0 max-w-[200px] truncate"
-              title={info.row.original.parentDescription ?? undefined}
-            >
-              {info.row.original.parentDescription ?? "—"}
+        cell: (info) => {
+          const row = info.row.original;
+          return (
+            <span className="flex min-w-0 items-center gap-1.5">
+              {info.getValue() ? (
+                <Badge variant="outline" className="px-1 py-0 tabular-nums">
+                  {info.getValue()}
+                </Badge>
+              ) : null}
+              {row.parentItems.length > 1 ? (
+                <span
+                  className="whitespace-nowrap text-[10px] text-muted-foreground"
+                  title={`Componente usado por ${row.parentItems.length} itens pai: ${row.parentItems.join(", ")}`}
+                >
+                  +{row.parentItems.length - 1}
+                </span>
+              ) : null}
+              <span
+                className="min-w-0 max-w-[200px] truncate"
+                title={row.parentDescription ?? undefined}
+              >
+                {row.parentDescription ?? "—"}
+              </span>
             </span>
-          </span>
-        ),
+          );
+        },
       }),
       helper.accessor("childItem", {
         id: "childItem",
         header: () => <Fabrica1ColumnHeader label="Filho" filter={<Fabrica1ChildItemFilter filters={filters} />} />,
-        cell: (info) => (
-          <span className="flex min-w-0 items-center gap-1.5">
-            {info.getValue() ? (
-              <Badge variant="secondary" className="px-1 py-0 tabular-nums">
-                {info.getValue()}
-              </Badge>
-            ) : null}
-            <span
-              className="min-w-0 max-w-[220px] truncate"
-              title={info.row.original.description}
-            >
-              {truncate(info.row.original.description, 45)}
+        cell: (info) => {
+          const row = info.row.original;
+          return (
+            <span className="flex min-w-0 items-center gap-1.5">
+              {info.getValue() ? (
+                <Badge variant="secondary" className="px-1 py-0 tabular-nums">
+                  {info.getValue()}
+                </Badge>
+              ) : null}
+              <span className="min-w-0 max-w-[220px] truncate" title={row.description}>
+                {truncate(row.description, 45)}
+              </span>
+              {row.memberCount > 1 ? (
+                <span
+                  className="whitespace-nowrap text-[10px] text-muted-foreground"
+                  title={`${row.memberCount} itens agrupados nesta linha — quantidades somadas.`}
+                >
+                  ×{row.memberCount}
+                </span>
+              ) : null}
             </span>
-          </span>
-        ),
+          );
+        },
       }),
       helper.accessor("materials", {
         id: "materials",
@@ -342,7 +488,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         header: () => <Fabrica1ColumnHeader label="Peso un." fullLabel="Peso unitário" />,
         cell: (info) => <span className="tabular-nums">{formatWeight(info.getValue())}</span>,
       }),
-      helper.accessor((row) => calculateTotalWeight(row.quantity, row.unitWeightKg), {
+      helper.accessor((row) => row.weightTotal, {
         id: "totalWeight",
         header: () => <Fabrica1ColumnHeader label="Peso total" />,
         cell: (info) => (
@@ -379,23 +525,26 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
           cell: (info) => {
             const row = info.row.original;
             if (!editable) {
-              return <InheritedProcessCell status={row.parentProcessStatuses[process.code]} />;
+              return (
+                <InheritedProcessCell
+                  status={row.parentProcessStatuses[process.code]}
+                  completedAt={row.parentMpCompletedAt}
+                  plan={parentMpPlanByItem.get(row.id) ?? null}
+                  today={today}
+                />
+              );
             }
+            const cell = info.getValue();
             return (
               <ProcessCellButton
-                cell={info.getValue()}
+                cell={cell}
                 processName={process.name}
                 disabled={!capabilities.canUpdateStatus}
                 onSelect={setSelection}
+                selection={cell ? cellSelection(row, cell) : null}
                 plan={scheduleByItem.get(row.id)?.get(process.code) ?? null}
                 today={today}
-                context={{
-                  orderItemId: row.id,
-                  orderCode: row.orderCode,
-                  itemDescription: row.description,
-                  processCode: process.code,
-                  deliveryDate: row.deliveryDate,
-                }}
+                itemLabel={row.description}
               />
             );
           },
@@ -420,7 +569,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         columns: helper.columns(processGroupColumns),
       }),
     ]);
-  }, [filters, processColumns, capabilities.canUpdateStatus, scheduleByItem, today]);
+  }, [filters, processColumns, capabilities.canUpdateStatus, scheduleByItem, parentMpPlanByItem, today]);
 
   const table = useTable({
     features: coreFeatures,
@@ -444,8 +593,8 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
       <div className="hidden max-h-[calc(100vh-8rem)] overflow-auto rounded border bg-card lg:block">
         <table className="w-full caption-bottom text-[10px]">
           <caption className="sr-only">
-            Itens filhos das OFs: uma coluna por processo da cadeia da Fábrica 1, com
-            matérias-primas e quantidades.
+            Itens filhos das OFs agrupados por código: uma coluna por processo da cadeia da
+            Fábrica 1, com matérias-primas e quantidades somadas.
           </caption>
           <thead>
             {table.getHeaderGroups().map((headerGroup, groupIndex) => (
@@ -521,6 +670,14 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
                     {item.childItem}
                   </Badge>
                 ) : null}
+                {item.memberCount > 1 ? (
+                  <span
+                    className="whitespace-nowrap text-[10px] text-muted-foreground"
+                    title={`${item.memberCount} itens agrupados neste card — quantidades somadas.`}
+                  >
+                    ×{item.memberCount}
+                  </span>
+                ) : null}
               </span>
               <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
                 {formatDate(item.deliveryDate)}
@@ -529,8 +686,16 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
 
             <p className="mt-1 text-sm">{item.description}</p>
             {item.parentDescription ? (
-              <p className="truncate text-xs text-muted-foreground" title={item.parentDescription}>
+              <p
+                className="truncate text-xs text-muted-foreground"
+                title={
+                  item.parentItems.length > 1
+                    ? `${item.parentDescription} (+${item.parentItems.length - 1}: ${item.parentItems.join(", ")})`
+                    : item.parentDescription
+                }
+              >
                 Item pai: {item.parentDescription}
+                {item.parentItems.length > 1 ? ` (+${item.parentItems.length - 1})` : ""}
               </p>
             ) : null}
             {item.customerName ? (
@@ -551,9 +716,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
               <div>
                 <dt className="inline">Peso total: </dt>
                 <dd className="inline tabular-nums text-foreground">
-                  {calculateTotalWeight(item.quantity, item.unitWeightKg) === null
-                    ? "—"
-                    : `${formatWeight(calculateTotalWeight(item.quantity, item.unitWeightKg) ?? 0)} kg`}
+                  {item.weightTotal === null ? "—" : `${formatWeight(item.weightTotal)} kg`}
                 </dd>
               </div>
             </dl>
@@ -582,23 +745,11 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
                     </span>
                   </li>
                 ))}
-                {item.parentProcessStatuses[MP_PROCESS_CODE] ? (
-                  <li>
-                    <span
-                      className="inline-flex items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-[11px] tabular-nums"
-                      title={`Matéria-prima — status do item pai: ${PROCESS_STATUS_LABELS[item.parentProcessStatuses[MP_PROCESS_CODE]]}`}
-                    >
-                      <span aria-hidden>
-                        {PROCESS_STATUS_SYMBOLS[item.parentProcessStatuses[MP_PROCESS_CODE]]}
-                      </span>
-                      MP
-                      <span className="sr-only">
-                        Matéria-prima: {PROCESS_STATUS_LABELS[item.parentProcessStatuses[MP_PROCESS_CODE]]} —
-                        status do item pai
-                      </span>
-                    </span>
-                  </li>
-                ) : null}
+                <InheritedMpChip
+                  item={item}
+                  plan={parentMpPlanByItem.get(item.id) ?? null}
+                  today={today}
+                />
               </ul>
             </div>
           </article>

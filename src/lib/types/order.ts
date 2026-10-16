@@ -25,6 +25,8 @@ export interface ItemProcess {
   quantityPlanned: number | null;
   quantityCompleted: number | null;
   notes: string | null;
+  /** 031: data efetiva da conclusão (exibida no MP concluído). */
+  completedAt: string | null;
 }
 
 /** Matéria-prima de um sub-item (insumo — sem processos próprios). */
@@ -123,35 +125,77 @@ export interface ChildItemProcess {
   notes: string | null;
 }
 
-/** Item FILHO de uma OF com seus materiais — linha da tela Fábrica 1. */
-export interface ChildItemWithMaterials {
+/** Item FILHO de uma OF com seus materiais — insumo de uma linha da Fábrica 1. */
+export interface ChildItemGroupMember {
+  id: string;
+  /** Descrição do filho — define a descrição exibida do grupo (1º membro). */
+  description: string;
+  /** Código do pai (badge) — `order_items.parent_item` do item RAIZ. */
+  parentItem: string | null;
+  parentDescription: string | null;
+  /** Entrega do PAI (com fallback para a data da OF) — coluna MP herdada. */
+  parentDeliveryDate: string | null;
+  /** Situação dos processos do PAI — a coluna MP da Fábrica 1 mostra este valor. */
+  parentProcessStatuses: Readonly<Record<string, ProcessStatus>>;
+  /** 031: data efetiva do MP concluído no PAI. */
+  parentMpCompletedAt: string | null;
+  quantity: number;
+  unitWeightKg: number | null;
+  /** Entrega do próprio filho, com fallback para a data da OF. */
+  deliveryDate: string | null;
+  processes: ChildItemProcess[];
+  materials: OrderItemMaterial[];
+}
+
+/**
+ * Linha da tela Fábrica 1 (033): um GRUPO por código de item filho dentro
+ * da OF — os itens repetidos (mesmo `cp_comp`) viram uma linha só, com
+ * quantidade e peso somados e a situação dos processos agregada.
+ */
+export interface ChildItemGroup {
+  /** Chave estável da linha (`orderId` + código) — usada como row id. */
   id: string;
   orderId: string;
   orderCode: string;
   customerName: string | null;
-  /** Código do item pai (badge) e sua descrição. */
+  /** Código do pai (badge) do primeiro membro + total de pais distintos. */
   parentItem: string | null;
   parentDescription: string | null;
-  /** Código do próprio filho (badge) — `order_items.parent_item` do filho. */
+  /** Nomes dos pais distintos do grupo (tooltip do "+N"). */
+  parentItems: string[];
+  /** Código do filho (badge) — chave do grupo; null quando veio vazio. */
   childItem: string | null;
   description: string;
+  /** Itens agrupados nesta linha (exibido como ×N). */
+  memberCount: number;
+  /** Ids dos itens membros — escopo da edição em lote da folha. */
+  memberIds: string[];
+  /** Σ das quantidades dos membros. */
   quantity: number;
+  /** Peso unitário quando todos os membros coincidem; senão null. */
   unitWeightKg: number | null;
-  /** Entrega do item, com fallback para a data da OF. */
+  /** Σ (qtd × peso unit.) dos membros — null quando nenhum tem peso. */
+  weightTotal: number | null;
+  /** Menor entrega dos membros (com fallback para a data da OF). */
   deliveryDate: string | null;
-  status: OrderStatus;
+  /** Processos agregados por código (situação + Σ das quantidades). */
   processes: ChildItemProcess[];
   /**
-   * Situação dos processos do item PAI — a coluna MP da Fábrica 1 mostra o
-   * valor do pai (editado na gestão de entregas) e nunca é editável aqui.
-   * Chave = código do processo (ex.: "MP").
+   * Situação agregada dos processos dos PAIS do grupo — a coluna MP da
+   * Fábrica 1 mostra este valor (editado na gestão de entregas).
    */
   parentProcessStatuses: Readonly<Record<string, ProcessStatus>>;
+  /** 031: data efetiva mais recente do MP concluído nos pais. */
+  parentMpCompletedAt: string | null;
+  /** Menor entrega dos pais (com fallback para a data da OF). */
+  parentDeliveryDate: string | null;
+  /** Materiais mesclados por descrição+unidade, com Σ de quantidade. */
   materials: OrderItemMaterial[];
 }
 
-export interface ChildItemMaterialsResult {
-  items: ChildItemWithMaterials[];
+export interface ChildItemGroupsResult {
+  items: ChildItemGroup[];
+  /** Nº de GRUPOS (linhas) do conjunto filtrado — card e paginação. */
   total: number;
   /** Soma da coluna Qtd. de TODO o conjunto filtrado (card Eventos). */
   qtyTotal: number;

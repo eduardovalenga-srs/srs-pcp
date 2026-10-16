@@ -1004,6 +1004,37 @@ describe("migrations", () => {
 
     await db.query(`delete from public.orders where id = $1`, [orderId]);
   });
+
+  it("033: cria get_child_item_groups (página de grupos) com os 11 filtros", async () => {
+    // Exatamente 1 função — a 033 não redefine nenhuma outra.
+    const { rows: functions } = await db.query<{ count: string }>(
+      `select count(*)::text as count
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_child_item_groups'`,
+    );
+    expect(functions[0]?.count).toBe("1");
+
+    // 13 argumentos = os MESMOS 11 filtros da get_child_items_totals (024)
+    // + paginação (p_offset, p_limit).
+    const { rows: args } = await db.query<{ count: string }>(
+      `select count(*)::text as count
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_child_item_groups'
+          and p.pronargs = 13`,
+    );
+    expect(args[0]?.count).toBe("1");
+
+    // Grant na régua das RPCs de produção: authenticated executa.
+    const sig =
+      "public.get_child_item_groups(text, text, text, text, text, text, uuid[], date, date, uuid, text, integer, integer)";
+    const { rows: grants } = await db.query<{ authenticated: boolean }>(
+      `select has_function_privilege('authenticated', $1, 'EXECUTE') as authenticated`,
+      [sig],
+    );
+    expect(grants[0]?.authenticated).toBe(true);
+  });
 });
 
 describe("RLS", () => {

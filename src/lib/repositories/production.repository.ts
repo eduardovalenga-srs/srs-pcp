@@ -31,6 +31,7 @@ function mapProductionRow(raw: ProductionRowRecord): ProductionRow {
       quantityPlanned: toNumber(cell.quantityPlanned),
       quantityCompleted: toNumber(cell.quantityCompleted),
       notes: cell.notes ?? null,
+      completedAt: cell.completedAt ?? null,
     };
   }
 
@@ -105,6 +106,7 @@ function mapProductionOrderRow(raw: ProductionOrderRowRecord): ProductionOrderRo
       applicable: Number(cell.applicable ?? 0),
       quantityPlanned: toNumber(cell.quantityPlanned),
       quantityCompleted: toNumber(cell.quantityCompleted),
+      completedAt: cell.completedAt ?? null,
     };
   }
 
@@ -190,6 +192,12 @@ export async function getOrderProcessTargets(
   client: SupabaseServer,
   orderId: string,
   processCode: string,
+  /**
+   * 033: escopo explícito de itens (linha agrupada da Fábrica 1) — filtra
+   * as linhas de processo pelos ids informados e ignora a separação
+   * pai/filho da OF. Quando vem nulo, o escopo é a OF inteira.
+   */
+  itemScope: readonly string[] | null = null,
 ): Promise<OrderProcessTarget[]> {
   const { data: process, error: processError } = await client
     .from("processes")
@@ -199,18 +207,23 @@ export async function getOrderProcessTargets(
   assertOk(processError, "Não foi possível carregar o processo");
   if (!process) return [];
 
-  const { data: items, error: itemsError } = await client
-    .from("order_items")
-    .select("id, parent_order_item_id")
-    .eq("order_id", orderId);
-  assertOk(itemsError, "Não foi possível carregar os itens da OF");
+  let itemIds: string[];
+  if (itemScope !== null) {
+    itemIds = [...itemScope];
+  } else {
+    const { data: items, error: itemsError } = await client
+      .from("order_items")
+      .select("id, parent_order_item_id")
+      .eq("order_id", orderId);
+    assertOk(itemsError, "Não foi possível carregar os itens da OF");
 
-  const isChildScope = (F1_PROCESS_CODES as readonly string[]).includes(processCode);
-  const itemIds = (items ?? [])
-    .filter((item) =>
-      isChildScope ? item.parent_order_item_id !== null : item.parent_order_item_id === null,
-    )
-    .map((item) => item.id);
+    const isChildScope = (F1_PROCESS_CODES as readonly string[]).includes(processCode);
+    itemIds = (items ?? [])
+      .filter((item) =>
+        isChildScope ? item.parent_order_item_id !== null : item.parent_order_item_id === null,
+      )
+      .map((item) => item.id);
+  }
   if (itemIds.length === 0) return [];
 
   const { data: rows, error: rowsError } = await client

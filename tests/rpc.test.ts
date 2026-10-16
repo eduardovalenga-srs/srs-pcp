@@ -159,7 +159,7 @@ interface RowResult {
   delivery_date: string;
   op: string | null;
   overdue: boolean;
-  processes: Record<string, { status: string }>;
+  processes: Record<string, { status: string; completedAt: string | null }>;
 }
 
 async function callRows(params: Record<string, unknown> = {}): Promise<RowResult[]> {
@@ -241,6 +241,23 @@ describe("get_production_rows", () => {
     expect(rows).toHaveLength(4);
     expect(Number(rows[0]?.total_count)).toBe(4);
     expect(rows[0]?.processes.LASER?.status).toBeTruthy();
+  });
+
+  it("devolve completedAt da conclusão efetiva na célula (031)", async () => {
+    // ITEM-001: só o LASER concluído tem a data efetiva gravada.
+    await db.query(
+      `update public.production_processes pp set completed_at = timestamptz '2026-10-01 09:30:00+00'
+         from public.processes p, public.order_items oi
+        where p.id = pp.process_id and oi.id = pp.order_item_id
+          and oi.parent_item = 'ITEM-001' and p.code = 'LASER'`,
+    );
+
+    const rows = await callRows({ p_search: "ITEM-001" });
+    const item = rows.find((row) => row.parent_item === "ITEM-001");
+    expect(item?.processes.LASER?.status).toBe("CONCLUIDO");
+    expect(item?.processes.LASER?.completedAt).toBeTruthy();
+    // Processo não concluído não tem data efetiva.
+    expect(item?.processes.SERRA?.completedAt).toBeNull();
   });
 
   it("aplica a regra de atraso (entrega < hoje AND EXP <> CONCLUIDO)", async () => {
@@ -1129,7 +1146,8 @@ describe("apply_of_import (016)", () => {
 
     // Catálogo completo por item (invariante 010): MP obrigatório; SERRA e
     // DB_TB nascem marcados onde há material TB (P-1, P-2, C-1); C-2 sem
-    // material e DB_CH nascem desmarcados — regras 027/028.
+    // material e DB_CH nascem desmarcados — regras 027/028. Cadeia final
+    // (032): o pai nasce com PRÉ-MTG…EXP marcados e o filho com o KIT.
     const { rows: active } = await db.query<{ count: string }>(
       "select count(*)::text as count from public.processes where active",
     );
@@ -1150,8 +1168,8 @@ describe("apply_of_import (016)", () => {
     );
     expect(processes[0]?.total).toBe(String(Number(active[0]?.count) * 4));
     expect(processes[0]?.itens).toBe("4");
-    expect(processes[0]?.nao).toBe("10"); // 4 MP + 3 SERRA + 3 DB_TB
-    expect(processes[0]?.aplica).toBe(String(Number(processes[0]?.total) - 10));
+    expect(processes[0]?.nao).toBe("22"); // 4 MP + 3 SERRA + 3 DB_TB + 2 KIT + 10 (PRÉ-MTG…EXP nos 2 pais)
+    expect(processes[0]?.aplica).toBe(String(Number(processes[0]?.total) - 22));
 
     const { rows: porCodigo } = await db.query<{ key: string; n: string }>(
       `select p.code || ':' || pp.status as key, count(*)::text as n
@@ -1170,6 +1188,14 @@ describe("apply_of_import (016)", () => {
     expect(mapa.get("DB_TB:NAO_APLICAVEL")).toBe("1");
     expect(mapa.get("DB_CH:NAO_APLICAVEL")).toBe("4");
     expect(mapa.get("LASER:NAO_APLICAVEL")).toBe("4");
+    // 032: cadeia final marcada por tipo de item — KIT só no filho,
+    // PRÉ-MTG…EXP só no pai (2 de cada; os itens de fora ficam NAO_APLICAVEL).
+    expect(mapa.get("KIT:NAO_INICIADO")).toBe("2"); // C-1 e C-2
+    expect(mapa.get("KIT:NAO_APLICAVEL")).toBe("2"); // P-1 e P-2
+    for (const code of ["PRE_MTG", "SOLDA", "ACAB", "QUALITY", "EXP"]) {
+      expect(mapa.get(`${code}:NAO_INICIADO`)).toBe("2"); // P-1 e P-2
+      expect(mapa.get(`${code}:NAO_APLICAVEL`)).toBe("2"); // C-1 e C-2
+    }
 
     await asSuperUser(db);
   });
@@ -1486,7 +1512,8 @@ describe("apply_of_import (016)", () => {
     expect(statusOf("A-2", "DB_TB")).toBe("NAO_APLICAVEL");
     expect(statusOf("A-2", "LASER")).toBe("NAO_INICIADO");
 
-    // Filho sem material: só o MP é obrigatório.
+    // Filho sem material: só o MP é obrigatório (e o KIT — 032 — que não
+    // entra nesta consulta).
     expect(statusOf("A-2-F", "MP")).toBe("NAO_INICIADO");
     expect(statusOf("A-2-F", "SERRA")).toBe("NAO_APLICAVEL");
     expect(statusOf("A-2-F", "DB_TB")).toBe("NAO_APLICAVEL");
@@ -1527,6 +1554,8 @@ interface OrderRowResult {
       applicable: number;
       quantityPlanned: number;
       quantityCompleted: number;
+      // 031: só presente na célula concluída (maior conclusão da OF).
+      completedAt: string | null;
     }
   >;
 }
@@ -1656,6 +1685,22 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
     expect(Number(of802?.weight_kg)).toBe(50); // 4 × 12,5 kg
   });
 
+  it("expõe completedAt só na célula concluída da OF (031)", async () => {
+    await db.query(
+      `update public.production_processes pp set completed_at = timestamptz '2026-09-30 12:00:00+00'
+         from public.processes p where p.id = pp.process_id and pp.status = 'CONCLUIDO'`,
+    );
+
+    const [of801] = await callOrderRows({ p_search: "OF-801" });
+    // KIT 1/1 concluído → a data efetiva (maior conclusão) aparece.
+    expect(of801?.processes.KIT?.status).toBe("CONCLUIDO");
+    expect(of801?.processes.KIT?.completedAt).toBeTruthy();
+    // MP 1 de 2 concluído → célula NAO_INICIADO não mostra a data,
+    // mesmo o registro concluído carregando completed_at.
+    expect(of801?.processes.MP?.status).toBe("NAO_INICIADO");
+    expect(of801?.processes.MP?.completedAt).toBeNull();
+  });
+
   it("lê a cadeia F1 nos FILHOS e os demais processos nos RAIZ", async () => {
     const [of801] = await callOrderRows({ p_search: "OF-801" });
 
@@ -1778,5 +1823,151 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
     await db.query(
       `update public.order_items set delivery_date = null where parent_item = 'P-801A'`,
     );
+  });
+});
+
+describe("get_child_item_groups (033) — grupos por código do filho", () => {
+  let ofGrp1: string;
+  let ofGrp2: string;
+  let laserId: string;
+
+  // OF-9001: dois pais com o MESMO filho (grupo de 2), um filho único e um
+  // sem código (agrupa pela descrição). OF-9002: repete o código da outra
+  // OF — grupos nunca podem atravessar pedidos.
+  beforeAll(async () => {
+    await asSuperUser(db);
+    ofGrp1 = await createOrder("OF-9001", "2026-10-20");
+    ofGrp2 = await createOrder("OF-9002", "2026-11-01");
+
+    const paiA = await createRootItem(ofGrp1, "P-901A", "Treliça 901", 3, 10, [
+      { code: "KIT", status: "NAO_INICIADO" },
+    ]);
+    const paiB = await createRootItem(ofGrp1, "P-901B", "Porta 901", 2, 5, [
+      { code: "KIT", status: "NAO_INICIADO" },
+    ]);
+    await createChild(ofGrp1, paiA, "CH-1", "SUPORTE 90", 2, [
+      { code: "LASER", status: "CONCLUIDO" },
+    ]);
+    await createChild(ofGrp1, paiB, "CH-1", "SUPORTE 90", 3, [
+      { code: "LASER", status: "NAO_INICIADO" },
+    ]);
+    await createChild(ofGrp1, paiA, "CH-2", "PARAFUSO M8", 1, [
+      { code: "LASER", status: "NAO_INICIADO" },
+    ]);
+    // Código vazio => a chave do grupo vira a descrição.
+    await createChild(ofGrp1, paiA, "", "SEM CODIGO", 5, []);
+
+    const paiC = await createRootItem(ofGrp2, "P-902A", "Grade 902", 4, 12.5, [
+      { code: "KIT", status: "NAO_INICIADO" },
+    ]);
+    await createChild(ofGrp2, paiC, "CH-1", "SUPORTE 90", 9, [
+      { code: "LASER", status: "NAO_INICIADO" },
+    ]);
+
+    const { rows } = await db.query<{ id: string }>(
+      `select id from public.processes where code = 'LASER'`,
+    );
+    laserId = rows[0]?.id as string;
+  });
+
+  async function callGroups(
+    params: Record<string, unknown> = {},
+  ): Promise<
+    { total: number; groups: { orderId: string; key: string; itemIds: string[] }[] } | undefined
+  > {
+    const defaults: Record<string, unknown> = {
+      p_search: null,
+      p_order_code: null,
+      p_customer: null,
+      p_child_item: null,
+      p_description: null,
+      p_material: null,
+      p_parent_ids: null,
+      p_delivery_from: null,
+      p_delivery_to: null,
+      p_process_id: null,
+      p_process_status: null,
+      p_offset: 0,
+      p_limit: 25,
+      ...params,
+    };
+    const { rows } = await db.query<{
+      data: { total: number; groups: { orderId: string; key: string; itemIds: string[] }[] };
+    }>(
+      `select public.get_child_item_groups(
+         $1, $2, $3, $4, $5, $6, $7::uuid[], $8::date, $9::date, $10::uuid, $11, $12::int, $13::int
+       ) as data`,
+      [
+        defaults.p_search,
+        defaults.p_order_code,
+        defaults.p_customer,
+        defaults.p_child_item,
+        defaults.p_description,
+        defaults.p_material,
+        defaults.p_parent_ids,
+        defaults.p_delivery_from,
+        defaults.p_delivery_to,
+        defaults.p_process_id,
+        defaults.p_process_status,
+        defaults.p_offset,
+        defaults.p_limit,
+      ],
+    );
+    return rows[0]?.data;
+  }
+
+  it("agrupa por código dentro da OF: mesmo filho em dois pais vira 1 grupo", async () => {
+    const data = await callGroups({ p_order_code: "OF-9001" });
+    expect(Number(data?.total)).toBe(3);
+
+    const ch1 = data?.groups.find((group) => group.key === "CH-1");
+    expect(ch1?.orderId).toBe(ofGrp1);
+    expect(ch1?.itemIds).toHaveLength(2); // os dois pais, numa linha só
+    // Ordenação: entrega (todas iguais) => chave asc.
+    expect(data?.groups.map((group) => group.key)).toEqual([
+      "CH-1",
+      "CH-2",
+      "SEM CODIGO",
+    ]);
+  });
+
+  it("código vazio agrupa pela descrição (fallback)", async () => {
+    const data = await callGroups({ p_order_code: "OF-9001" });
+    const semCodigo = data?.groups.find((group) => group.key === "SEM CODIGO");
+    expect(semCodigo?.itemIds).toHaveLength(1);
+  });
+
+  it("nunca atravessa OFs: o mesmo código segue em grupos separados", async () => {
+    const porCodigo = await callGroups({ p_child_item: "CH-1" });
+    expect(Number(porCodigo?.total)).toBe(2); // 1 grupo por OF, nunca um só
+    expect(porCodigo?.groups.map((group) => group.orderId).sort()).toEqual(
+      [ofGrp1, ofGrp2].sort(),
+    );
+
+    const daSegunda = await callGroups({ p_order_code: "OF-9002" });
+    expect(daSegunda?.groups).toHaveLength(1);
+    expect(daSegunda?.groups[0]?.itemIds).toHaveLength(1);
+  });
+
+  it("pagina por grupos mantendo o total do conjunto", async () => {
+    const page = await callGroups({ p_order_code: "OF-9001", p_limit: 1, p_offset: 1 });
+    expect(page?.groups).toHaveLength(1);
+    expect(page?.groups[0]?.key).toBe("CH-2");
+    expect(Number(page?.total)).toBe(3); // total é do conjunto, não da página
+
+    const vazia = await callGroups({ p_order_code: "OF-9001", p_limit: 1, p_offset: 99 });
+    expect(vazia?.groups).toHaveLength(0);
+    expect(Number(vazia?.total)).toBe(3);
+  });
+
+  it("o filtro de processo escolhe os MEMBROS: o grupo volta só com quem casou", async () => {
+    const data = await callGroups({
+      p_order_code: "OF-9001",
+      p_process_id: laserId,
+      p_process_status: "CONCLUIDO",
+    });
+    expect(Number(data?.total)).toBe(1); // só CH-1 tem membro LASER concluído
+    expect(data?.groups[0]?.key).toBe("CH-1");
+    expect(data?.groups[0]?.itemIds).toHaveLength(1); // só o membro concluído
   });
 });

@@ -22,6 +22,43 @@ export function formatDayMonth(value: string | Date | null | undefined): string 
   return format(date, "dd/MM");
 }
 
+/**
+ * Data/hora EFETIVA (timestamptz, ex.: production_processes.completed_at)
+ * no fuso do negócio (dd/MM/aaaa).
+ *
+ * Não usar `toDate()` aqui: ele lê só a parte UTC da string e poderia
+ * exibir outro dia. O Intl recebe o fuso explícito — mesmo resultado no
+ * server e no client (sem divergência de hidratação). String só-com-data
+ * (YYYY-MM-DD) não tem horário a converter e vai pelo parse local.
+ */
+export function formatBusinessDate(value: string | Date | null | undefined): string {
+  return formatBusinessTimestamp(value, "dd/MM/yyyy");
+}
+
+/** Data/hora efetiva no fuso do negócio, só dia e mês (dd/MM). */
+export function formatBusinessDayMonth(value: string | Date | null | undefined): string {
+  return formatBusinessTimestamp(value, "dd/MM");
+}
+
+function formatBusinessTimestamp(
+  value: string | Date | null | undefined,
+  pattern: "dd/MM" | "dd/MM/yyyy",
+): string {
+  if (!value) return "—";
+  if (typeof value === "string" && isValidISODate(value)) {
+    const local = parseISODateToLocal(value);
+    return local ? format(local, pattern) : "—";
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if (!isValid(date)) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: BUSINESS_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+    ...(pattern === "dd/MM/yyyy" ? { year: "numeric" } : {}),
+  }).format(date);
+}
+
 /** Formata data e hora local (dd/MM/yyyy HH:mm). */
 export function formatDateTime(value: string | Date | null | undefined): string {
   if (!value) return "—";

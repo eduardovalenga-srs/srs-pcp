@@ -5,15 +5,16 @@ import { useRouter } from "next/navigation";
 import { History, Loader2, Save, CalendarDays } from "lucide-react";
 import { toast } from "sonner";
 
-import { getItemHistoryAction, updateProcessAction } from "@/lib/actions/production.actions";
+import { getItemHistoryAction, updateProcessAction, updateProcessBatchAction } from "@/lib/actions/production.actions";
 import { updateItemDeliveryDateAction } from "@/lib/actions/orders.actions";
+import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import {
   PROCESS_STATUS_LABELS,
   PROCESS_STATUS_SYMBOLS,
   type ProcessStatus,
 } from "@/lib/constants/production";
 import type { ProcessDefinition, ProductionEvent } from "@/lib/types/production";
-import { formatDate, formatDateTime } from "@/lib/utils/dates";
+import { formatBusinessDate, formatDate, formatDateTime } from "@/lib/utils/dates";
 import { formatQuantity } from "@/lib/utils/formatting";
 import { allowedProcessStatuses } from "@/lib/utils/production";
 import { getProcessWindow } from "@/lib/utils/process-schedule";
@@ -44,6 +45,8 @@ import { ProcessStatusBadge } from "@/components/shared/StatusBadges";
 export interface ProcessSelection {
   productionProcessId: string;
   orderItemId: string;
+  /** 033: pedido da linha — usado pelo lote da célula agrupada. */
+  orderId?: string;
   orderCode: string;
   itemDescription: string;
   processName: string;
@@ -53,6 +56,14 @@ export interface ProcessSelection {
   quantityPlanned: number | null;
   quantityCompleted: number | null;
   notes: string | null;
+  /** 031: data efetiva da conclusão — exibida no MP concluído. */
+  completedAt: string | null;
+  /**
+   * 033: linha AGRUPADA da Fábrica 1 (N > 1) — a folha aplica só a
+   * SITUAÇÃO a todos os itens membros via lote; quantidades,
+   * observações, entrega e histórico seguem por item.
+   */
+  groupItemIds?: string[];
 }
 
 export interface ProductionCapabilities {
@@ -112,6 +123,11 @@ function ProcessForm({
 }) {
   const router = useRouter();
 
+  // 033: linha AGRUPADA (N membros) — só a situação é editável aqui e a
+  // gravação vira lote (situação aplicada a todos os itens do grupo;
+  // quantidades/observações por item seguem na Fábrica 2/detalhe).
+  const isGroup = (selection.groupItemIds?.length ?? 0) > 1;
+
   // Datas prévias deste processo: janela contada de trás para frente da entrega.
   const catalogEntry = processes.find((item) => item.code === selection.processCode);
   const duration = catalogEntry?.durationDays ?? 1;
@@ -149,11 +165,13 @@ function ProcessForm({
   const [saving, setSaving] = useState(false);
 
   const [history, setHistory] = useState<HistoryState>(() =>
-    capabilities.canViewHistory ? { status: "loading" } : { status: "error", message: "" },
+    capabilities.canViewHistory && !isGroup
+      ? { status: "loading" }
+      : { status: "error", message: "" },
   );
 
   useEffect(() => {
-    if (!capabilities.canViewHistory) return;
+    if (!capabilities.canViewHistory || isGroup) return;
     let cancelled = false;
 
     getItemHistoryAction(selection.orderItemId)
@@ -173,7 +191,7 @@ function ProcessForm({
     return () => {
       cancelled = true;
     };
-  }, [selection.orderItemId, capabilities.canViewHistory]);
+  }, [selection.orderItemId, capabilities.canViewHistory, isGroup]);
 
   const readOnly = !capabilities.canUpdateStatus;
   const dirty =
@@ -185,13 +203,21 @@ function ProcessForm({
   const onSave = async () => {
     setSaving(true);
     try {
-      const result = await updateProcessAction({
-        productionProcessId: selection.productionProcessId,
-        status,
-        quantityPlanned,
-        quantityCompleted,
-        notes,
-      });
+      const result =
+        isGroup && selection.orderId
+          ? await updateProcessBatchAction({
+              orderId: selection.orderId,
+              processCode: selection.processCode,
+              status,
+              orderItemIds: selection.groupItemIds,
+            })
+          : await updateProcessAction({
+              productionProcessId: selection.productionProcessId,
+              status,
+              quantityPlanned,
+              quantityCompleted,
+              notes,
+            });
       if (!result.success) {
         toast.error(result.message);
         return;
@@ -230,6 +256,7 @@ function ProcessForm({
         <SheetTitle>{selection.processName}</SheetTitle>
         <SheetDescription>
           {selection.orderCode} — {selection.itemDescription}
+          {isGroup ? ` · ${selection.groupItemIds?.length ?? 0} itens agrupados` : ""}
         </SheetDescription>
       </SheetHeader>
 
@@ -262,10 +289,21 @@ function ProcessForm({
               </span>
             )}
           </p>
+          {selection.processCode === MP_PROCESS_CODE &&
+            status === "CONCLUIDO" &&
+            selection.completedAt ? (
+            <p className="mt-1 text-xs">
+              Recebimento efetivo da MP:{" "}
+              <span className="font-medium tabular-nums">
+                {formatBusinessDate(selection.completedAt)}
+              </span>
+            </p>
+          ) : null}
           {catalogEntry?.location ? (
             <p className="mt-0.5 text-xs text-muted-foreground">Local: {catalogEntry.location}</p>
           ) : null}
-          {capabilities.canEditDelivery ? (
+          {/* Entrega é por item: no grupo (033) ela não é editável aqui. */}
+          {capabilities.canEditDelivery && !isGroup ? (
             <>
               <div className="mt-2 flex items-end gap-2 border-t pt-2">
                 <div className="flex-1 space-y-1">
@@ -335,7 +373,7 @@ function ProcessForm({
                 value={quantityPlanned}
                 onChange={(event) => setQuantityPlanned(event.target.value)}
                 placeholder="0"
-                disabled={!capabilities.canEditQuantities}
+                disabled={!capabilities.canEditQuantities || isGroup}
                 aria-describedby="processo-quantidade-ajuda"
               />
             </div>
@@ -347,14 +385,17 @@ function ProcessForm({
                 value={quantityCompleted}
                 onChange={(event) => setQuantityCompleted(event.target.value)}
                 placeholder="0"
+                disabled={isGroup}
               />
             </div>
           </div>
           <p id="processo-quantidade-ajuda" className="text-xs text-muted-foreground">
             Aceita vírgula decimal.{" "}
-            {!capabilities.canEditQuantities
-              ? "A quantidade planejada só pode ser alterada por perfis com permissão de edição."
-              : ""}
+            {isGroup
+              ? "No grupo, quantidades e observações ficam por item — edite na Fábrica 2 ou no detalhe da OF."
+              : !capabilities.canEditQuantities
+                ? "A quantidade planejada só pode ser alterada por perfis com permissão de edição."
+                : ""}
           </p>
 
           <div className="space-y-1">
@@ -366,6 +407,7 @@ function ProcessForm({
               rows={3}
               maxLength={2000}
               placeholder="Observações do operador, impedimentos, materiais…"
+              disabled={isGroup}
             />
           </div>
         </fieldset>
@@ -394,6 +436,10 @@ function ProcessForm({
 
           {!capabilities.canViewHistory ? (
             <p className="text-sm text-muted-foreground">Seu perfil não visualiza o histórico.</p>
+          ) : isGroup ? (
+            <p className="text-sm text-muted-foreground">
+              No grupo, o histórico fica por item — abra a linha na Fábrica 2 ou no detalhe da OF.
+            </p>
           ) : history.status === "loading" ? (
             <div className="space-y-2">
               <Skeleton className="h-12 w-full" />

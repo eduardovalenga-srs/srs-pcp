@@ -60,8 +60,9 @@ export function isProcessStartOverdue(
  *    já esteja em andamento;
  *  - OP preenchida -> EM_PRODUCAO.
  *
- * Regra 62: processos NÃO são concluídos automaticamente entre si —
- * apenas o status do item é derivado para exibição/KPIs.
+ * Regra 62 (revisada): a marcação em cascata acontece na gravação —
+ * `predecessorsToComplete`/`concludedProcessesToReset` dizem quem muda
+ * junto; aqui apenas o status do item é derivado para exibição/KPIs.
  */
 export function deriveOrderItemStatus(
   processes: readonly ProcessState[],
@@ -129,6 +130,51 @@ export function applicableProcesses<
   return processes
     .filter((process) => process.status !== "NAO_APLICAVEL")
     .sort((left, right) => left.displayOrder - right.displayOrder);
+}
+
+/**
+ * Linha do tempo de um item: processos aplicáveis na mesma ordem do cálculo
+ * de previsão (`computeProcessSchedule`) — `displayOrder` com desempate pelo
+ * código. `NAO_APLICAVEL` fica de fora; a lista original não é mutada.
+ */
+function itemTimeline<
+  T extends { code: string; displayOrder: number; status: ProcessStatus },
+>(processes: readonly T[]): T[] {
+  return processes
+    .filter((process) => process.status !== "NAO_APLICAVEL")
+    .sort(
+      (left, right) =>
+        left.displayOrder - right.displayOrder || left.code.localeCompare(right.code),
+    );
+}
+
+/**
+ * Predecessores a concluir quando `afterCode` vira CONCLUIDO (cascata para
+ * frente): os que vêm antes dele na linha do tempo e estão NAO_INICIADO.
+ * Já concluídos e não aplicáveis não são tocados; alvo fora da linha do
+ * tempo não dispara nada.
+ */
+export function predecessorsToComplete<
+  T extends { code: string; displayOrder: number; status: ProcessStatus },
+>(processes: readonly T[], afterCode: string): T[] {
+  const timeline = itemTimeline(processes);
+  const index = timeline.findIndex((process) => process.code === afterCode);
+  if (index < 0) return [];
+  return timeline.slice(0, index).filter((process) => process.status === "NAO_INICIADO");
+}
+
+/**
+ * Processos a devolver a NAO_INICIADO quando `code` sai de CONCLUIDO
+ * (reinício da linha — regra 62 revisada): todos os concluídos aplicáveis
+ * da linha do tempo, ANTES e DEPOIS do alvo. Alvo fora da linha do tempo
+ * (ex.: recém desmarcado como NAO_APLICAVEL) não dispara nada.
+ */
+export function concludedProcessesToReset<
+  T extends { code: string; displayOrder: number; status: ProcessStatus },
+>(processes: readonly T[], code: string): T[] {
+  const timeline = itemTimeline(processes);
+  if (!timeline.some((process) => process.code === code)) return [];
+  return timeline.filter((process) => process.code !== code && process.status === "CONCLUIDO");
 }
 
 /**

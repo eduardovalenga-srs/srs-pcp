@@ -4,6 +4,7 @@ import {
   allowedProcessStatuses,
   applicableProcesses,
   calculateProgress,
+  concludedProcessesToReset,
   countPendingProcesses,
   deriveOrderItemStatus,
   deriveOrderStatus,
@@ -11,6 +12,7 @@ import {
   fabrica1ProcessColumns,
   isItemOverdue,
   isProcessStartOverdue,
+  predecessorsToComplete,
 } from "@/lib/utils/production";
 import { FABRICA1_EDITABLE_PROCESS_CODES } from "@/lib/constants/processes";
 import { formatDate, formatDateTime } from "@/lib/utils/dates";
@@ -325,5 +327,72 @@ describe("colunas de processos da tabela da Fábrica 1", () => {
     expect(editable.has("KIT")).toBe(true);
     expect(editable.has("SOLDA")).toBe(false);
     expect(editable.has("EXP")).toBe(false);
+  });
+});
+
+describe("cascata da linha do tempo (regra 62 revisada)", () => {
+  const chain: { code: string; displayOrder: number; status: ProcessStatus }[] = [
+    { code: "MP", displayOrder: 5, status: "NAO_INICIADO" },
+    { code: "LASER", displayOrder: 10, status: "NAO_INICIADO" },
+    { code: "DB_CH", displayOrder: 20, status: "CONCLUIDO" },
+    { code: "SERRA", displayOrder: 30, status: "NAO_APLICAVEL" },
+    { code: "KIT", displayOrder: 70, status: "NAO_INICIADO" },
+    { code: "SOLDA", displayOrder: 90, status: "CONCLUIDO" },
+    { code: "QUALITY", displayOrder: 110, status: "NAO_INICIADO" },
+    { code: "EXP", displayOrder: 120, status: "CONCLUIDO" },
+  ];
+
+  it("conclusão puxa só os predecessores NAO_INICIADO, na ordem da linha do tempo", () => {
+    expect(predecessorsToComplete(chain, "KIT").map((process) => process.code)).toEqual([
+      "MP",
+      "LASER",
+    ]);
+    // DB_CH (já concluído) e SERRA (não aplicável) ficam de fora do meio;
+    // KIT entra como restante não iniciado antes de SOLDA.
+    expect(predecessorsToComplete(chain, "SOLDA").map((process) => process.code)).toEqual([
+      "MP",
+      "LASER",
+      "KIT",
+    ]);
+  });
+
+  it("alvo ausente ou fora da linha do tempo não dispara nada", () => {
+    expect(predecessorsToComplete(chain, "PUNC")).toEqual([]);
+    expect(predecessorsToComplete(chain, "SERRA")).toEqual([]);
+    expect(concludedProcessesToReset(chain, "SERRA")).toEqual([]);
+  });
+
+  it("reinício da linha devolve os concluídos antes e depois do alvo", () => {
+    // DB_CH antes e EXP depois (SOLDA é o alvo; QUALITY não aplicável fica).
+    expect(concludedProcessesToReset(chain, "SOLDA").map((process) => process.code)).toEqual([
+      "DB_CH",
+      "EXP",
+    ]);
+    expect(concludedProcessesToReset(chain, "KIT").map((process) => process.code)).toEqual([
+      "DB_CH",
+      "SOLDA",
+      "EXP",
+    ]);
+  });
+
+  it("não há o que concluir/devolver quando a linha já está certa", () => {
+    const done: { code: string; displayOrder: number; status: ProcessStatus }[] = [
+      { code: "MP", displayOrder: 5, status: "CONCLUIDO" },
+      { code: "LASER", displayOrder: 10, status: "NAO_INICIADO" },
+    ];
+    expect(predecessorsToComplete(done, "LASER")).toEqual([]);
+    // o único concluído é o próprio alvo — a linha inteira não muda
+    expect(concludedProcessesToReset(done, "MP")).toEqual([]);
+  });
+
+  it("ordena por displayOrder com desempate pelo código e não muta a lista", () => {
+    const unsorted: { code: string; displayOrder: number; status: ProcessStatus }[] = [
+      { code: "LASER", displayOrder: 10, status: "NAO_INICIADO" },
+      { code: "MP", displayOrder: 5, status: "NAO_INICIADO" },
+    ];
+    expect(predecessorsToComplete(unsorted, "LASER").map((process) => process.code)).toEqual([
+      "MP",
+    ]);
+    expect(unsorted.map((process) => process.code)).toEqual(["LASER", "MP"]);
   });
 });

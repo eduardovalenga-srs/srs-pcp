@@ -10,7 +10,7 @@ import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, type ProcessStatus } from "@/l
 import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { ItemProcess } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
-import { formatDate } from "@/lib/utils/dates";
+import { formatBusinessDate, formatBusinessDayMonth, formatDate } from "@/lib/utils/dates";
 import { computeProcessSchedule, scheduleProcessesForItem } from "@/lib/utils/process-schedule";
 import { ProcessStatusBadge } from "@/components/shared/StatusBadges";
 import { ProcessDetailsSheet, type ProductionCapabilities } from "@/components/producao/ProcessDetailsSheet";
@@ -193,6 +193,15 @@ export function ItemProcesses({
                 {window ? `${formatDate(window.start)} – ${formatDate(window.end)}` : "—"}
               </span>
 
+              {isMp && row.status === "CONCLUIDO" && row.completedAt ? (
+                <span
+                  className="inline-flex items-center gap-1 text-xs tabular-nums text-status-done"
+                  title={`Recebimento efetivo da MP em ${formatBusinessDate(row.completedAt)}`}
+                >
+                  recebida {formatBusinessDayMonth(row.completedAt)}
+                </span>
+              ) : null}
+
               <Button
                 type="button"
                 variant="ghost"
@@ -224,6 +233,9 @@ export function ItemProcesses({
                 quantityPlanned: selection.quantityPlanned,
                 quantityCompleted: selection.quantityCompleted,
                 notes: selection.notes,
+                completedAt:
+                  rows.find((row) => row.id === selection.id)?.completedAt ??
+                  selection.completedAt,
               }
             : null
         }

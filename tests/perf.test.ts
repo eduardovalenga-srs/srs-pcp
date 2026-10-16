@@ -219,4 +219,19 @@ describe(`performance com base grande (${ORDER_COUNT} OFs)`, () => {
     expect(Number(value.rows[0]?.totals.total)).toBeGreaterThan(0);
     expect(ms).toBeLessThan(BUDGET_MS);
   });
+
+  it("get_child_item_groups (Fábrica 1 agrupada, 033) responde dentro do orçamento", async () => {
+    const { value, ms } = await timed(() =>
+      db.query<{ data: { total: number; groups: { itemIds: string[] }[] } }>(
+        `select public.get_child_item_groups() as data`,
+      ),
+    );
+    const data = value.rows[0]?.data;
+    // Grupos nunca ultrapassam o tamanho da página; total é o conjunto.
+    expect(Number(data?.total)).toBeGreaterThan(0);
+    expect(Array.isArray(data?.groups)).toBe(true);
+    expect((data?.groups ?? []).length).toBeLessThanOrEqual(25);
+    expect((data?.groups ?? []).every((group) => group.itemIds.length > 0)).toBe(true);
+    expect(ms).toBeLessThan(BUDGET_MS);
+  });
 });

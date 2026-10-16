@@ -7,8 +7,8 @@ import { coreFeatures, createColumnHelper, flexRender, useTable, type CoreFeatur
 
 import type { ProcessDefinition, ProductionFilters, ProductionRow, ProcessCell } from "@/lib/types/production";
 import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
-import { F1_PROCESS_CODES } from "@/lib/constants/processes";
-import { formatDate, formatDayMonth } from "@/lib/utils/dates";
+import { F1_PROCESS_CODES, MP_PROCESS_CODE } from "@/lib/constants/processes";
+import { formatBusinessDate, formatBusinessDayMonth, formatDate, formatDayMonth } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight, truncate } from "@/lib/utils/formatting";
 import {
   computeProcessSchedule,
@@ -92,7 +92,7 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
   if (!cell) {
     return (
       <span
-        className="inline-flex h-7 w-full items-center justify-center rounded border border-dashed text-muted-foreground"
+        className="inline-flex h-8 w-full items-center justify-center rounded border border-dashed text-muted-foreground"
         title={`${processName}: não aplicável a este item`}
         aria-label={`${processName}: não aplicável a este item`}
       >
@@ -111,6 +111,11 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
   // Início vencido (anterior à data de referência) → fonte vermelha;
   // processo CONCLUIDO nunca fica vermelho (regra em utils/production).
   const plannedDayPast = isProcessStartOverdue(plan?.start ?? null, cell.status, today);
+  // 031: MP concluído — a data efetiva do recebimento, exibida ACIMA da prevista.
+  const receivedDay =
+    context.processCode === MP_PROCESS_CODE && cell.status === "CONCLUIDO" && cell.completedAt
+      ? formatBusinessDayMonth(cell.completedAt)
+      : null;
 
   return (
     <button
@@ -132,17 +137,20 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
         })
       }
       className={cn(
-        "inline-flex h-7 w-full flex-col items-center justify-center gap-0.5 rounded border px-1 text-[10px] font-semibold leading-none transition-colors",
+        "inline-flex h-8 w-full flex-col items-center justify-center rounded border px-1 text-[10px] font-semibold leading-none transition-colors",
+        // 3 linhas (símbolo + recebida + prevista) cabem no h-8 sem folga.
+        receivedDay && plannedDay ? "gap-0" : "gap-0.5",
         "hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70",
         statusClass(cell.status),
       )}
-      title={`${processName} — ${context.itemDescription}: ${label}${quantity ? ` (${quantity})` : ""}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}`}
-      aria-label={`${processName} de ${context.itemDescription}: ${label}${quantity ? `, produzido ${quantity}` : ""}${plan ? `, previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}`}
+      title={`${processName} — ${context.itemDescription}: ${label}${quantity ? ` (${quantity})` : ""}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`}
+      aria-label={`${processName} de ${context.itemDescription}: ${label}${quantity ? `, produzido ${quantity}` : ""}${plan ? `, previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? `, recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`}
     >
       <span className="inline-flex items-center gap-1">
         <span aria-hidden>{PROCESS_STATUS_SYMBOLS[cell.status]}</span>
         {quantity ? <span className="tabular-nums">{quantity}</span> : null}
       </span>
+      {receivedDay ? <span className="tabular-nums text-[10px]">{receivedDay}</span> : null}
       {plannedDay ? (
         <span className={cn("tabular-nums text-[10px]", plannedDayPast && "text-status-late")}>
           {plannedDay}

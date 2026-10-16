@@ -9,6 +9,8 @@ export interface ProcessCell {
   quantityPlanned: number | null;
   quantityCompleted: number | null;
   notes: string | null;
+  /** 031: data/hora efetiva da conclusão (production_processes.completed_at). */
+  completedAt: string | null;
 }
 
 /**
@@ -26,6 +28,8 @@ export interface OrderProcessCell {
   applicable: number;
   quantityPlanned: number | null;
   quantityCompleted: number | null;
+  /** 031: maior data/hora efetiva entre os itens concluídos (031). */
+  completedAt: string | null;
 }
 
 /** Linha da tela de gestão de entregas — UMA por pedido (OF/OS) (025). */

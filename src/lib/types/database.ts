@@ -181,6 +181,8 @@ export type ProductionRowRecord = {
       quantityPlanned: number | string | null;
       quantityCompleted: number | string | null;
       notes: string | null;
+      /** 031: data efetiva da conclusão (exibida no MP). */
+      completedAt: string | null;
     }
   >;
 };
@@ -212,6 +214,8 @@ export type ProductionOrderRowRecord = {
       applicable: number | string;
       quantityPlanned: number | string | null;
       quantityCompleted: number | string | null;
+      /** 031: maior completed_at concluído da OF (só célula CONCLUIDO). */
+      completedAt: string | null;
     }
   >;
 };
@@ -578,6 +582,25 @@ export type Database = {
           p_delivery_to?: string | null;
           p_process_id?: string | null;
           p_process_status?: string | null;
+        };
+        Returns: Json;
+      };
+      get_child_item_groups: {
+        // página de GRUPOS por código de filho + nº de grupos (033)
+        Args: {
+          p_search?: string | null;
+          p_order_code?: string | null;
+          p_customer?: string | null;
+          p_child_item?: string | null;
+          p_description?: string | null;
+          p_material?: string | null;
+          p_parent_ids?: string[] | null;
+          p_delivery_from?: string | null;
+          p_delivery_to?: string | null;
+          p_process_id?: string | null;
+          p_process_status?: string | null;
+          p_offset?: number;
+          p_limit?: number;
         };
         Returns: Json;
       };

@@ -44,7 +44,7 @@ export function ChildItemsPagination({ filters, total }: ChildItemsPaginationPro
     >
       <p className="text-sm text-muted-foreground" aria-live="polite">
         Exibindo <span className="font-medium text-foreground">{from}–{to}</span> de{" "}
-        <span className="font-medium text-foreground">{total}</span> itens filhos
+        <span className="font-medium text-foreground">{total}</span> linhas agrupadas
       </p>
 
       <div className="flex flex-wrap items-center gap-3">

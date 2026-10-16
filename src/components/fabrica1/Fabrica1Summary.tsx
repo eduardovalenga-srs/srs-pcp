@@ -3,7 +3,7 @@ import { Inbox } from "lucide-react";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 
 interface Fabrica1SummaryProps {
-  /** Nº de itens filhos do conjunto filtrado — principal número do card. */
+  /** Nº de LINHAS (grupos por código de filho) do conjunto filtrado. */
   total: number;
   /** Soma da coluna "Qtd." do conjunto filtrado inteiro (todas as páginas). */
   qtyTotal: number;

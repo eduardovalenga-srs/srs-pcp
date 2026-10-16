@@ -99,7 +99,7 @@ export async function getOrderDetails(client: SupabaseServer, orderId: string): 
        order_items (
          id, order_id, parent_order_item_id, family, parent_item, description, quantity, unit_weight_kg, total_weight_kg, delivery_date, status, op,
          production_processes (
-           id, process_id, status, quantity_planned, quantity_completed, notes,
+           id, process_id, status, quantity_planned, quantity_completed, notes, completed_at,
            processes ( id, code, name, display_order )
          ),
          order_item_materials ( id, description, quantity, unit, notes )
@@ -132,6 +132,7 @@ export async function getOrderDetails(client: SupabaseServer, orderId: string): 
       quantity_planned: number | string | null;
       quantity_completed: number | string | null;
       notes: string | null;
+      completed_at: string | null;
       processes: { id: string; code: string; name: string; display_order: number };
     }[];
     order_item_materials: {
@@ -182,6 +183,7 @@ export async function getOrderDetails(client: SupabaseServer, orderId: string): 
           quantityPlanned: toNumber(process.quantity_planned),
           quantityCompleted: toNumber(process.quantity_completed),
           notes: process.notes,
+          completedAt: process.completed_at ?? null,
         }))
         .sort((a, b) => a.displayOrder - b.displayOrder),
       materials: (item.order_item_materials ?? []).map((material) => ({

@@ -17,8 +17,13 @@ import {
   updateProductionProcess,
   type OrderProcessTarget,
 } from "@/lib/repositories/production.repository";
-import { getItemAggregate, refreshOrderStatuses } from "@/lib/repositories/order-items.repository";
-import { allowedProcessStatuses, deriveOrderItemStatus } from "@/lib/utils/production";
+import { getItemAggregate, getItemProcessChain, refreshOrderStatuses } from "@/lib/repositories/order-items.repository";
+import {
+  allowedProcessStatuses,
+  concludedProcessesToReset,
+  deriveOrderItemStatus,
+  predecessorsToComplete,
+} from "@/lib/utils/production";
 import { todayISODate } from "@/lib/utils/dates";
 import { processUpdateSchema, type ProcessUpdateInput } from "@/lib/validators/production.schema";
 import { firstZodMessage } from "@/lib/validators/common";
@@ -80,11 +85,80 @@ export interface UpdateProcessResult {
   message: string;
 }
 
+/** Direção da cascata da linha do tempo de um item. */
+type CascadeDirection = "forward" | "backward";
+
+/**
+ * Cascata da linha do tempo de UM item (regra 62 revisada):
+ *
+ *  - forward (o processo virou CONCLUIDO): os predecessores não iniciados
+ *    da cadeia também viram CONCLUIDO;
+ *  - backward (o processo saiu de CONCLUIDO para NAO_INICIADO): a linha
+ *    reinicia — todos os concluídos aplicáveis, ANTES e DEPOIS do alvo,
+ *    voltam a NAO_INICIADO.
+ *
+ * `NAO_APLICAVEL` fica fora da linha do tempo e nunca é tocado; quantidades
+ * e observações de cada processo são preservadas. Cada processo ajustado
+ * gera seu production_event com nota explicando a automação.
+ * Devolve quantos processos a cascata ajustou.
+ */
+async function cascadeProcessStatus(
+  client: SupabaseServer,
+  sessionUser: SessionUser,
+  orderItemId: string,
+  processCode: string,
+  direction: CascadeDirection,
+): Promise<number> {
+  const chain = await getItemProcessChain(client, orderItemId);
+  const targets =
+    direction === "forward"
+      ? predecessorsToComplete(chain, processCode)
+      : concludedProcessesToReset(chain, processCode);
+  if (targets.length === 0) return 0;
+
+  const newStatus: ProcessStatus = direction === "forward" ? "CONCLUIDO" : "NAO_INICIADO";
+  const note =
+    direction === "forward"
+      ? `Concluído automaticamente ao concluir ${processCode}`
+      : `Devolvido a não iniciado ao desmarcar ${processCode}`;
+
+  for (const target of targets) {
+    await updateProductionProcess(client, target.id, {
+      status: newStatus,
+      quantityPlanned: target.quantityPlanned,
+      quantityCompleted: target.quantityCompleted,
+      notes: target.notes,
+    });
+    await insertProductionEvent(client, {
+      productionProcessId: target.id,
+      userId: sessionUser.id,
+      eventType: "STATUS_CHANGE",
+      oldStatus: target.status,
+      newStatus,
+      oldQuantity: target.quantityCompleted,
+      newQuantity: target.quantityCompleted,
+      notes: note,
+    });
+  }
+
+  return targets.length;
+}
+
+/** Sufixo da mensagem quando a cascata ajustou processos ("" se nada mudou). */
+function cascadeSuffix(count: number, direction: CascadeDirection): string {
+  if (count === 0) return "";
+  return direction === "forward"
+    ? ` · +${count} concluído${count === 1 ? "" : "s"} automaticamente`
+    : ` · ${count} processo${count === 1 ? "" : "s"} devolvido${count === 1 ? "" : "s"}`;
+}
+
 /**
  * Atualização rápida de um processo (célula da tabela).
  *
  * Regras:
- *  - o avanço de status é sempre explícito (nunca automático);
+ *  - o avanço de status é explícito e a conclusão arrasta os predecessores
+ *    da linha do tempo (cascata — regra 62 revisada);
+ *  - devolver o processo a "não iniciado" devolve os sucessores concluídos;
  *  - toda alteração gera um production_event;
  *  - o status agregado do item é derivado dos processos.
  */
@@ -143,6 +217,27 @@ export async function updateProcess(
     notes: parsed.data.notes,
   });
 
+  // Cascata da linha do tempo (regra 62 revisada) — ANTES da derivação,
+  // que lê o estado final dos processos do item.
+  let cascadeCount = 0;
+  let cascadeDirection: CascadeDirection | null = null;
+  if (changes.includes("status")) {
+    if (next === "CONCLUIDO") {
+      cascadeDirection = "forward";
+    } else if (current.status === "CONCLUIDO" && next === "NAO_INICIADO") {
+      cascadeDirection = "backward";
+    }
+    if (cascadeDirection) {
+      cascadeCount = await cascadeProcessStatus(
+        client,
+        sessionUser,
+        current.orderItemId,
+        current.process.code,
+        cascadeDirection,
+      );
+    }
+  }
+
   const aggregate = await getItemAggregate(client, current.orderItemId);
   if (aggregate) {
     // Status agregado derivado dos processos + OP (013). A RPC também
@@ -157,10 +252,11 @@ export async function updateProcess(
   }
 
   const statusChanged = current.status !== next;
+  const suffix = cascadeDirection ? cascadeSuffix(cascadeCount, cascadeDirection) : "";
   return {
     changed: true,
     message: statusChanged
-      ? `${current.process.name}: ${current.item.description} → ${next.replace("_", " ").toLowerCase()}`
+      ? `${current.process.name}: ${current.item.description} → ${next.replace("_", " ").toLowerCase()}${suffix}`
       : `${current.process.name} atualizado.`,
   };
 }
@@ -182,17 +278,28 @@ export interface UpdateProcessBatchResult {
  * Regras:
  *  - o escopo espelha a coluna exibida: cadeia F1 (LASER…FICEP) grava nos
  *    itens FILHOS; MP e os demais (KIT, PRÉ-MTG…EXP) grava nos RAIZ;
+ *  - `orderItemIds` (033) restringe o escopo a itens explícitos — é o que
+ *    a célula AGRUPADA da Fábrica 1 usa (linhas repetidas do mesmo
+ *    componente viram um lote naqueles itens, nunca na OF inteira);
  *  - itens NAO_APLICAVEL ficam de fora — o lote nunca recria um processo
  *    desmarcado no pedido (a célula "—" não é editável);
  *  - quantidades e observações por item NÃO mudam (seguem na Fábrica 2 e
  *    no detalhe do pedido) — só a situação;
+ *  - a conclusão/desconclusão dispara a cascata da linha do tempo em cada
+ *    item atingido (regra 62 revisada), antes da re-derivação;
  *  - cada item alterado gera seu production_event e re-deriva o status
  *    agregado do item/OF, igual à edição unitária.
  */
 export async function updateProcessBatch(
   client: SupabaseServer,
   sessionUser: SessionUser,
-  input: { orderId: string; processCode: string; status: ProcessStatus },
+  input: {
+    orderId: string;
+    processCode: string;
+    status: ProcessStatus;
+    /** 033: escopo explícito de itens (linha agrupada da Fábrica 1). */
+    orderItemIds?: readonly string[];
+  },
 ): Promise<UpdateProcessBatchResult> {
   // Processo com situação restrita (MP): mesma regra da edição unitária.
   const allowedStatuses = allowedProcessStatuses(input.processCode);
@@ -201,7 +308,12 @@ export async function updateProcessBatch(
     throw new Error(`Este processo aceita apenas as situações: ${labels}.`);
   }
 
-  const targets = await getOrderProcessTargets(client, input.orderId, input.processCode);
+  const targets = await getOrderProcessTargets(
+    client,
+    input.orderId,
+    input.processCode,
+    input.orderItemIds ?? null,
+  );
   const applicable = targets.filter((target) => target.status !== "NAO_APLICAVEL");
   if (applicable.length === 0) {
     throw new Error("Nenhum item desta OF tem este processo aplicável.");
@@ -232,8 +344,32 @@ export async function updateProcessBatch(
     updated += 1;
   }
 
-  // Status agregado re-derivado apenas dos itens que REALMENTE mudaram.
   const touchedItems = [...new Set(changedTargets.map((target) => target.orderItemId))];
+
+  // Cascata da linha do tempo por item atingido — antes de re-derivar,
+  // porque a derivação lê o estado final dos processos.
+  let cascadeCount = 0;
+  let cascadeDirection: CascadeDirection | null = null;
+  if (changedTargets.length > 0) {
+    if (input.status === "CONCLUIDO") {
+      cascadeDirection = "forward";
+    } else if (input.status === "NAO_INICIADO") {
+      cascadeDirection = "backward";
+    }
+    if (cascadeDirection) {
+      for (const orderItemId of touchedItems) {
+        cascadeCount += await cascadeProcessStatus(
+          client,
+          sessionUser,
+          orderItemId,
+          input.processCode,
+          cascadeDirection,
+        );
+      }
+    }
+  }
+
+  // Status agregado re-derivado apenas dos itens que REALMENTE mudaram.
   for (const orderItemId of touchedItems) {
     const aggregate = await getItemAggregate(client, orderItemId);
     if (!aggregate) continue;
@@ -247,13 +383,14 @@ export async function updateProcessBatch(
   }
 
   const label = PROCESS_STATUS_LABELS[input.status].toLowerCase();
+  const suffix = cascadeDirection ? cascadeSuffix(cascadeCount, cascadeDirection) : "";
   return {
     changed: updated > 0,
     updated,
     total: applicable.length,
     message:
       updated > 0
-        ? `${input.processCode} → ${label} em ${updated} de ${applicable.length} ${applicable.length === 1 ? "item" : "itens"}.`
+        ? `${input.processCode} → ${label} em ${updated} de ${applicable.length} ${applicable.length === 1 ? "item" : "itens"}${suffix}.`
         : "Nenhuma alteração para salvar.",
   };
 }

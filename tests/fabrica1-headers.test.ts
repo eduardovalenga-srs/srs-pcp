@@ -12,7 +12,7 @@ import {
 } from "@/components/fabrica1/Fabrica1ColumnHeaders";
 import { Fabrica1Table } from "@/components/fabrica1/Fabrica1Table";
 import { parseChildItemFilters } from "@/lib/utils/filters";
-import type { ChildItemWithMaterials } from "@/lib/types/order";
+import type { ChildItemGroup } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
 
 vi.mock("server-only", () => ({}));
@@ -144,20 +144,23 @@ const catalog: ProcessDefinition[] = [
   { id: "5", code: "EXP", name: "EXP", displayOrder: 120, active: true, location: null, durationDays: 1 },
 ];
 
-function item(overrides: Partial<ChildItemWithMaterials> = {}): ChildItemWithMaterials {
+function item(overrides: Partial<ChildItemGroup> = {}): ChildItemGroup {
   return {
-    id: "item-1",
+    id: "g:order-1:72ST18-025",
     orderId: "order-1",
     orderCode: "OF-107482",
     customerName: "ACME",
     parentItem: "72ST18",
     parentDescription: "GUARDA CORPO",
+    parentItems: ["72ST18"],
     childItem: "72ST18-025",
     description: "BOTÃO DE PORTA",
+    memberCount: 1,
+    memberIds: ["item-1"],
     quantity: 2,
     unitWeightKg: 1.5,
+    weightTotal: 3,
     deliveryDate: "2026-10-10",
-    status: "PLANEJADO",
     processes: catalog
       .filter((process) => process.code !== "MP")
       .map((process) => ({
@@ -171,6 +174,8 @@ function item(overrides: Partial<ChildItemWithMaterials> = {}): ChildItemWithMat
         notes: null,
       })),
     parentProcessStatuses: { MP: "CONCLUIDO" },
+    parentMpCompletedAt: "2026-10-08T13:00:00+00:00",
+    parentDeliveryDate: "2026-10-15",
     materials: [],
     ...overrides,
   };
@@ -260,5 +265,28 @@ describe("tabela da Fábrica 1", () => {
       }),
     );
     expect(markup).toContain("Nenhum item filho encontrado");
+  });
+
+  it("sinaliza o agrupamento: ×N no filho e +N no item pai", () => {
+    const markup = html(
+      createElement(Fabrica1Table, {
+        items: [
+          item({
+            memberCount: 3,
+            memberIds: ["item-1", "item-2", "item-3"],
+            parentItems: ["72ST18", "72ST19"],
+            quantity: 6,
+            weightTotal: 9,
+          }),
+        ],
+        processes: catalog,
+        filters: noFilters,
+        capabilities,
+        today: "2026-10-09",
+      }),
+    );
+    expect(markup).toContain("×3");
+    expect(markup).toContain("+1");
+    expect(markup).toContain("2 itens pai: 72ST18, 72ST19");
   });
 });

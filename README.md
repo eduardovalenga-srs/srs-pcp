@@ -63,6 +63,9 @@ cp .env.example .env.local
 #    supabase/migrations/028_import_process_material_rules.sql
 #    supabase/migrations/029_process_status_simplification.sql
 #    supabase/migrations/030_ch_prefix_marks_laser.sql
+#    supabase/migrations/031_process_completed_at.sql
+#    supabase/migrations/032_import_process_final_chain.sql
+#    supabase/migrations/033_get_child_item_groups.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -128,7 +131,7 @@ src/
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..030 (ordem obrigatória)
+  migrations/               001..033 (ordem obrigatória)
   seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
@@ -168,7 +171,16 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   ou concluído**. Os demais processos seguem com coluna própria. Como é o **pré-requisito
   para iniciar a produção**, o MP vem sempre marcado no formulário do pedido (caixa
   desabilitada), o `saveOrder` o força como selecionado e o "Nec." da folha do processo
-  fica travado (migração 022).
+  fica travado (migração 022). **Data efetiva de recebimento** (031): com o MP
+  concluído, a célula/linha mostra a data em que a MP foi efetivamente recebida
+  (`production_processes.completed_at`, formatada no fuso do negócio) **em cima da
+  data prevista**, sem os rótulos no visível (o `title`/hover traz os nomes com ano) —
+  em todas as listas (gestão de entregas, Fábrica 2 e Fábrica 1, desktop e mobile);
+  sem recebimento sinalizado, só a prevista. Na Fábrica 1 a janela vem do **item pai**
+  (entrega + status do pai), já que a coluna MP é herdada dele — na linha agrupada
+  (033) os **pais do grupo** agregam: pior situação, menor entrega e a data efetiva
+  mais recente entre os concluídos. No detalhe da OF a
+  linha do processo mantém `recebida dd/MM` ao lado da janela prevista.
 - **Datas previstas**: cada processo tem `location` (ex.: Fábrica 1) e `duration_days`
   (dias úteis — seg a sex, 1 a 365). As janelas de execução são contadas de TRÁS para
   FRENTE da **entrega efetiva do item — a do pedido quando o item não tem própria**
@@ -198,7 +210,15 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
 - **Situações**: `NAO_INICIADO`, `CONCLUIDO`, `NAO_APLICAVEL` (migração 029 —
   `EM_ANDAMENTO` e `BLOQUEADO` foram removidos e os dados gravados viraram
   `NAO_INICIADO`).
-  Nada avança de etapa automaticamente (regra 62). O **MP** aceita apenas
+  Nada avança de etapa por conta própria, **exceto a cascata da linha do
+  tempo** (regra 62 revisada, vale na edição unitária e na em lote): concluir
+  um processo conclui automaticamente os **predecessores não iniciados** do
+  mesmo item, e devolvê-lo a `NAO_INICIADO` **reinicia a linha**: os concluídos
+  antes e depois dele voltam a `NAO_INICIADO` — `NAO_APLICAVEL` nunca é tocado,
+  quantidades/observações são preservadas e cada ajuste gera seu
+  `production_event` com nota de automação
+  (`predecessorsToComplete`/`concludedProcessesToReset` em
+  `lib/utils/production.ts`). O **MP** aceita apenas
   `NAO_INICIADO` e `CONCLUIDO`: a folha de edição lista só essas duas opções e o
   serviço rejeita as demais (`allowedProcessStatuses`, `lib/utils/production.ts`).
 - **Ordem de Produção (OP)** (`order_items.op`, migração 013): código da OP por
@@ -231,7 +251,12 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   (`NAO_INICIADO`, obrigatório) e os demais nascem desmarcados (`NAO_APLICAVEL`,
   migração 027). O prefixo do material decide mais no nascer da linha: **TB** nas duas
   primeiras letras marca **SERRA** e **DB TB**; **CH** marca **DB CH** e **LASER**
-  (migração 030, corrigindo o CH da 028). `parent_order_item_id` liga filho ao pai
+  (migração 030, corrigindo o CH da 028). A **cadeia final** também nasce
+  marcada, por tipo de item (migração 032): no **pai**, `PRE_MTG`, `SOLDA`,
+  `ACAB`, `QUALITY` e `EXP` (o kit montado acontece nele); no **filho**, o
+  `KIT` (encerra a cadeia da Fábrica 1) — os dois entram assim na previsão de
+  datas, enquanto `LASER`/`PUNC`/`METALEIRA`/`FICEP` seguem manuais.
+  `parent_order_item_id` liga filho ao pai
   (migração 016; toda linha com `ps_Tipo` = X é descartada — o material direto vem
   de linha sem filhos e sem X).
   Nunca grava sem prévia e confirmação; cada OF já existente exige uma decisão —
@@ -255,23 +280,42 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   de produção. Sempre gravadas em lote pela RPC `replace_item_materials` (troca a lista
   do item em uma transação, máx. 50), por ADMIN/GESTOR, no formulário do pedido ou na
   tela de detalhes.
-- **Fábrica 1** (`/fabrica-1`): lista de **todos os itens filhos** das OFs com suas
-  **matérias-primas e quantidades** — visão de insumos/compras. Colunas, nesta ordem:
-  OF (link para `/pedidos/[id]`), **item pai** (badge + descrição na própria coluna),
-  filho (badge + descrição), **matérias-primas** ("descrição — qtd UN"; **filho sem
-  material aparece sinalizado** — "Nenhum material cadastrado"), quantidade, **peso
-  unitário**, **peso total** (qtd × peso unit. — coluna derivada `total_weight_kg`,
-  migração 023; sem peso unitário não mostra total), entrega e **processos**
+- **Fábrica 1** (`/fabrica-1`): lista de **itens filhos agrupados por código dentro da
+  mesma OF** (033) com suas **matérias-primas e quantidades somadas** — visão de
+  insumos/compras: o mesmo componente repetido entre os pais da OF vira **UMA linha**
+  (Σ de quantidade, peso total Σ, entrega = menor dos membros; peso unitário só quando
+  todos os membros coincidem, senão "—"). O filho exibe **×N** (itens agrupados) e o
+  item pai **+N** (outros pais do grupo, com a lista no hover). Colunas, nesta ordem:
+  OF (link para `/pedidos/[id]`), **item pai** (badge + descrição + "+N"), filho
+  (badge + descrição + "×N"), **matérias-primas** mescladas por descrição + unidade com
+  Σ de quantidade ("descrição — qtd UN"; **grupo sem material aparece sinalizado** —
+  "Nenhum material cadastrado"), quantidade (Σ), **peso unitário**, **peso total**
+  (Σ qtd × peso unit. — coluna derivada `total_weight_kg`, migração 023; sem peso em
+  nenhum membro não mostra total), entrega (menor dos membros) e **processos**
   (`fabrica1ItemProcesses`: **MP primeiro**, depois os aplicáveis em ordem fabril **até
   o KIT — o que vem depois dele fica oculto** (pré-montagem, solda, acabamento, qualidade
-  e expedição); cada processo exibe símbolo + código + situação, nunca só cor). Acima da
-  lista, o **card "Eventos"** no mesmo modelo da gestão (Registros, Qtd. total e Peso
-  total do **conjunto filtrado inteiro**, somados pela RPC `get_child_items_totals` —
-  migração 024, uma única consulta agregada no banco).
+  e expedição); cada processo exibe símbolo + código + **situação agregada do grupo** —
+  `CONCLUIDO` só quando todos os membros aplicáveis concluíram, `—` (não aplicável) só
+  quando nenhum se aplica, e no meio `NAO_INICIADO` com Σconcluído/Σplanejado dos
+  aplicáveis; nunca só cor). A **MP herdada agrega os pais do grupo** (pior situação,
+  menor entrega, data efetiva mais recente entre os concluídos). Acima da
+  lista, o **card "Eventos"** no mesmo modelo da gestão (Registros = nº de linhas
+  agrupadas, Qtd. total e Peso total do **conjunto filtrado inteiro**, somados pela RPC
+  `get_child_items_totals` — migração 024, inalterada).
+  A página vem da RPC **`get_child_item_groups`** (migração 033): aplica os **mesmos 11
+  filtros** da `get_child_items_totals` (clonados da 024), agrupa por **(OF, código do
+  filho)** — descrição quando o código vem vazio —, devolve os ids dos membros e pagina
+  por menor entrega → chave. Grupos **nunca atravessam OFs**; os membros de uma página
+  são buscados em seguida e montados no servidor (`lib/utils/child-item-groups.ts`).
+  Clicar numa célula de grupo com N membros abre a folha em modo lote: **só a situação
+  é aplicada a todos os itens do grupo** (ação `updateProcessBatchAction` com escopo
+  `orderItemIds` — uma situação por item, evento e cascata 62 por item, `NAO_APLICAVEL`
+  intocado; quantidades, observações, entrega e histórico ficam por item na Fábrica 2 e
+  no detalhe da OF). Grupo de 1 membro edita exatamente como antes.
   Filtros na URL: busca (descrição/código do filho), OF/OS e material (com
-  `order_item_materials!inner` — o filtro limita os itens aos que têm o material
-  casado e a célula mostra só os materiais correspondentes).
-  Ordenação fixa entrega → item pai → descrição → id (determinística para a paginação);
+  `order_item_materials!inner` — o filtro escolhe quais LINHAS são membros e a célula
+  mostra só os materiais correspondentes).
+  Ordenação fixa menor entrega → chave (determinística para a paginação);
   no rodapé, **"Por página"** (50 padrão; opções 25/50/100/200) — trocar o tamanho ou o
   filtro preserva o restante da URL e volta para a página 1. Menu visível para **todos os
   perfis** (`menu.fabrica1`), página protegida por
