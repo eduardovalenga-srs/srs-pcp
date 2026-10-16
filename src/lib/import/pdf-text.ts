@@ -46,7 +46,11 @@ export async function extractPdfText(buffer: ArrayBuffer): Promise<PdfPageText[]
   let doc: Awaited<typeof task.promise>;
   try {
     doc = await task.promise;
-  } catch {
+  } catch (error) {
+    // Causa raiz no log da Vercel (runtime, ESM, canvas, arquivo corrompido...);
+    // o pdf.js silencia o próprio logger com `verbosity: 0`, então sem este
+    // console.error a causa real nunca alcança o log. Mensagem amigável intacta.
+    console.error("[pdf-text] extractPdfText: falha ao carregar o PDF", error);
     throw new Error(
       "O arquivo enviado não é um PDF legível. Baixe o PDF da A1 Engenharia e tente novamente.",
     );
