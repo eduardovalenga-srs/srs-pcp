@@ -1,18 +1,39 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import { requireCapability } from "@/lib/auth/guards";
 import { can } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { replaceItemMaterials } from "@/lib/repositories/materials.repository";
 import { updateOrderDeliveryDate } from "@/lib/repositories/orders.repository";
-import { updateItemDeliveryDate } from "@/lib/repositories/order-items.repository";
+import {
+  updateItemDeliveryDate,
+  updateItemsSeq,
+  updateOrderItemsSeq,
+} from "@/lib/repositories/order-items.repository";
 import { getOrder, removeOrder, saveOrder } from "@/lib/services/orders.service";
 import { firstZodMessage, nullableDate } from "@/lib/validators/common";
 import { materialsSchema } from "@/lib/validators/material.schema";
 import { isValidISODate } from "@/lib/utils/dates";
 import { errorMessage } from "@/lib/utils/supabase-result";
+
+/**
+ * Sequência de fabricação (036): inteiro >= 1; null limpa a sequência
+ * (a linha volta para o bloco sem número, no fim da ordenação).
+ */
+const nullableSeq = z
+  .number()
+  .int("Use um número inteiro para a sequência.")
+  .min(1, "A sequência começa em 1.")
+  .nullable();
+
+/** Escopo de itens do lote (mesmo teto de 500 da edição em lote de processos). */
+const seqItemIdsSchema = z
+  .array(z.string().trim().min(1))
+  .min(1, "Informe ao menos um item.")
+  .max(500, "Máximo de 500 itens por gravação.");
 
 export interface OrderActionResult {
   success: boolean;
@@ -202,5 +223,78 @@ export async function updateOrderDeliveryDateAction(
   } catch (error) {
     console.error("[updateOrderDeliveryDateAction]", error);
     return { success: false, message: errorMessage(error), deliveryDate: null };
+  }
+}
+
+/** Paths afetados por qualquer gravação de sequência (036). */
+function revalidateSeqPaths(): void {
+  revalidatePath("/gestao-entregas");
+  revalidatePath("/fabrica-2");
+  revalidatePath("/fabrica-1");
+  revalidatePath("/dashboard");
+}
+
+/**
+ * Grava a sequência de fabricação (036) num lote de itens — a célula
+ * "Seq." da Fábrica 2 (1 item) e da Fábrica 1 (todos os membros do
+ * grupo agrupado). Número >= 1; null limpa a sequência. O refresh da
+ * página reordena as linhas pela nova prioridade (seq nulls last).
+ */
+export async function updateItemsSeqAction(
+  itemIds: unknown,
+  seq: unknown,
+): Promise<{ success: boolean; message: string; seq: number | null }> {
+  try {
+    await requireCapability("orders.edit");
+
+    const ids = seqItemIdsSchema.safeParse(itemIds);
+    if (!ids.success) {
+      return { success: false, message: firstZodMessage(ids.error), seq: null };
+    }
+    const parsed = nullableSeq.safeParse(seq);
+    if (!parsed.success) {
+      return { success: false, message: firstZodMessage(parsed.error), seq: null };
+    }
+
+    const client = await createClient();
+    await updateItemsSeq(client, ids.data, parsed.data);
+
+    revalidateSeqPaths();
+    return { success: true, message: "Sequência atualizada.", seq: parsed.data };
+  } catch (error) {
+    console.error("[updateItemsSeqAction]", error);
+    return { success: false, message: errorMessage(error), seq: null };
+  }
+}
+
+/**
+ * Idem, aplicada a TODOS os itens de uma OF — a célula "Seq." da
+ * Gestão de OF (nível pedido): o número do planejamento propaga para
+ * pais e filhos e pode ser refinado item a item nas Fábricas.
+ */
+export async function updateOrderItemsSeqAction(
+  orderId: unknown,
+  seq: unknown,
+): Promise<{ success: boolean; message: string; seq: number | null }> {
+  try {
+    await requireCapability("orders.edit");
+
+    const parsedId = z.string().trim().min(1).safeParse(orderId);
+    if (!parsedId.success) {
+      return { success: false, message: "Pedido inválido.", seq: null };
+    }
+    const parsed = nullableSeq.safeParse(seq);
+    if (!parsed.success) {
+      return { success: false, message: firstZodMessage(parsed.error), seq: null };
+    }
+
+    const client = await createClient();
+    await updateOrderItemsSeq(client, parsedId.data, parsed.data);
+
+    revalidateSeqPaths();
+    return { success: true, message: "Sequência da OF atualizada.", seq: parsed.data };
+  } catch (error) {
+    console.error("[updateOrderItemsSeqAction]", error);
+    return { success: false, message: errorMessage(error), seq: null };
   }
 }

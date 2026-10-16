@@ -58,6 +58,8 @@ export default async function Fabrica2Page({ searchParams }: PageProps<"/fabrica
     canEditQuantities: can(sessionUser.role, "production.edit"),
     canViewHistory: can(sessionUser.role, "production.view_history"),
     canEditDelivery: can(sessionUser.role, "orders.edit"),
+    // 036: sequência de fabricação — mesmo corte da edição de itens.
+    canEditSeq: can(sessionUser.role, "orders.edit"),
   };
 
   return (

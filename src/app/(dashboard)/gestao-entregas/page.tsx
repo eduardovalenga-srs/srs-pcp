@@ -57,6 +57,8 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
   const capabilities = {
     canUpdateStatus: can(sessionUser.role, "production.update_status"),
     canEditDelivery: can(sessionUser.role, "orders.edit"),
+    // 036: sequência de fabricação da OF — mesmo corte da edição de itens.
+    canEditSeq: can(sessionUser.role, "orders.edit"),
   };
 
   return (

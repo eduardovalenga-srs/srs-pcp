@@ -52,6 +52,8 @@ function mapProductionRow(raw: ProductionRowRecord): ProductionRow {
     itemStatus: raw.item_status,
     op: raw.op ?? null,
     overdue: raw.overdue,
+    // 036: sequência de fabricação do item (null = sem número).
+    seq: toNumber(raw.seq),
     processes,
   };
 }
@@ -130,6 +132,8 @@ function mapProductionOrderRow(raw: ProductionOrderRowRecord): ProductionOrderRo
     quantity: toNumber(raw.quantity) ?? 0,
     weightTotal: toNumber(raw.weight_kg),
     overdue: raw.overdue,
+    // 036: menor seq entre os itens raiz da OF (edição no nível OF propaga).
+    seq: toNumber(raw.seq),
     processes,
   };
 }

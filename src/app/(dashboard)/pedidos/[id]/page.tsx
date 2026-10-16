@@ -66,6 +66,8 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
     canEditQuantities: can(sessionUser.role, "production.edit"),
     canViewHistory: can(sessionUser.role, "production.view_history"),
     canEditDelivery: canEdit,
+    // 036: sequência de fabricação — mesmo corte da edição de itens.
+    canEditSeq: canEdit,
   };
 
   let order: Awaited<ReturnType<typeof getOrder>>;

@@ -20,6 +20,8 @@ import { fabrica1ItemProcesses, fabrica1ProcessColumns, isProcessStartOverdue } 
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { SeqCell } from "@/components/shared/SeqCell";
+import { updateItemsSeqAction } from "@/lib/actions/orders.actions";
 import {
   ProcessDetailsSheet,
   type ProcessSelection,
@@ -357,6 +359,23 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
 
   const columns = useMemo(() => {
     const orderColumns = [
+      // 036: prioridade do planejamento — primeiro campo da linha. A
+      // edição em lote aplica o número a TODOS os membros do grupo.
+      helper.accessor("seq", {
+        id: "seq",
+        header: () => <Fabrica1ColumnHeader label="Seq." fullLabel="Sequência de fabricação" />,
+        cell: (info) => {
+          const row = info.row.original;
+          return (
+            <SeqCell
+              value={info.getValue()}
+              canEdit={capabilities.canEditSeq}
+              label={`${row.orderCode} — ${row.description}`}
+              onCommit={(seq) => updateItemsSeqAction(row.memberIds, seq)}
+            />
+          );
+        },
+      }),
       helper.accessor((row) => row, {
         id: "order",
         header: () => (
@@ -569,7 +588,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         columns: helper.columns(processGroupColumns),
       }),
     ]);
-  }, [filters, processColumns, capabilities.canUpdateStatus, scheduleByItem, parentMpPlanByItem, today]);
+  }, [filters, processColumns, capabilities.canUpdateStatus, capabilities.canEditSeq, scheduleByItem, parentMpPlanByItem, today]);
 
   const table = useTable({
     features: coreFeatures,
@@ -703,6 +722,17 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
             ) : null}
 
             <dl className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <div>
+                <dt className="inline">Seq.: </dt>
+                <dd className="inline">
+                  <SeqCell
+                    value={item.seq}
+                    canEdit={capabilities.canEditSeq}
+                    label={`${item.orderCode} — ${item.description}`}
+                    onCommit={(seq) => updateItemsSeqAction(item.memberIds, seq)}
+                  />
+                </dd>
+              </div>
               <div>
                 <dt className="inline">Qtd.: </dt>
                 <dd className="inline tabular-nums text-foreground">{formatQuantity(item.quantity)}</dd>

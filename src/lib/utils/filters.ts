@@ -10,6 +10,9 @@ export type SearchParamsRecord = Record<string, string | string[] | undefined>;
 
 /** Chaves de ordenação aceitas pela RPC get_production_rows (whitelist do banco). */
 export const PRODUCTION_SORT_KEYS = [
+  // 036: sequência de fabricação — é o DEFAULT das telas (seq nulls
+  // last, depois a ordenação atual); as linhas sem número ficam no fim.
+  "seq",
   "delivery_date",
   "order_code",
   "order_type",
@@ -27,6 +30,13 @@ export const PRODUCTION_SORT_KEYS = [
   "weight_total",
 ] as const;
 export type ProductionSortKey = (typeof PRODUCTION_SORT_KEYS)[number];
+
+/**
+ * Ordenação padrão das telas de produção (F2 e Gestão de OF): a ordem
+ * do planejamento (seq nulls last, entrega como desempate). Sem
+ * sequência nenhuma, tudo cai no desempate = comportamento de antes.
+ */
+export const DEFAULT_PRODUCTION_SORT: ProductionSortKey = "seq";
 
 /** Extrai o primeiro valor de um parâmetro de busca. */
 export function firstValue(value: string | string[] | undefined): string {
@@ -157,7 +167,8 @@ export function parseProductionFilters(params: SearchParamsRecord): ProductionFi
   const deliveryTo = dateParam(params, "entregaate");
 
   const sortRaw = firstValue(params.ordem).toLowerCase();
-  const sort = isSortableColumn(sortRaw) || isValidProcessSort(sortRaw) ? sortRaw : "delivery_date";
+  const sort =
+    isSortableColumn(sortRaw) || isValidProcessSort(sortRaw) ? sortRaw : DEFAULT_PRODUCTION_SORT;
 
   const sortDirRaw = firstValue(params.direcao).toLowerCase();
   const sortDir: "asc" | "desc" = sortDirRaw === "desc" ? "desc" : "asc";
@@ -287,8 +298,11 @@ export function productionQueryString(filters: ProductionFilters, overrides: Par
     qtdmax: next.qtyMax ?? undefined,
     pesomin: next.weightMin ?? undefined,
     pesomax: next.weightMax ?? undefined,
-    ordem: next.sort === "delivery_date" ? undefined : next.sort,
-    direcao: next.sort === "delivery_date" || next.sortDir === "asc" ? undefined : next.sortDir,
+    ordem: next.sort === DEFAULT_PRODUCTION_SORT ? undefined : next.sort,
+    // `direcao` cai só quando é "asc" (o default da tela) — no default,
+    // "desc" sobrevive sozinho na URL (`?direcao=desc` reparseia na chave
+    // padrão), senão a coluna ativa nunca conseguiria inverter a ordem.
+    direcao: next.sortDir === "asc" ? undefined : next.sortDir,
     pagina: next.page === 1 ? undefined : next.page,
     porpagina: next.pageSize === PRODUCTION_PAGE_SIZE ? undefined : next.pageSize,
   });

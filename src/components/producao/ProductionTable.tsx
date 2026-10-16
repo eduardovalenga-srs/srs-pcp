@@ -25,6 +25,8 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { SeqCell } from "@/components/shared/SeqCell";
+import { updateOrderItemsSeqAction } from "@/lib/actions/orders.actions";
 import {
   ColumnHeader,
   DeliveryFilter,
@@ -43,6 +45,8 @@ export interface ProductionCapabilities {
   canUpdateStatus: boolean;
   /** Edição da entrega do PEDIDO (orders.edit) — recalcula as previsões. */
   canEditDelivery: boolean;
+  /** 036: edição da sequência de fabricação da OF (orders.edit — ADMIN/GESTOR). */
+  canEditSeq: boolean;
 }
 
 interface ProductionTableProps {
@@ -215,6 +219,30 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
 
   const columns = useMemo(() => {
     const orderColumns = [
+      // 036: prioridade do planejamento no nível OF — o número gravado
+      // aqui é aplicado a TODOS os itens da OF (pais e filhos).
+      helper.accessor("seq", {
+        id: "seq",
+        header: () => (
+          <ColumnHeader
+            label="Seq."
+            fullLabel="Sequência de fabricação"
+            columnId="seq"
+            filters={filters}
+          />
+        ),
+        cell: (info) => {
+          const row = info.row.original;
+          return (
+            <SeqCell
+              value={info.getValue()}
+              canEdit={capabilities.canEditSeq}
+              label={`${row.orderType} ${row.orderCode}`}
+              onCommit={(seq) => updateOrderItemsSeqAction(row.orderId, seq)}
+            />
+          );
+        },
+      }),
       helper.accessor((row) => row, {
         id: "order",
         header: () => (
@@ -328,7 +356,7 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
         columns: helper.columns(processColumns),
       }),
     ]);
-  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, scheduleByOrder, today]);
+  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, capabilities.canEditSeq, scheduleByOrder, today]);
 
   const table = useTable({
     features: coreFeatures,
@@ -457,6 +485,17 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
                   ) : (
                     <span className="tabular-nums">{formatDate(row.deliveryDate)}</span>
                   )}
+                </dd>
+              </div>
+              <div>
+                <dt className="inline">Seq.: </dt>
+                <dd className="inline">
+                  <SeqCell
+                    value={row.seq}
+                    canEdit={capabilities.canEditSeq}
+                    label={`${row.orderType} ${row.orderCode}`}
+                    onCommit={(seq) => updateOrderItemsSeqAction(row.orderId, seq)}
+                  />
                 </dd>
               </div>
               <div>

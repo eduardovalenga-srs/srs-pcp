@@ -165,6 +165,12 @@ export function buildChildItemGroup(input: {
       ? memberWeights.reduce<number>((total, value) => total + (value ?? 0), 0)
       : null,
     deliveryDate: minDate(members.map((member) => member.deliveryDate)),
+    // 036: seq do grupo = MENOR seq dos membros (null = nenhuma linha
+    // numerada) — mesma semântica de min() do banco na RPC 036.
+    seq: members.reduce<number | null>(
+      (min, member) => (member.seq !== null && (min === null || member.seq < min) ? member.seq : min),
+      null,
+    ),
     processes: aggregateGroupProcesses(members),
     parentProcessStatuses,
     // Recebimento mais recente entre os pais — a célula só exibe quando o

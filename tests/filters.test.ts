@@ -35,7 +35,7 @@ describe("parseProductionFilters", () => {
       qtyMax: null,
       weightMin: null,
       weightMax: null,
-      sort: "delivery_date",
+      sort: "seq",
       sortDir: "asc",
       page: 1,
       pageSize: PRODUCTION_PAGE_SIZE,
@@ -54,7 +54,7 @@ describe("parseProductionFilters", () => {
     expect(filters.orderStatus).toBe("ALL");
     expect(filters.processStatus).toBe("ALL");
     expect(filters.delivery).toBe("ALL");
-    expect(filters.sort).toBe("delivery_date");
+    expect(filters.sort).toBe("seq");
     expect(filters.page).toBe(1);
     expect(filters.pageSize).toBeLessThanOrEqual(200);
   });

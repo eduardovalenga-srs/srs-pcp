@@ -69,6 +69,7 @@ cp .env.example .env.local
 #    supabase/migrations/033_get_child_item_groups.sql
 #    supabase/migrations/034_import_material_prefix_serra.sql
 #    supabase/migrations/035_card_family_totals.sql
+#    supabase/migrations/036_order_item_seq.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -135,7 +136,7 @@ src/
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..035 (ordem obrigatória)
+  migrations/               001..036 (ordem obrigatória)
   seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
@@ -308,7 +309,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   (Σ de quantidade, peso total Σ, entrega = menor dos membros; peso unitário só quando
   todos os membros coincidem, senão "—"). O filho exibe **×N** (itens agrupados) e o
   item pai **+N** (outros pais do grupo, com a lista no hover). Colunas, nesta ordem:
-  OF (link para `/pedidos/[id]`), **item pai** (badge + descrição + "+N"), filho
+  **Seq.** (036 — prioridade do planejamento: o MENOR seq dos membros; editar aplica o
+  número a TODO o grupo, `orders.edit`), OF (link para `/pedidos/[id]`), **item pai** (badge + descrição + "+N"), filho
   (badge + descrição + "×N"), **matérias-primas** mescladas por descrição + unidade com
   Σ de quantidade ("descrição — qtd UN"; **grupo sem material aparece sinalizado** —
   "Nenhum material cadastrado"), quantidade (Σ), **peso unitário**, **peso total**
@@ -341,7 +343,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   Filtros na URL: busca (descrição/código do filho), OF/OS e material (com
   `order_item_materials!inner` — o filtro escolhe quais LINHAS são membros e a célula
   mostra só os materiais correspondentes).
-  Ordenação fixa menor entrega → chave (determinística para a paginação);
+  Ordenação fixa **seq do grupo (menor dos membros, sem número por último) → menor
+  entrega → chave** (determinística para a paginação);
   no rodapé, **"Por página"** (50 padrão; opções 25/50/100/200) — trocar o tamanho ou o
   filtro preserva o restante da URL e volta para a página 1. Menu visível para **todos os
   perfis** (`menu.fabrica1`), página protegida por
@@ -352,7 +355,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   podem vazar para cá (nem o contrário). Continua lendo pelos mesmos services/filtros/
   actions compartilhados (`parseProductionFilters`, actions de produção/pedidos/processos
   — que revalidam `/fabrica-2` junto de `/gestao-entregas`), então dados e regras de
-  negócio seguem iguais; só a camada de tela é duplicada. **Desde a consolidação da
+  negócio seguem iguais; só a camada de tela é duplicada. A primeira coluna é a
+  **Seq.** (036): o número da prioridade do item, editável inline (Enter/blur grava,
+  Esc cancela, `orders.edit`) e ordenável pelo cabeçalho — é também o **default da
+  tela** (seq sem número por último, entrega como desempate). **Desde a consolidação da
   gestão por OF (025) as duas telas divergem de propósito na granularidade da leitura**:
   gestão usa a RPC nova `get_production_rows_by_order` (uma linha por pedido) e a
   Fábrica 2 mantém `get_production_rows` (via `getProductionPage`, uma linha por item pai) — as duas RPCs
@@ -376,7 +382,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   mostra "Será salvo como: OF 1234" antes de salvar. Assim o código manual casa com a
   chave de dedupe da reimportação.
 - **Gestão de OF = uma linha por OF** (025): a tela consolidada mostra um registro
-  por pedido — colunas **OF/OS** (link para `/pedidos/[id]`), **Cliente**, **Qtd. total**
+  por pedido — colunas **Seq.** (036 — a prioridade do planejamento no nível OF: MENOR seq
+  entre os itens raiz; editar aplica o número a TODOS os itens da OF, pais e filhos,
+  capacidade `orders.edit`), **OF/OS** (link para `/pedidos/[id]`), **Cliente**, **Qtd. total**
   (soma das quantidades dos itens raiz), **Peso total** (soma do `total_weight_kg`) e
   **Entrega** (= data do PEDIDO, `orders.delivery_date`), seguidas de **TODAS as etapas
   do catálogo** em colunas próprias (a cadeia da Fábrica 1 — LASER…FICEP — que antes
@@ -395,6 +403,17 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   entrega do pedido vencida e algum item raiz ainda sem EXPEDIÇÃO concluída. Tudo vem da
   RPC nova `get_production_rows_by_order` (migração 025 — mesmos filtros, paginação e
   permissões da antiga); a Fábrica 2 continua na `get_production_rows`, por item.
+- **Sequência de fabricação** (`order_items.seq`, migração 036): número inteiro ≥ 1 (check
+  no banco; `null` = sem número) que define a prioridade da fabricação. As três telas de
+  produção ganham a coluna **Seq.** com edição INLINE (input numérico — Enter ou sair da
+  célula grava, Esc cancela; capacidade `orders.edit`, ADMIN/GESTOR) e o **seq vira o
+  default de ordenação** da Fábrica 2 e da Gestão: numeração ascendente com as linhas sem
+  número por último, entrega como desempate (sem número em lugar nenhum = ordem de
+  sempre). Semântica por tela: **F2** = seq do próprio item; **F1** = menor seq do grupo
+  (gravado em todos os membros); **Gestão** = menor seq da OF (gravado em TODOS os itens,
+  pais e filhos — pode ser refinado item a item nas Fábricas). A importação não toca na
+  coluna: a re-importação preserva o número e itens novos nascem sem seq. Redefinidas
+  pela 036: `get_child_item_groups`, `get_production_rows` e `get_production_rows_by_order`.
 - **Filtros da gestão de OF**: busca, situação, processos, colunas (contém/faixas —
   as faixas de quantidade e peso valem sobre os **totais da OF**), janelas de entrega
   (Atrasado, Hoje, Próx. 7/30 dias) e **período De → Até pela data de entrega do PEDIDO**

@@ -154,6 +154,59 @@ export async function updateItemDeliveryDate(
   }
 }
 
+/**
+ * Grava a sequência de fabricação (036) num lote de itens — o alvo da
+ * edição inline da coluna "Seq." (linha da Fábrica 2 = 1 item; linha
+ * agrupada da Fábrica 1 = todos os membros do grupo).
+ *
+ * O `.select()` existe para detectar 0 linhas afetadas: o action já
+ * filtra por capacidade, aqui fica a defesa de "item não existe / RLS
+ * negou". O teto de 500 espelha o lote da gestão de processos (não
+ * estoura o `in (...)` do PostgREST).
+ */
+export async function updateItemsSeq(
+  client: SupabaseServer,
+  itemIds: readonly string[],
+  seq: number | null,
+): Promise<void> {
+  if (itemIds.length === 0 || itemIds.length > 500) {
+    throw new Error("Escopo de itens inválido para a sequência.");
+  }
+
+  const { data, error } = await client
+    .from("order_items")
+    .update({ seq })
+    .in("id", itemIds)
+    .select("id");
+
+  assertOk(error, "Não foi possível atualizar a sequência");
+  if (!data || data.length === 0) {
+    throw new Error("Itens não encontrados ou sem permissão para editar a sequência.");
+  }
+}
+
+/**
+ * Grava a sequência de fabricação (036) em TODOS os itens de uma OF —
+ * edição no nível Gestão de OF: o número digitado na linha do pedido
+ * propaga para pais e filhos (a Fábrica 1/2 pode refinar por item).
+ */
+export async function updateOrderItemsSeq(
+  client: SupabaseServer,
+  orderId: string,
+  seq: number | null,
+): Promise<void> {
+  const { data, error } = await client
+    .from("order_items")
+    .update({ seq })
+    .eq("order_id", orderId)
+    .select("id");
+
+  assertOk(error, "Não foi possível atualizar a sequência da OF");
+  if (!data || data.length === 0) {
+    throw new Error("OF sem itens ou sem permissão para editar a sequência.");
+  }
+}
+
 /** Status do item, OP e status de cada processo (para derivar o status agregado). */
 export async function getItemAggregate(
   client: SupabaseServer,
@@ -365,7 +418,7 @@ export async function listChildItemGroups(
   // Computed Relationship (função SQL). O embed `parent:order_items!…` voltava
   // `[]` e apagava o badge "Item pai", a descrição do pai e a coluna MP. Os
   // pais são buscados numa consulta própria, logo após os membros.
-  const pageColumns = `id, parent_order_item_id, parent_item, description, quantity, unit_weight_kg, delivery_date,
+  const pageColumns = `id, parent_order_item_id, parent_item, description, quantity, unit_weight_kg, delivery_date, seq,
    orders!inner ( id, code, customer_name, delivery_date ),
    production_processes ( id, status, quantity_planned, quantity_completed, notes, processes ( code, name, display_order ) ),
    ${materialEmbed} ( id, description, quantity, unit, notes )`;
@@ -424,6 +477,8 @@ export async function listChildItemGroups(
     quantity: number | string;
     unit_weight_kg: number | string | null;
     delivery_date: string | null;
+    /** 036: sequência de fabricação do filho (o grupo fica com o menor). */
+    seq: number | string | null;
     orders: { id: string; code: string; customer_name: string | null; delivery_date: string | null };
     parent_order_item_id: string | null;
     production_processes: {
@@ -489,6 +544,7 @@ export async function listChildItemGroups(
       quantity: toNumber(row.quantity) ?? 0,
       unitWeightKg: toNumber(row.unit_weight_kg),
       deliveryDate: row.delivery_date ?? row.orders.delivery_date,
+      seq: toNumber(row.seq),
       processes: (row.production_processes ?? [])
         .map(
           (process): ChildItemProcess => ({

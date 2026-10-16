@@ -20,6 +20,8 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { SeqCell } from "@/components/shared/SeqCell";
+import { updateItemsSeqAction } from "@/lib/actions/orders.actions";
 import {
   Fabrica2ColumnHeader,
   Fabrica2DeliveryFilter,
@@ -200,6 +202,29 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
 
   const columns = useMemo(() => {
     const orderColumns = [
+      // 036: prioridade do planejamento — primeiro campo da linha.
+      helper.accessor("seq", {
+        id: "seq",
+        header: () => (
+          <Fabrica2ColumnHeader
+            label="Seq."
+            fullLabel="Sequência de fabricação"
+            columnId="seq"
+            filters={filters}
+          />
+        ),
+        cell: (info) => {
+          const row = info.row.original;
+          return (
+            <SeqCell
+              value={info.getValue()}
+              canEdit={capabilities.canEditSeq}
+              label={`${row.orderCode} — ${row.description}`}
+              onCommit={(seq) => updateItemsSeqAction([row.orderItemId], seq)}
+            />
+          );
+        },
+      }),
       helper.accessor((row) => row, {
         id: "order",
         header: () => (
@@ -366,7 +391,7 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
         columns: helper.columns(processColumns),
       }),
     ]);
-  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, scheduleByItem, today]);
+  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, capabilities.canEditSeq, scheduleByItem, today]);
 
   const table = useTable({
     features: coreFeatures,
@@ -506,6 +531,17 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
               <div>
                 <dt className="inline">Item pai: </dt>
                 <dd className="inline text-foreground">{row.parentItem || "—"}</dd>
+              </div>
+              <div>
+                <dt className="inline">Seq.: </dt>
+                <dd className="inline">
+                  <SeqCell
+                    value={row.seq}
+                    canEdit={capabilities.canEditSeq}
+                    label={`${row.orderCode} — ${row.description}`}
+                    onCommit={(seq) => updateItemsSeqAction([row.orderItemId], seq)}
+                  />
+                </dd>
               </div>
               <div>
                 <dt className="inline">Qtd.: </dt>

@@ -1133,6 +1133,113 @@ describe("migrations", () => {
 
     await db.query(`delete from public.orders where code = 'OF-035'`);
   });
+
+  it("036: seq de fabricação na coluna e nas três RPCs (F1 grupos, F2 itens, Gestão OF)", async () => {
+    await asSuperUser(db);
+
+    // Coluna nova + check (>= 1 ou null).
+    const { rows: columns } = await db.query<{ data_type: string; is_nullable: string }>(
+      `select data_type, is_nullable from information_schema.columns
+        where table_schema = 'public' and table_name = 'order_items' and column_name = 'seq'`,
+    );
+    expect(columns).toHaveLength(1);
+    expect(columns[0]?.data_type).toBe("integer");
+    expect(columns[0]?.is_nullable).toBe("YES");
+
+    // DROP + recriação das duas RPCs de produção: 1 função cada, mesmas
+    // assinaturas (21 e 18 params) e grants refeitos.
+    const { rows: fns } = await db.query<{
+      rows_21: string;
+      by_order_18: string;
+      groups_1: string;
+      grants: boolean;
+    }>(
+      `select (select count(*)
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows'
+                  and p.pronargs = 21)::text as rows_21,
+              (select count(*)
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows_by_order'
+                  and p.pronargs = 18)::text as by_order_18,
+              (select count(*)
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_child_item_groups'
+                  and p.pronargs = 13)::text as groups_1,
+              has_function_privilege('authenticated',
+                'public.get_production_rows_by_order(text, text, text, text, text, date, text, text, integer, integer, text, text, numeric, numeric, numeric, numeric, date, date)',
+                'EXECUTE') as grants`,
+    );
+    expect(fns[0]?.rows_21).toBe("1");
+    expect(fns[0]?.by_order_18).toBe("1");
+    expect(fns[0]?.groups_1).toBe("1");
+    expect(fns[0]?.grants).toBe(true);
+
+    // OF-036 com dois pais (seq 2 e 1) e um sem número; um filho por pai.
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type, customer_name, delivery_date)
+       values ('OF-036', 'OF', 'Cliente 036', current_date + 9) returning id`,
+    );
+    const orderId = orderRows[0]?.id as string;
+    const { rows: roots } = await db.query<{ id: string; parent_item: string }>(
+      `insert into public.order_items (order_id, parent_item, description, quantity, seq)
+       values ($1, 'P-036-1', 'Guarda-corpo', 2, 2),
+              ($1, 'P-036-2', 'Estante bazar', 10, 1),
+              ($1, 'P-036-3', 'Mesa grande', 1, null)
+       returning id, parent_item`,
+      [orderId],
+    );
+    const p1Id = roots.find((root) => root.parent_item === "P-036-1")?.id as string;
+    await db.query(
+      `insert into public.order_items (order_id, parent_order_item_id, parent_item, description, quantity, seq)
+       values ($1, $2, 'F-036-B', 'Tampo B', 3, 1),
+              ($1, $2, 'F-036-A', 'Tampo A', 4, 3)`,
+      [orderId, p1Id],
+    );
+
+    // F2 (itens raiz): coluna seq exposta e ordenação 'seq' com nulls last
+    // — 1, 2 e por último o item sem número.
+    const { rows: prodRows } = await db.query<{ parent_item: string; seq: number | null }>(
+      `select parent_item, seq from public.get_production_rows(p_search => 'OF-036', p_sort => 'seq')`,
+    );
+    expect(prodRows.map((row) => row.parent_item)).toEqual(["P-036-2", "P-036-1", "P-036-3"]);
+    expect(prodRows.map((row) => row.seq)).toEqual([1, 2, null]);
+
+    // F1 (grupos de filhos): ordena pelo MENOR seq do grupo.
+    const { rows: groupsPage } = await db.query<{
+      page: { total: number; groups: { key: string; itemIds: string[] }[] };
+    }>(`select public.get_child_item_groups(p_order_code => 'OF-036') as page`);
+    expect((groupsPage[0]?.page.groups ?? []).map((group) => group.key)).toEqual(["F-036-B", "F-036-A"]);
+
+    // Gestão por OF: seq = MENOR entre os itens raiz; segunda OF com seq 5
+    // vem depois; OF sem itens numerados vem por último.
+    const { rows: orderBRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type, delivery_date)
+       values ('OF-036-B', 'OF', current_date + 12) returning id`,
+    );
+    await db.query(
+      `insert into public.order_items (order_id, parent_item, description, quantity, seq)
+       values ($1, 'P-036-B-1', 'Rack servidor', 1, 5)`,
+      [orderBRows[0]?.id],
+    );
+    const { rows: byOrder } = await db.query<{ order_code: string; seq: number | null }>(
+      `select order_code, seq
+         from public.get_production_rows_by_order(p_search => 'OF-036', p_sort => 'seq')`,
+    );
+    expect(byOrder.map((row) => row.order_code)).toEqual(["OF-036", "OF-036-B"]);
+    expect(byOrder.map((row) => row.seq)).toEqual([1, 5]);
+
+    // Check: seq 0 (ou negativo) é rejeitado pelo banco.
+    await expect(
+      db.query(
+        `insert into public.order_items (order_id, description, quantity, seq)
+         values ($1, 'Item inválido', 1, 0)`,
+        [orderId],
+      ),
+    ).rejects.toThrow(/order_items_seq_check/);
+
+    await db.query(`delete from public.orders where code in ('OF-036', 'OF-036-B')`);
+  });
 });
 
 describe("RLS", () => {

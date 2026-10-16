@@ -144,6 +144,8 @@ export interface ChildItemGroupMember {
   unitWeightKg: number | null;
   /** Entrega do próprio filho, com fallback para a data da OF. */
   deliveryDate: string | null;
+  /** 036: sequência de fabricação do próprio item filho. */
+  seq: number | null;
   processes: ChildItemProcess[];
   materials: OrderItemMaterial[];
 }
@@ -179,6 +181,12 @@ export interface ChildItemGroup {
   weightTotal: number | null;
   /** Menor entrega dos membros (com fallback para a data da OF). */
   deliveryDate: string | null;
+  /**
+   * 036: sequência de fabricação do grupo = MENOR seq dos membros
+   * (null = nenhuma linha do grupo numerada). Editar na tela aplica o
+   * número a todos os membros.
+   */
+  seq: number | null;
   /** Processos agregados por código (situação + Σ das quantidades). */
   processes: ChildItemProcess[];
   /**

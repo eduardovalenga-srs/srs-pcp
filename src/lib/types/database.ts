@@ -59,6 +59,8 @@ export type OrderItemRow = {
   status: OrderStatusValue;
   /** Código da Ordem de Produção vinculada (013) — null = em espera. */
   op: string | null;
+  /** 036: sequência de fabricação (prioridade do planejamento) — null = sem número. */
+  seq: number | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -173,6 +175,8 @@ export type ProductionRowRecord = {
   /** Código da Ordem de Produção (013) — null = em espera. */
   op: string | null;
   overdue: boolean;
+  /** 036: sequência de fabricação do item (null = sem número). */
+  seq: number | string | null;
   processes: Record<
     string,
     {
@@ -207,6 +211,8 @@ export type ProductionOrderRowRecord = {
   /** Soma do peso total (qtd × peso unit.) dos itens raiz da OF. */
   weight_kg: number | string | null;
   overdue: boolean;
+  /** 036: menor seq entre os itens raiz da OF (null = nenhuma linha numerada). */
+  seq: number | string | null;
   /** Célula agregada por processo (sem id/notes: é lote, não item). */
   processes: Record<
     string,
@@ -293,6 +299,7 @@ export type Database = {
           delivery_date?: string | null;
           status?: OrderStatusValue;
           op?: string | null;
+          seq?: number | null;
           created_by?: string | null;
           updated_by?: string | null;
         };
@@ -308,6 +315,7 @@ export type Database = {
           delivery_date: string | null;
           status: OrderStatusValue;
           op: string | null;
+          seq: number | null;
           updated_by: string | null;
         }>;
         Relationships: [

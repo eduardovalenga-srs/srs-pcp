@@ -58,11 +58,28 @@ describe("cabeçalhos com filtro (desktop)", () => {
         filter: createElement(DeliveryFilter, { filters: noFilters }),
       }),
     );
-    // delivery_date é a ordenação padrão: o rótulo carrega também o sentido atual.
-    expect(markup).toContain('aria-label="Ordenar por Entrega, atualmente crescente"');
+    // seq é a ordenação padrão (036): a Entrega ordena só quando escolhida.
+    expect(markup).toContain('aria-label="Ordenar por Entrega"');
+    expect(markup).not.toContain("atualmente");
+    expect(markup).toContain("ordem=delivery_date");
     expect(markup).toContain('aria-label="Filtrar por entrega"');
     // Sem filtro ligado, o funil não aparece preenchido.
     expect(markup).not.toContain("fill-current");
+  });
+
+  it("coluna Seq. é a ordenação padrão da tela: ativa e sem poluir a URL (036)", () => {
+    const markup = html(
+      createElement(ColumnHeader, {
+        label: "Seq.",
+        fullLabel: "Sequência de fabricação",
+        columnId: "seq",
+        filters: noFilters,
+      }),
+    );
+    expect(markup).toContain('aria-label="Ordenar por Sequência de fabricação, atualmente crescente"');
+    // Clique seguinte = desc: a chave padrão fica implícita na URL e só o
+    // sentido aparece (o parser reaplica o default na chave default).
+    expect(markup).toContain('href="/gestao-entregas?direcao=desc"');
   });
 
   it("sinaliza o funil da Entrega como ativo quando só o período está ligado", () => {
@@ -100,11 +117,12 @@ describe("cabeçalhos com filtro (desktop)", () => {
         label: "Ent.",
         fullLabel: "Entrega",
         columnId: "delivery_date",
-        filters: noFilters,
+        // Coluna escolhida explicitamente (seq é o default da tela — 036):
+        // ativa, o aria carrega também o sentido atual.
+        filters: parseProductionFilters({ ordem: "delivery_date" }),
       }),
     );
     expect(ordenavel).toContain("Ent.");
-    // delivery_date é a ordenação padrão: o aria carrega também o sentido atual.
     expect(ordenavel).toContain('aria-label="Ordenar por Entrega, atualmente crescente"');
     expect(ordenavel).toContain('title="Entrega"');
 

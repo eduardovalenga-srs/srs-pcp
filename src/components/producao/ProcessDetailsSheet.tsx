@@ -72,6 +72,8 @@ export interface ProductionCapabilities {
   canViewHistory: boolean;
   /** Edição manual da data de entrega (orders.edit) — recalcula as previsões. */
   canEditDelivery: boolean;
+  /** 036: edição da sequência de fabricação (orders.edit — ADMIN/GESTOR). */
+  canEditSeq: boolean;
 }
 
 interface ProcessDetailsSheetProps {

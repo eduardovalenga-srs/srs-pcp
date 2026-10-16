@@ -21,6 +21,7 @@ function member(overrides: Partial<ChildItemGroupMember> = {}): ChildItemGroupMe
     quantity: 2,
     unitWeightKg: 1.5,
     deliveryDate: "2026-10-18",
+    seq: null,
     processes: [],
     materials: [],
     ...overrides,
@@ -204,6 +205,28 @@ describe("buildChildItemGroup — linha agrupada da Fábrica 1", () => {
       ],
     });
     expect(group.deliveryDate).toBe("2026-10-18");
+  });
+
+  it("seq do grupo é o MENOR entre os membros; sem nenhum numerado fica null (036)", () => {
+    const numerado = buildChildItemGroup({
+      order,
+      key: "CH-1",
+      childItem: "CH-1",
+      members: [
+        member({ seq: 7 }),
+        member({ id: "m2", seq: 3 }),
+        member({ id: "m3", seq: null }),
+      ],
+    });
+    expect(numerado.seq).toBe(3);
+
+    const semSeq = buildChildItemGroup({
+      order,
+      key: "CH-2",
+      childItem: "CH-2",
+      members: [member({ seq: null }), member({ id: "m2", seq: null })],
+    });
+    expect(semSeq.seq).toBeNull();
   });
 
   it("agrega a coluna MP herdada entre os PAIS distintos", () => {

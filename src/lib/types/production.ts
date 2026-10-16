@@ -47,6 +47,8 @@ export interface ProductionOrderRow {
   weightTotal: number | null;
   /** Entrega do pedido vencida e algum item raiz sem EXPEDIÇÃO concluída. */
   overdue: boolean;
+  /** 036: menor seq entre os itens raiz da OF (null = sem número). */
+  seq: number | null;
   /** Todas as etapas do catálogo, agregadas pela OF (código -> célula). */
   processes: Record<string, OrderProcessCell>;
 }
@@ -69,6 +71,8 @@ export interface ProductionRow {
   /** Código da Ordem de Produção (013) — null = em espera. */
   op: string | null;
   overdue: boolean;
+  /** 036: sequência de fabricação do item (null = sem número). */
+  seq: number | null;
   processes: Record<string, ProcessCell>;
 }
 

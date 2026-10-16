@@ -161,6 +161,7 @@ function item(overrides: Partial<ChildItemGroup> = {}): ChildItemGroup {
     unitWeightKg: 1.5,
     weightTotal: 3,
     deliveryDate: "2026-10-10",
+    seq: null,
     processes: catalog
       .filter((process) => process.code !== "MP")
       .map((process) => ({
@@ -186,6 +187,7 @@ const capabilities = {
   canEditQuantities: true,
   canViewHistory: true,
   canEditDelivery: false,
+  canEditSeq: false,
 };
 
 describe("tabela da Fábrica 1", () => {
@@ -201,7 +203,7 @@ describe("tabela da Fábrica 1", () => {
     );
     expect(markup).toContain("DADOS DOS PEDIDOS");
     expect(markup).toContain("PROCESSOS");
-    for (const label of ["OF/OS", "Cli.", "Item pai", "Filho", "Matérias-primas", "Qtd.", "Peso un.", "Peso total"]) {
+    for (const label of ["Seq.", "OF/OS", "Cli.", "Item pai", "Filho", "Matérias-primas", "Qtd.", "Peso un.", "Peso total"]) {
       expect(markup).toContain(label);
     }
   });
