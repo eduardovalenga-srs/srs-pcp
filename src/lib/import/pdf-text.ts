@@ -26,6 +26,33 @@ export interface PdfPageText {
 }
 
 /**
+ * Em Node o pdf.js roda o "fake worker" na própria thread, mas para isso
+ * ele precisa do `WorkerMessageHandler` do worker. Sem ele, o loader cai
+ * num `import("./pdf.worker.mjs")` dinâmico que NÃO resolve no deploy da
+ * Vercel (o pacote é externo via `serverExternalPackages` e o arquivo do
+ * worker não é servido de lá) — daí o "Setting up fake worker failed".
+ *
+ * Registrando o handler em `globalThis.pdfjsWorker`, o pdf.js usa o
+ * atalho da main thread e nunca tenta importar o arquivo do worker.
+ * Carregamos o worker via `import()` dinâmico de SPECIFIER de pacote
+ * (o Node resolve de forma confiável em runtime, independente de
+ * bundler) — não por caminho relativo "./pdf.worker.mjs", que é o que
+ * quebra no deploy da Vercel.
+ */
+async function ensureMainThreadWorkerHandler(): Promise<void> {
+  const globalScope = globalThis as { pdfjsWorker?: { WorkerMessageHandler?: unknown } };
+  if (globalScope.pdfjsWorker?.WorkerMessageHandler) return;
+
+  // O specifier resolve em runtime (testado), e os tipos vêm de
+  // types/pdfjs-worker.d.ts (o pacote não publica .d.ts do worker).
+  const workerModule = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+
+  if (workerModule.WorkerMessageHandler) {
+    globalScope.pdfjsWorker = { WorkerMessageHandler: workerModule.WorkerMessageHandler };
+  }
+}
+
+/**
  * Carrega o PDF e devolve os itens de texto de todas as páginas com
  * coordenadas. Lança erro amigável quando o arquivo não é um PDF legível.
  *
@@ -33,6 +60,8 @@ export interface PdfPageText {
  * do pdf.js em Node). Números/vetores de página são ignorados.
  */
 export async function extractPdfText(buffer: ArrayBuffer): Promise<PdfPageText[]> {
+  await ensureMainThreadWorkerHandler();
+
   // O destroy correto no pdf.js 6.x é do loadingTask (PDFDocumentProxy
   // não expõe destroy nesta versão).
   const task = getDocument({
@@ -100,7 +129,7 @@ export interface PdfRow {
 const SAME_ROW_Y_TOLERANCE = 2.5;
 
 /**
- * Agrupa os itens por coordenada em linhas de texto, na ordem de leitura
+ * Agrupa os itens por coordenadas em linhas de texto, na ordem de leitura
  * (topo→base, esquerda→direita, página a página). Colunas na mesma linha
  * visual viram uma linha só, unidas por espaço.
  */
