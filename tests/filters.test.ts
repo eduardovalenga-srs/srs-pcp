@@ -31,10 +31,12 @@ describe("parseProductionFilters", () => {
       family: "",
       parentItem: "",
       description: "",
+      op: "",
       qtyMin: null,
       qtyMax: null,
       weightMin: null,
       weightMax: null,
+      seq: null,
       sort: "seq",
       sortDir: "asc",
       page: 1,
@@ -56,7 +58,8 @@ describe("parseProductionFilters", () => {
     expect(filters.delivery).toBe("ALL");
     expect(filters.sort).toBe("seq");
     expect(filters.page).toBe(1);
-    expect(filters.pageSize).toBeLessThanOrEqual(200);
+    // 999999 é cortado no teto de paginação (MAX_PAGE_SIZE).
+    expect(filters.pageSize).toBe(1000);
   });
 
   it("lê o período de entrega e descarta datas inválidas (014)", () => {
@@ -153,6 +156,26 @@ describe("parseProductionFilters", () => {
     expect(roundtrip.qtyMin).toBe(5);
   });
 
+  it("lê a sequência por igualdade (inteiro >= 1) e a coluna OP (038)", () => {
+    expect(parseProductionFilters({ seq: "7" }).seq).toBe(7);
+    // Zero, negativos, fracionários e lixo são descartados (null).
+    expect(parseProductionFilters({ seq: "0" }).seq).toBeNull();
+    expect(parseProductionFilters({ seq: "-3" }).seq).toBeNull();
+    expect(parseProductionFilters({ seq: "3.5" }).seq).toBeNull();
+    expect(parseProductionFilters({ seq: "abc" }).seq).toBeNull();
+
+    expect(parseProductionFilters({ op: " OP-777 " }).op).toBe("OP-777");
+
+    const params = new URLSearchParams(
+      productionQueryString(parseProductionFilters({ seq: "7", op: "OP-777" })),
+    );
+    expect(params.get("seq")).toBe("7");
+    expect(params.get("op")).toBe("OP-777");
+    const roundtrip = parseProductionFilters(Object.fromEntries(params));
+    expect(roundtrip.seq).toBe(7);
+    expect(roundtrip.op).toBe("OP-777");
+  });
+
   it("serializa o período de entrega na query e faz roundtrip (014)", () => {
     const filters = parseProductionFilters({
       entregade: "2026-10-01",
@@ -176,6 +199,10 @@ describe("parseOrderFilters", () => {
     expect(parseOrderFilters({})).toEqual({
       search: "",
       status: "ALL",
+      code: "",
+      customer: "",
+      deliveryFrom: null,
+      deliveryTo: null,
       page: 1,
       pageSize: ORDERS_PAGE_SIZE,
     });
@@ -190,6 +217,33 @@ describe("parseOrderFilters", () => {
     expect(params.get("status")).toBe("CANCELADO");
     expect(params.get("pagina")).toBe("2");
     expect(orderQueryString(parseOrderFilters({}))).toBe("");
+  });
+
+  it("lê os filtros por coluna (OF/OS, Cliente e período de entrega — 038)", () => {
+    const filters = parseOrderFilters({
+      of: " 107482 ",
+      cliente: "ACME",
+      entregade: "2026-10-01",
+      entregaate: "2026-10-15",
+    });
+    expect(filters.code).toBe("107482");
+    expect(filters.customer).toBe("ACME");
+    expect(filters.deliveryFrom).toBe("2026-10-01");
+    expect(filters.deliveryTo).toBe("2026-10-15");
+
+    // Data impossível e lixo caem no padrão (lado aberto).
+    const invalid = parseOrderFilters({ entregade: "2026-02-31", cliente: "x".repeat(200) });
+    expect(invalid.deliveryFrom).toBeNull();
+    expect(invalid.customer).toHaveLength(80);
+
+    // Roundtrip pela query string (mesmos nomes das telas de produção).
+    const params = new URLSearchParams(orderQueryString(filters));
+    expect(params.get("of")).toBe("107482");
+    expect(params.get("cliente")).toBe("ACME");
+    expect(params.get("entregade")).toBe("2026-10-01");
+    expect(params.get("entregaate")).toBe("2026-10-15");
+    const roundtrip = parseOrderFilters(Object.fromEntries(params));
+    expect(roundtrip).toEqual(filters);
   });
 });
 
@@ -207,6 +261,13 @@ describe("parseChildItemFilters", () => {
       deliveryTo: null,
       processCode: "ALL",
       processStatus: "ALL",
+      seq: null,
+      qtyMin: null,
+      qtyMax: null,
+      weightMin: null,
+      weightMax: null,
+      weightUnitMin: null,
+      weightUnitMax: null,
       page: 1,
       pageSize: CHILD_ITEMS_PAGE_SIZE,
     });
@@ -255,8 +316,42 @@ describe("parseChildItemFilters", () => {
   it("descarta página inválida e limita o tamanho da página", () => {
     expect(parseChildItemFilters({ pagina: "-5" }).page).toBe(1);
     expect(parseChildItemFilters({ pagina: "abc" }).page).toBe(1);
-    expect(parseChildItemFilters({ porpagina: "999999" }).pageSize).toBeLessThanOrEqual(200);
+    // 999999 é cortado no teto de paginação (MAX_PAGE_SIZE).
+    expect(parseChildItemFilters({ porpagina: "999999" }).pageSize).toBe(1000);
     expect(parseChildItemFilters({ porpagina: "50" }).pageSize).toBe(50);
+  });
+
+  it("lê o seq por igualdade e as faixas dos agregados do grupo (038)", () => {
+    const filters = parseChildItemFilters({
+      seq: "3",
+      qtdmin: "10",
+      qtdmax: "50",
+      pesomin: "2,5",
+      pesomax: "100",
+      pesounmin: "1",
+      pesounmax: "3.5",
+    });
+    expect(filters.seq).toBe(3);
+    expect(filters.qtyMin).toBe(10);
+    expect(filters.qtyMax).toBe(50);
+    expect(filters.weightMin).toBe(2.5);
+    expect(filters.weightMax).toBe(100);
+    expect(filters.weightUnitMin).toBe(1);
+    expect(filters.weightUnitMax).toBe(3.5);
+
+    // Seq inválido e lixo numérico caem no padrão.
+    const invalid = parseChildItemFilters({ seq: "0", qtdmin: "-1", pesounmax: "3kg" });
+    expect(invalid.seq).toBeNull();
+    expect(invalid.qtyMin).toBeNull();
+    // "3kg" é aceito pelo parser numérico do app (extrai o número).
+    expect(invalid.weightUnitMax).toBe(3);
+
+    const params = new URLSearchParams(childItemQueryString(filters));
+    expect(params.get("seq")).toBe("3");
+    expect(params.get("qtdmin")).toBe("10");
+    expect(params.get("pesounmin")).toBe("1");
+    const roundtrip = parseChildItemFilters(Object.fromEntries(params));
+    expect(roundtrip).toEqual(filters);
   });
 
   it("monta a query string omitindo padrões e faz roundtrip", () => {
@@ -343,6 +438,34 @@ describe("childItemFilterChips", () => {
       "Concluído (qualquer processo)",
     ]);
   });
+
+  it("descreve o seq e as faixas dos agregados do grupo (038)", () => {
+    const filters = parseChildItemFilters({
+      seq: "3",
+      qtdmin: "10",
+      pesomin: "20",
+      pesounmax: "3",
+    });
+    const chips = childItemFilterChips(filters);
+
+    expect(chips.map((chip) => chip.key)).toEqual(["seq", "qty", "weight", "weightUnit"]);
+    expect(chips.map((chip) => chip.label)).toEqual([
+      "Seq.: 3",
+      "Qtd.: ≥ 10",
+      "Peso total: ≥ 20",
+      "Peso un.: ≤ 3",
+    ]);
+
+    // Remover um chip não derruba os demais.
+    const semSeq = { ...filters, ...chips[0].clear };
+    expect(semSeq.seq).toBeNull();
+    expect(semSeq.qtyMin).toBe(10);
+    expect(childItemFilterChips(semSeq).map((chip) => chip.key)).toEqual([
+      "qty",
+      "weight",
+      "weightUnit",
+    ]);
+  });
 });
 
 describe("activeFilterChips", () => {
@@ -421,6 +544,20 @@ describe("activeFilterChips", () => {
     expect(chips).toHaveLength(1);
     expect(chips[0].label).toBe("Qtd.: 4 – 10");
     expect(chips[0].clear).toEqual({ qtyMin: null, qtyMax: null });
+  });
+
+  it("descreve o seq por igualdade e a coluna OP (038)", () => {
+    const filters = parseProductionFilters({ seq: "7", op: "OP-777" });
+    const chips = activeFilterChips(filters);
+
+    expect(chips.map((chip) => chip.key)).toEqual(["op", "seq"]);
+    expect(chips.map((chip) => chip.label)).toEqual(["OP: OP-777", "Seq.: 7"]);
+
+    // Remover um chip não derruba o outro.
+    const semSeq = { ...filters, ...chips[1].clear };
+    expect(semSeq.seq).toBeNull();
+    expect(semSeq.op).toBe("OP-777");
+    expect(activeFilterChips(semSeq).map((chip) => chip.label)).toEqual(["OP: OP-777"]);
   });
 
   it("descreve o período de entrega fechado e sabe removê-lo (014)", () => {

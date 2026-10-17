@@ -53,7 +53,13 @@ export default async function PedidosPage({ searchParams }: PageProps<"/pedidos"
   }
 
   const { orders, total } = data;
-  const hasFilters = filters.search !== "" || filters.status !== "ALL";
+  const hasFilters =
+    filters.search !== "" ||
+    filters.status !== "ALL" ||
+    filters.code !== "" ||
+    filters.customer !== "" ||
+    filters.deliveryFrom !== null ||
+    filters.deliveryTo !== null;
 
   return (
     <>
@@ -86,7 +92,11 @@ export default async function PedidosPage({ searchParams }: PageProps<"/pedidos"
           />
         ) : (
           <>
-            <OrderList orders={orders} canDelete={can(sessionUser.role, "orders.delete")} />
+            <OrderList
+              orders={orders}
+              canDelete={can(sessionUser.role, "orders.delete")}
+              filters={filters}
+            />
             <OrderPagination filters={filters} total={total} />
           </>
         )}

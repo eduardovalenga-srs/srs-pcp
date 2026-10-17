@@ -1,8 +1,6 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, Inbox, Truck } from "lucide-react";
 
-import { FamilyTotalsList } from "@/components/shared/FamilyTotalsList";
-import type { FamilyTotal } from "@/lib/types/production";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { cn } from "@/lib/utils";
 
@@ -13,19 +11,14 @@ interface Fabrica1SummaryProps {
   qtyTotal: number;
   /** Peso total (kg) do conjunto filtrado — Σ (qtd × peso unit.). */
   weightTotal: number;
-  /** 035: quebra por família do MESMO conjunto dos três números acima. */
-  familyTotals: FamilyTotal[];
   /**
    * 037: KPIs globais de item RAIZ (mesmo get_production_stats da Fábrica 2
-   * e da Gestão) para os cards "Atrasados" e "Expedição" — a regra de
-   * atraso e a EXPEDIÇÃO pertencem ao item RAIZ (os filhos, cadeia
-   * LASER…FICEP, não têm expedição própria).
+   * e da Gestão) para os cards "Atrasados" e "KIT" — a regra de atraso e a
+   * EXPEDIÇÃO pertencem ao item RAIZ (os filhos, cadeia LASER…FICEP, não
+   * têm expedição própria).
    */
   delivery: { overdue: number; overdueQty: number; overdueWeight: number };
   expedition?: { count: number; qty: number; weight: number };
-  /** 037: quebra por família dos MESMOS conjuntos dos dois cards novos. */
-  overdueFamilies: FamilyTotal[];
-  expeditionFamilies: FamilyTotal[];
 }
 
 interface Card {
@@ -35,14 +28,12 @@ interface Card {
   tone?: "danger" | "success";
   /** Três números lado a lado (Registros, Qtd. total, Peso total). */
   details: { label: string; value: string }[];
-  /** 037: lista de famílias — nos três cards (ausente = não renderiza). */
-  families?: FamilyTotal[];
 }
 
 /**
- * Resumo da Fábrica 1 — três cards no mesmo modelo da Fábrica 2 (037):
- * "Eventos" com o conjunto FILTRADO (contagem de grupos) e "Atrasados" /
- * "Expedição" com os KPIs globais de item raiz + a lista de famílias.
+ * Resumo da Fábrica 1 — três cards no mesmo modelo da Fábrica 2: "Eventos"
+ * com o conjunto FILTRADO (contagem de grupos) e "Atrasados" / "KIT" com os
+ * KPIs globais de item raiz. Somente os totais, sem quebra por família.
  *
  * Sem clique/filtro: os filtros desta tela são por período De→Até e pela
  * cadeia da Fábrica 1 — não existe atalho OVERDUE/EXP no modelo de
@@ -52,11 +43,8 @@ export function Fabrica1Summary({
   total,
   qtyTotal,
   weightTotal,
-  familyTotals,
   delivery,
   expedition,
-  overdueFamilies,
-  expeditionFamilies,
 }: Fabrica1SummaryProps) {
   const cards: Card[] = [
     {
@@ -68,7 +56,6 @@ export function Fabrica1Summary({
         { label: "Qtd. total", value: formatQuantity(qtyTotal) },
         { label: "Peso total", value: `${formatWeight(weightTotal)} kg` },
       ],
-      families: familyTotals,
     },
     {
       key: "overdue",
@@ -80,11 +67,11 @@ export function Fabrica1Summary({
         { label: "Qtd. total", value: formatQuantity(delivery.overdueQty) },
         { label: "Peso total", value: `${formatWeight(delivery.overdueWeight)} kg` },
       ],
-      families: overdueFamilies,
     },
     {
-      key: "expedition",
-      label: "Expedição",
+      // 037: no modelo da Fábrica 1 o card da EXPEDIÇÃO do item raiz é o KIT.
+      key: "kit",
+      label: "KIT",
       icon: <Truck className="h-4 w-4" aria-hidden />,
       tone: "success",
       details: [
@@ -92,7 +79,6 @@ export function Fabrica1Summary({
         { label: "Qtd. total", value: formatQuantity(expedition?.qty) },
         { label: "Peso total", value: `${formatWeight(expedition?.weight)} kg` },
       ],
-      families: expeditionFamilies,
     },
   ];
 
@@ -128,8 +114,6 @@ export function Fabrica1Summary({
           >
             {title}
             {body}
-            {/* 035/037: lista de famílias do MESMO conjunto dos números. */}
-            {card.families !== undefined && <FamilyTotalsList entries={card.families} />}
           </div>
         );
       })}

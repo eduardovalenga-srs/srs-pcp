@@ -54,7 +54,7 @@ export async function getChildItemsPage(
 
   // Processo fora do catálogo ativo não casa nenhuma linha.
   if (filters.processCode !== "ALL" && processId === null) {
-    return { items: [], total: 0, qtyTotal: 0, weightTotal: 0, familyTotals: [], processes, today };
+    return { items: [], total: 0, qtyTotal: 0, weightTotal: 0, processes, today };
   }
 
   const result = await listChildItemGroups(client, filters, processId);

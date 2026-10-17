@@ -7,7 +7,10 @@ import {
   Fabrica1ChildItemFilter,
   Fabrica1ColumnHeader,
   Fabrica1DeliveryFilter,
+  Fabrica1NumericFilter,
+  Fabrica1ProcessColumnFilter,
   Fabrica1ProcessGroupFilter,
+  Fabrica1SeqFilter,
   Fabrica1TextFilter,
 } from "@/components/fabrica1/Fabrica1ColumnHeaders";
 import { Fabrica1Table } from "@/components/fabrica1/Fabrica1Table";
@@ -114,6 +117,63 @@ describe("cabeçalhos da Fábrica 1 (desktop)", () => {
       }),
     );
     expect(markup).toContain("filtro ativo");
+  });
+
+  it("Seq. — igualdade do menor seq do grupo, com sinalização de ativo (038)", () => {
+    const inativo = html(createElement(Fabrica1SeqFilter, { filters: noFilters }));
+    expect(inativo).toContain('aria-label="Filtrar por sequência de fabricação"');
+    expect(inativo).not.toContain("fill-current");
+
+    const ativo = html(
+      createElement(Fabrica1SeqFilter, { filters: parseChildItemFilters({ seq: "3" }) }),
+    );
+    expect(ativo).toContain("Filtrar por sequência de fabricação — filtro ativo");
+    expect(ativo).toContain("fill-current");
+  });
+
+  it("Qtd. — faixa De/Até sobre os agregados do grupo (038)", () => {
+    const props = {
+      minField: "qtyMin",
+      maxField: "qtyMax",
+      column: "Qtd.",
+      context: "quantidade do grupo",
+    } as const;
+    const inativo = html(createElement(Fabrica1NumericFilter, { ...props, filters: noFilters }));
+    expect(inativo).toContain('aria-label="Filtrar por quantidade do grupo"');
+
+    const ativo = html(
+      createElement(Fabrica1NumericFilter, {
+        ...props,
+        filters: parseChildItemFilters({ qtdmin: "10" }),
+      }),
+    );
+    expect(ativo).toContain("Filtrar por quantidade do grupo — filtro ativo");
+    expect(ativo).toContain("fill-current");
+  });
+
+  it("coluna de processo — situação específica (um filtro de processo por vez, 038)", () => {
+    const inativo = html(
+      createElement(Fabrica1ProcessColumnFilter, { filters: noFilters, code: "LASER" }),
+    );
+    expect(inativo).toContain('aria-label="Filtrar por situação do processo LASER"');
+    expect(inativo).not.toContain("filtro ativo");
+
+    const ativo = html(
+      createElement(Fabrica1ProcessColumnFilter, {
+        filters: parseChildItemFilters({ processo: "LASER", situacao: "CONCLUIDO" }),
+        code: "LASER",
+      }),
+    );
+    expect(ativo).toContain("Filtrar por situação do processo LASER — filtro ativo");
+
+    // Outra coluna com situação ligada NÃO sinaliza ativo nesta coluna.
+    const outraColuna = html(
+      createElement(Fabrica1ProcessColumnFilter, {
+        filters: parseChildItemFilters({ processo: "DB_CH", situacao: "NAO_INICIADO" }),
+        code: "LASER",
+      }),
+    );
+    expect(outraColuna).not.toContain("filtro ativo");
   });
 });
 

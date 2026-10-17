@@ -3,7 +3,6 @@ import { F1_PROCESS_CODES } from "@/lib/constants/processes";
 import type { ProductionOrderRowRecord, ProductionRowRecord, ProcessStatusValue } from "@/lib/types/database";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type {
-  FamilyTotal,
   OrderProcessCell,
   ProductionEvent,
   ProductionFilters,
@@ -21,18 +20,6 @@ function toNumber(value: number | string | null): number | null {
   if (value === null || value === undefined) return null;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-/** 037: quebra por família vinda em jsonb (qty/peso podem chegar como texto). */
-function toFamilyTotals(value: unknown): FamilyTotal[] {
-  if (!Array.isArray(value)) return [];
-  return (
-    value as { family: string | null; qty: number | string; weight: number | string }[]
-  ).map((entry) => ({
-    family: entry.family ?? null,
-    qty: toNumber(entry.qty) ?? 0,
-    weight: toNumber(entry.weight) ?? 0,
-  }));
 }
 
 function mapProductionRow(raw: ProductionRowRecord): ProductionRow {
@@ -99,6 +86,9 @@ export async function getProductionRows(
     p_qty_max: filters.qtyMax,
     p_weight_min: filters.weightMin,
     p_weight_max: filters.weightMax,
+    // 038: seq por igualdade + coluna OP ("contém").
+    p_seq: filters.seq,
+    p_op: filters.op || null,
   });
 
   if (error) throw new Error(`Não foi possível carregar a gestão de OF: ${error.message}`);
@@ -108,17 +98,9 @@ export async function getProductionRows(
   const weightTotal = rawRows.length > 0 ? Number(rawRows[0].weight_total ?? 0) : 0;
   const qtyTotal = rawRows.length > 0 ? Number(rawRows[0].qty_total ?? 0) : 0;
   const rows = rawRows.map((row) => mapProductionRow(row));
-  // 035: a quebra por família vem no registro da primeira linha e cobre o
-  // conjunto filtrado inteiro (mesma janela dos totais acima).
-  const familyTotals: FamilyTotal[] = (
-    rawRows.length > 0 ? (rawRows[0].family_totals ?? []) : []
-  ).map((entry) => ({
-    family: entry.family,
-    qty: toNumber(entry.qty) ?? 0,
-    weight: toNumber(entry.weight) ?? 0,
-  }));
-
-  return { rows, total, weightTotal, qtyTotal, familyTotals };
+  // A RPC ainda devolve `family_totals` (035/037) no registro da primeira
+  // linha — a quebra por família não é mais exibida (somente os totais).
+  return { rows, total, weightTotal, qtyTotal };
 }
 
 function mapProductionOrderRow(raw: ProductionOrderRowRecord): ProductionOrderRow {
@@ -184,6 +166,8 @@ export async function getProductionOrderRows(
     p_qty_max: filters.qtyMax,
     p_weight_min: filters.weightMin,
     p_weight_max: filters.weightMax,
+    // 038: seq da OF por igualdade (menor seq entre os itens raiz).
+    p_seq: filters.seq,
   });
 
   if (error) throw new Error(`Não foi possível carregar a gestão de OF: ${error.message}`);
@@ -193,11 +177,9 @@ export async function getProductionOrderRows(
   const weightTotal = rawRows.length > 0 ? Number(rawRows[0].weight_total ?? 0) : 0;
   const qtyTotal = rawRows.length > 0 ? Number(rawRows[0].qty_total ?? 0) : 0;
   const rows = rawRows.map((row) => mapProductionOrderRow(row));
-  // 037: a quebra por família vem no registro da primeira linha e cobre os
-  // ITENS RAIZ das OFs filtradas inteiras (mesma janela do qty_total).
-  const familyTotals = toFamilyTotals(rawRows.length > 0 ? rawRows[0].family_totals : null);
-
-  return { rows, total, weightTotal, qtyTotal, familyTotals };
+  // A RPC ainda devolve `family_totals` (037) no registro da primeira
+  // linha — a quebra por família não é mais exibida (somente os totais).
+  return { rows, total, weightTotal, qtyTotal };
 }
 
 export interface OrderProcessTarget {
@@ -282,19 +264,13 @@ export async function getOrderProcessTargets(
   }));
 }
 
-/** Estatísticas do dashboard e dos cards (037: listas por família normalizadas). */
+/** Estatísticas do dashboard e dos cards. */
 export async function getProductionStats(client: SupabaseServer, today: string): Promise<ProductionStats> {
   const { data, error } = await client.rpc("get_production_stats", { p_today: today });
   if (error) throw new Error(`Não foi possível carregar o dashboard: ${error.message}`);
-  const stats = data as unknown as Omit<ProductionStats, "overdueFamilies" | "expeditionFamilies"> &
-    Partial<Pick<ProductionStats, "overdueFamilies" | "expeditionFamilies">>;
-  return {
-    ...stats,
-    // 037: as listas só existem com a migration aplicada — sem ela o RPC
-    // não traz as chaves e os cards novos exibem "—".
-    overdueFamilies: toFamilyTotals(stats.overdueFamilies),
-    expeditionFamilies: toFamilyTotals(stats.expeditionFamilies),
-  };
+  // A RPC (037) ainda devolve as listas por família (overdue/expedition
+  // families) — a quebra por família não é mais exibida nos cards.
+  return data as unknown as ProductionStats;
 }
 
 /** Catálogo de processos ativos, na ordem de exibição. */

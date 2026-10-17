@@ -31,7 +31,10 @@ import {
   Fabrica1ChildItemFilter,
   Fabrica1ColumnHeader,
   Fabrica1DeliveryFilter,
+  Fabrica1NumericFilter,
+  Fabrica1ProcessColumnFilter,
   Fabrica1ProcessGroupFilter,
+  Fabrica1SeqFilter,
   Fabrica1TextFilter,
 } from "@/components/fabrica1/Fabrica1ColumnHeaders";
 
@@ -363,7 +366,13 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
       // edição em lote aplica o número a TODOS os membros do grupo.
       helper.accessor("seq", {
         id: "seq",
-        header: () => <Fabrica1ColumnHeader label="Seq." fullLabel="Sequência de fabricação" />,
+        header: () => (
+          <Fabrica1ColumnHeader
+            label="Seq."
+            fullLabel="Sequência de fabricação"
+            filter={<Fabrica1SeqFilter filters={filters} />}
+          />
+        ),
         cell: (info) => {
           const row = info.row.original;
           return (
@@ -499,17 +508,59 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
       }),
       helper.accessor("quantity", {
         id: "quantity",
-        header: () => <Fabrica1ColumnHeader label="Qtd." />,
+        header: () => (
+          <Fabrica1ColumnHeader
+            label="Qtd."
+            filter={
+              <Fabrica1NumericFilter
+                filters={filters}
+                minField="qtyMin"
+                maxField="qtyMax"
+                column="Qtd."
+                context="quantidade do grupo"
+              />
+            }
+          />
+        ),
         cell: (info) => <span className="tabular-nums">{formatQuantity(info.getValue())}</span>,
       }),
       helper.accessor("unitWeightKg", {
         id: "unitWeightKg",
-        header: () => <Fabrica1ColumnHeader label="Peso un." fullLabel="Peso unitário" />,
+        header: () => (
+          <Fabrica1ColumnHeader
+            label="Peso un."
+            fullLabel="Peso unitário"
+            filter={
+              <Fabrica1NumericFilter
+                filters={filters}
+                minField="weightUnitMin"
+                maxField="weightUnitMax"
+                column="Peso un."
+                context="peso unitário"
+                step="0.001"
+              />
+            }
+          />
+        ),
         cell: (info) => <span className="tabular-nums">{formatWeight(info.getValue())}</span>,
       }),
       helper.accessor((row) => row.weightTotal, {
         id: "totalWeight",
-        header: () => <Fabrica1ColumnHeader label="Peso total" />,
+        header: () => (
+          <Fabrica1ColumnHeader
+            label="Peso total"
+            filter={
+              <Fabrica1NumericFilter
+                filters={filters}
+                minField="weightMin"
+                maxField="weightMax"
+                column="Peso total"
+                context="peso total do grupo"
+                step="0.001"
+              />
+            }
+          />
+        ),
         cell: (info) => (
           <span className="whitespace-nowrap tabular-nums">
             {info.getValue() === null ? "—" : `${formatWeight(info.getValue())} kg`}
@@ -540,7 +591,12 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
             : undefined,
         {
           id: process.code,
-          header: () => <Fabrica1ColumnHeader label={process.code} />,
+          header: () => (
+            <Fabrica1ColumnHeader
+              label={process.code}
+              filter={<Fabrica1ProcessColumnFilter filters={filters} code={process.code} />}
+            />
+          ),
           cell: (info) => {
             const row = info.row.original;
             if (!editable) {

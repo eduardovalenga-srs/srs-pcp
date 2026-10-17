@@ -5,8 +5,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   ColumnHeader,
   DeliveryFilter,
+  NumericColumnFilter,
   OrderGroupHeader,
+  ProcessColumnFilter,
   ProcessGroupFilter,
+  SeqFilter,
   TextColumnFilter,
 } from "@/components/producao/ColumnHeaders";
 import { ActiveFilters } from "@/components/producao/ActiveFilters";
@@ -206,5 +209,64 @@ describe("chips de filtros ativos", () => {
     expect(markup).toContain("Qtd.: ≥ 5");
     expect(markup).toContain('aria-label="Remover filtro: Cliente: ACME"');
     expect(markup).toContain("Limpar filtros");
+  });
+});
+
+describe("filtros por coluna da gestão (038)", () => {
+  it("Seq. — igualdade com sinalização de ativo", () => {
+    const inativo = html(createElement(SeqFilter, { filters: noFilters }));
+    expect(inativo).toContain('aria-label="Filtrar por sequência de fabricação"');
+    expect(inativo).not.toContain("fill-current");
+
+    const ativo = html(
+      createElement(SeqFilter, { filters: parseProductionFilters({ seq: "7" }) }),
+    );
+    expect(ativo).toContain("Filtrar por sequência de fabricação — filtro ativo");
+    expect(ativo).toContain("fill-current");
+  });
+
+  it("Qtd. — faixa De/Até com sinalização de ativo", () => {
+    const props = {
+      minField: "qtyMin",
+      maxField: "qtyMax",
+      column: "Qtd.",
+      context: "quantidade",
+      idPrefix: "gestao-qtd",
+    } as const;
+    const inativo = html(createElement(NumericColumnFilter, { ...props, filters: noFilters }));
+    expect(inativo).toContain('aria-label="Filtrar por quantidade"');
+    expect(inativo).not.toContain("fill-current");
+
+    const ativo = html(
+      createElement(NumericColumnFilter, {
+        ...props,
+        filters: parseProductionFilters({ qtdmin: "5" }),
+      }),
+    );
+    expect(ativo).toContain("Filtrar por quantidade — filtro ativo");
+    expect(ativo).toContain("fill-current");
+  });
+
+  it("coluna de processo — situação específica (um filtro de processo por vez)", () => {
+    const inativo = html(createElement(ProcessColumnFilter, { filters: noFilters, code: "LASER" }));
+    expect(inativo).toContain('aria-label="Filtrar por situação do processo LASER"');
+    expect(inativo).not.toContain("filtro ativo");
+
+    const ativo = html(
+      createElement(ProcessColumnFilter, {
+        filters: parseProductionFilters({ processo: "LASER", situacao: "CONCLUIDO" }),
+        code: "LASER",
+      }),
+    );
+    expect(ativo).toContain("Filtrar por situação do processo LASER — filtro ativo");
+
+    // Outra coluna com situação ligada NÃO sinaliza ativo nesta coluna.
+    const outraColuna = html(
+      createElement(ProcessColumnFilter, {
+        filters: parseProductionFilters({ processo: "DB_CH", situacao: "NAO_INICIADO" }),
+        code: "LASER",
+      }),
+    );
+    expect(outraColuna).not.toContain("filtro ativo");
   });
 });

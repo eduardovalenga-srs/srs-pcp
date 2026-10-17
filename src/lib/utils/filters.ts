@@ -74,6 +74,17 @@ function numberParam(params: SearchParamsRecord, key: string): number | null {
 }
 
 /**
+ * 038: lê a sequência de fabricação da URL — INTEIRO >= 1 por igualdade
+ * ("seq = N"). Zero, negativos e quebrados são descartados (null).
+ */
+function seqParam(params: SearchParamsRecord, key: string): number | null {
+  const raw = firstValue(params[key]).trim();
+  if (!/^\d{1,6}$/.test(raw)) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return parsed >= 1 ? parsed : null;
+}
+
+/**
  * Lê uma data de período (YYYY-MM-DD) da URL.
  * Formato fora do padrão ou data impossível (ex.: 2026-02-31) é
  * descartado (null) — nunca chega inválida ao banco.
@@ -194,10 +205,13 @@ export function parseProductionFilters(params: SearchParamsRecord): ProductionFi
     family: textParam(params, "familia"),
     parentItem: textParam(params, "itempai"),
     description: textParam(params, "descricao"),
+    op: textParam(params, "op"),
     qtyMin: numberParam(params, "qtdmin"),
     qtyMax: numberParam(params, "qtdmax"),
     weightMin: numberParam(params, "pesomin"),
     weightMax: numberParam(params, "pesomax"),
+    // 038: seq por igualdade — exclusiva por OF no banco (038).
+    seq: seqParam(params, "seq"),
     sort,
     sortDir,
     page,
@@ -219,7 +233,17 @@ export function parseOrderFilters(params: SearchParamsRecord): OrderFilters {
   const pageSizeRaw = Number.parseInt(firstValue(params.porpagina), 10);
   const pageSize = clampPageSize(pageSizeRaw, ORDERS_PAGE_SIZE);
 
-  return { search, status, page, pageSize };
+  return {
+    search,
+    status,
+    // 038: filtros por coluna — mesmos nomes de URL das telas de produção.
+    code: textParam(params, "of"),
+    customer: textParam(params, "cliente"),
+    deliveryFrom: dateParam(params, "entregade"),
+    deliveryTo: dateParam(params, "entregaate"),
+    page,
+    pageSize,
+  };
 }
 
 /** Lê os filtros da tela Fábrica 1 (itens filhos + matérias-primas). */
@@ -262,6 +286,14 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
     deliveryTo,
     processCode,
     processStatus,
+    // 038: seq por igualdade + faixas sobre os AGREGADOS do grupo.
+    seq: seqParam(params, "seq"),
+    qtyMin: numberParam(params, "qtdmin"),
+    qtyMax: numberParam(params, "qtdmax"),
+    weightMin: numberParam(params, "pesomin"),
+    weightMax: numberParam(params, "pesomax"),
+    weightUnitMin: numberParam(params, "pesounmin"),
+    weightUnitMax: numberParam(params, "pesounmax"),
     page,
     pageSize,
   };
@@ -294,10 +326,12 @@ export function productionQueryString(filters: ProductionFilters, overrides: Par
     familia: next.family || undefined,
     itempai: next.parentItem || undefined,
     descricao: next.description || undefined,
+    op: next.op || undefined,
     qtdmin: next.qtyMin ?? undefined,
     qtdmax: next.qtyMax ?? undefined,
     pesomin: next.weightMin ?? undefined,
     pesomax: next.weightMax ?? undefined,
+    seq: next.seq ?? undefined,
     ordem: next.sort === DEFAULT_PRODUCTION_SORT ? undefined : next.sort,
     // `direcao` cai só quando é "asc" (o default da tela) — no default,
     // "desc" sobrevive sozinho na URL (`?direcao=desc` reparseia na chave
@@ -314,6 +348,10 @@ export function orderQueryString(filters: OrderFilters, overrides: Partial<Order
   return toSearchParams({
     q: next.search || undefined,
     status: next.status === "ALL" ? undefined : next.status,
+    of: next.code || undefined,
+    cliente: next.customer || undefined,
+    entregade: next.deliveryFrom || undefined,
+    entregaate: next.deliveryTo || undefined,
     pagina: next.page === 1 ? undefined : next.page,
     porpagina: next.pageSize === ORDERS_PAGE_SIZE ? undefined : next.pageSize,
   });
@@ -337,6 +375,13 @@ export function childItemQueryString(
     entregaate: next.deliveryTo || undefined,
     processo: next.processCode === "ALL" ? undefined : next.processCode,
     situacao: next.processStatus === "ALL" ? undefined : next.processStatus,
+    seq: next.seq ?? undefined,
+    qtdmin: next.qtyMin ?? undefined,
+    qtdmax: next.qtyMax ?? undefined,
+    pesomin: next.weightMin ?? undefined,
+    pesomax: next.weightMax ?? undefined,
+    pesounmin: next.weightUnitMin ?? undefined,
+    pesounmax: next.weightUnitMax ?? undefined,
     pagina: next.page === 1 ? undefined : next.page,
     porpagina: next.pageSize === CHILD_ITEMS_PAGE_SIZE ? undefined : next.pageSize,
   });
@@ -352,7 +397,11 @@ export interface ChildItemFilterChip {
     | "description"
     | "material"
     | "deliveryPeriod"
-    | "process";
+    | "process"
+    | "seq"
+    | "qty"
+    | "weight"
+    | "weightUnit";
   label: string;
   /** Como desligar só este filtro, mantendo os demais. */
   clear: Partial<ChildItemFilters>;
@@ -388,6 +437,33 @@ export function childItemFilterChips(filters: ChildItemFilters): ChildItemFilter
     if (text.value) {
       chips.push({ key: text.key, label: `${text.column}: ${text.value}`, clear: text.clear });
     }
+  }
+
+  // 038: seq por igualdade + faixas sobre os agregados do grupo (mesmo
+  // rótulo das chips da gestão).
+  if (filters.seq !== null) {
+    chips.push({ key: "seq", label: `Seq.: ${filters.seq}`, clear: { seq: null } });
+  }
+  if (filters.qtyMin !== null || filters.qtyMax !== null) {
+    chips.push({
+      key: "qty",
+      label: rangeChipLabel("Qtd.", filters.qtyMin, filters.qtyMax, formatQuantity),
+      clear: { qtyMin: null, qtyMax: null },
+    });
+  }
+  if (filters.weightMin !== null || filters.weightMax !== null) {
+    chips.push({
+      key: "weight",
+      label: rangeChipLabel("Peso total", filters.weightMin, filters.weightMax, formatWeight),
+      clear: { weightMin: null, weightMax: null },
+    });
+  }
+  if (filters.weightUnitMin !== null || filters.weightUnitMax !== null) {
+    chips.push({
+      key: "weightUnit",
+      label: rangeChipLabel("Peso un.", filters.weightUnitMin, filters.weightUnitMax, formatWeight),
+      clear: { weightUnitMin: null, weightUnitMax: null },
+    });
   }
 
   if (filters.deliveryFrom || filters.deliveryTo) {
@@ -430,8 +506,10 @@ export interface ActiveFilterChip {
     | "family"
     | "parentItem"
     | "description"
+    | "op"
     | "qty"
-    | "weight";
+    | "weight"
+    | "seq";
   label: string;
   /** Como desligar só este filtro, mantendo os demais. */
   clear: Partial<ProductionFilters>;
@@ -516,11 +594,17 @@ export function activeFilterChips(filters: ProductionFilters): ActiveFilterChip[
     { key: "family", column: "Tipo", value: filters.family, clear: { family: "" } },
     { key: "parentItem", column: "Item pai", value: filters.parentItem, clear: { parentItem: "" } },
     { key: "description", column: "Descrição", value: filters.description, clear: { description: "" } },
+    { key: "op", column: "OP", value: filters.op, clear: { op: "" } },
   ];
   for (const text of textColumns) {
     if (text.value) {
       chips.push({ key: text.key, label: `${text.column}: ${text.value}`, clear: text.clear });
     }
+  }
+
+  // 038: Seq. por igualdade (exclusiva por OF).
+  if (filters.seq !== null) {
+    chips.push({ key: "seq", label: `Seq.: ${filters.seq}`, clear: { seq: null } });
   }
 
   // Filtros de coluna — faixas numéricas

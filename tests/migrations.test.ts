@@ -953,8 +953,9 @@ describe("migrations", () => {
     // Permissões na régua das RPCs de produção: authenticated executa.
     // (anon perde o grant direto — no PGlite ele ainda herda o EXECUTE
     // default de PUBLIC, então a checagem de "revoke" é só do grant.)
+    // 038: assinatura vigente = 18 params + p_seq.
     const sig =
-      "public.get_production_rows_by_order(text, text, text, text, text, date, text, text, integer, integer, text, text, numeric, numeric, numeric, numeric, date, date)";
+      "public.get_production_rows_by_order(text, text, text, text, text, date, text, text, integer, integer, text, text, numeric, numeric, numeric, numeric, date, date, integer)";
     const { rows: grants } = await db.query<{ authenticated: boolean }>(
       `select has_function_privilege('authenticated', $1, 'EXECUTE') as authenticated`,
       [sig],
@@ -1015,20 +1016,20 @@ describe("migrations", () => {
     );
     expect(functions[0]?.count).toBe("1");
 
-    // 13 argumentos = os MESMOS 11 filtros da get_child_items_totals (024)
-    // + paginação (p_offset, p_limit).
+    // 20 argumentos = os 11 filtros + paginação (p_offset, p_limit) + os
+    // 7 filtros de grupo da 038 (seq e faixas de qtd/peso/peso un.).
     const { rows: args } = await db.query<{ count: string }>(
       `select count(*)::text as count
          from pg_proc p
          join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'get_child_item_groups'
-          and p.pronargs = 13`,
+          and p.pronargs = 20`,
     );
     expect(args[0]?.count).toBe("1");
 
     // Grant na régua das RPCs de produção: authenticated executa.
     const sig =
-      "public.get_child_item_groups(text, text, text, text, text, text, uuid[], date, date, uuid, text, integer, integer)";
+      "public.get_child_item_groups(text, text, text, text, text, text, uuid[], date, date, uuid, text, integer, integer, integer, numeric, numeric, numeric, numeric, numeric, numeric)";
     const { rows: grants } = await db.query<{ authenticated: boolean }>(
       `select has_function_privilege('authenticated', $1, 'EXECUTE') as authenticated`,
       [sig],
@@ -1041,8 +1042,9 @@ describe("migrations", () => {
 
     type FamilyEntry = { family: string | null; qty: number; weight: number };
 
-    // DROP + recriação da get_production_rows: 1 função, mesmos 21 params
-    // e grants refeitos (o DROP leva o EXECUTE junto).
+    // DROP + recriação da get_production_rows: 1 função, 23 params (21 da
+    // 035/036 + p_seq + p_op da 038) e grants refeitos (o DROP leva o
+    // EXECUTE junto).
     const { rows: fns } = await db.query<{ total: string; same_args: string }>(
       `select (select count(*)
                  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -1050,7 +1052,7 @@ describe("migrations", () => {
               (select count(*)
                  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                 where n.nspname = 'public' and p.proname = 'get_production_rows'
-                  and p.pronargs = 21)::text as same_args`,
+                  and p.pronargs = 23)::text as same_args`,
     );
     expect(fns[0]?.total).toBe("1");
     expect(fns[0]?.same_args).toBe("1");
@@ -1058,10 +1060,10 @@ describe("migrations", () => {
     const { rows: grants } = await db.query<{ rows_prod: boolean; rows_totals: boolean }>(
       `select
          has_function_privilege('authenticated',
-           'public.get_production_rows(text, text, text, text, text, date, text, text, integer, integer, text, text, text, text, text, numeric, numeric, numeric, numeric, date, date)',
+           'public.get_production_rows(text, text, text, text, text, date, text, text, integer, integer, text, text, text, text, text, numeric, numeric, numeric, numeric, date, date, integer, text)',
            'EXECUTE') as rows_prod,
          has_function_privilege('authenticated',
-           'public.get_child_items_totals(text, text, text, text, text, text, uuid[], date, date, uuid, text)',
+           'public.get_child_items_totals(text, text, text, text, text, text, uuid[], date, date, uuid, text, integer, numeric, numeric, numeric, numeric, numeric, numeric)',
            'EXECUTE') as rows_totals`,
     );
     expect(grants[0]?.rows_prod).toBe(true);
@@ -1146,33 +1148,33 @@ describe("migrations", () => {
     expect(columns[0]?.data_type).toBe("integer");
     expect(columns[0]?.is_nullable).toBe("YES");
 
-    // DROP + recriação das duas RPCs de produção: 1 função cada, mesmas
-    // assinaturas (21 e 18 params) e grants refeitos.
+    // DROP + recriação das duas RPCs de produção: 1 função cada, assinaturas
+    // vigentes (23 e 19 params — a 038 acrescentou p_seq/p_op) e grants refeitos.
     const { rows: fns } = await db.query<{
-      rows_21: string;
-      by_order_18: string;
-      groups_1: string;
+      rows_23: string;
+      by_order_19: string;
+      groups_20: string;
       grants: boolean;
     }>(
       `select (select count(*)
                  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                 where n.nspname = 'public' and p.proname = 'get_production_rows'
-                  and p.pronargs = 21)::text as rows_21,
+                  and p.pronargs = 23)::text as rows_23,
               (select count(*)
                  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                 where n.nspname = 'public' and p.proname = 'get_production_rows_by_order'
-                  and p.pronargs = 18)::text as by_order_18,
+                  and p.pronargs = 19)::text as by_order_19,
               (select count(*)
                  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                 where n.nspname = 'public' and p.proname = 'get_child_item_groups'
-                  and p.pronargs = 13)::text as groups_1,
+                  and p.pronargs = 20)::text as groups_20,
               has_function_privilege('authenticated',
-                'public.get_production_rows_by_order(text, text, text, text, text, date, text, text, integer, integer, text, text, numeric, numeric, numeric, numeric, date, date)',
+                'public.get_production_rows_by_order(text, text, text, text, text, date, text, text, integer, integer, text, text, numeric, numeric, numeric, numeric, date, date, integer)',
                 'EXECUTE') as grants`,
     );
-    expect(fns[0]?.rows_21).toBe("1");
-    expect(fns[0]?.by_order_18).toBe("1");
-    expect(fns[0]?.groups_1).toBe("1");
+    expect(fns[0]?.rows_23).toBe("1");
+    expect(fns[0]?.by_order_19).toBe("1");
+    expect(fns[0]?.groups_20).toBe("1");
     expect(fns[0]?.grants).toBe(true);
 
     // OF-036 com dois pais (seq 2 e 1) e um sem número; um filho por pai.
@@ -1263,11 +1265,11 @@ describe("migrations", () => {
     const weightOf = (list: FamilyEntry[] | undefined, family: string | null): number =>
       Number(list?.find((entry) => entry.family === family)?.weight ?? 0);
 
-    // Grants refeitos após o DROP da by_order (037) e chaves novas do stats.
+    // Grants refeitos após o DROP da by_order (037/038) e chaves novas do stats.
     const { rows: meta } = await db.query<{ stats_grants: boolean; by_order_grants: boolean }>(
       `select has_function_privilege('authenticated', 'public.get_production_stats(date)', 'EXECUTE') as stats_grants,
               has_function_privilege('authenticated',
-                'public.get_production_rows_by_order(text, text, text, text, text, date, text, text, integer, integer, text, text, numeric, numeric, numeric, numeric, date, date)',
+                'public.get_production_rows_by_order(text, text, text, text, text, date, text, text, integer, integer, text, text, numeric, numeric, numeric, numeric, date, date, integer)',
                 'EXECUTE') as by_order_grants`,
     );
     expect(meta[0]?.stats_grants).toBe(true);
@@ -1356,6 +1358,232 @@ describe("migrations", () => {
     expect(noRows).toHaveLength(0);
 
     await db.query(`delete from public.orders where code in ('OF-037-A', 'OF-037-B')`);
+  });
+
+  it("038: filtros por coluna (seq/OP/faixas de grupo) + unicidade de seq por OF", async () => {
+    await asSuperUser(db);
+
+    type GroupPage = { total: number; groups: { key: string; itemIds: string[] }[] };
+    type Totals = {
+      total: number | string;
+      qtyTotal: number | string;
+      weightTotal: number | string;
+      families: { family: string | null; qty: number; weight: number }[];
+    };
+
+    // 1 função cada RPC nas assinaturas NOVAS (23/19/20/18 params); as
+    // assinaturas antigas não sobram (DROP da 038) e o trigger existe.
+    const { rows: meta } = await db.query<{
+      trigger_count: string;
+      rows_23: string;
+      by_order_19: string;
+      groups_20: string;
+      totals_18: string;
+      old_rows: string;
+      old_by_order: string;
+      old_groups: string;
+      old_totals: string;
+    }>(
+      `select (select count(*)::text from pg_trigger where tgname = 'order_items_seq_unique_per_order') as trigger_count,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows'
+                  and p.pronargs = 23) as rows_23,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows_by_order'
+                  and p.pronargs = 19) as by_order_19,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_child_item_groups'
+                  and p.pronargs = 20) as groups_20,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_child_items_totals'
+                  and p.pronargs = 18) as totals_18,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows'
+                  and p.pronargs = 21) as old_rows,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows_by_order'
+                  and p.pronargs = 18) as old_by_order,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_child_item_groups'
+                  and p.pronargs = 13) as old_groups,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_child_items_totals'
+                  and p.pronargs = 11) as old_totals`,
+    );
+    expect(meta[0]?.trigger_count).toBe("1");
+    expect(meta[0]?.rows_23).toBe("1");
+    expect(meta[0]?.by_order_19).toBe("1");
+    expect(meta[0]?.groups_20).toBe("1");
+    expect(meta[0]?.totals_18).toBe("1");
+    expect(meta[0]?.old_rows).toBe("0");
+    expect(meta[0]?.old_by_order).toBe("0");
+    expect(meta[0]?.old_groups).toBe("0");
+    expect(meta[0]?.old_totals).toBe("0");
+
+    // Índice parcial de seq — apoio do trigger, do filtro por igualdade e
+    // da ordenação default `seq nulls last`.
+    const { rows: indexes } = await db.query<{ count: string }>(
+      `select count(*)::text as count from pg_indexes
+        where schemaname = 'public' and indexname = 'idx_order_items_seq'`,
+    );
+    expect(Number(indexes[0]?.count)).toBe(1);
+
+    // Dados: OF-038-A com raiz (seq 2, OP-777) + filhos em 3 grupos;
+    // OF-038-B com um raiz (seq 1).
+    const { rows: orderRows } = await db.query<{ id: string; code: string }>(
+      `insert into public.orders (code, type, customer_name, delivery_date)
+       values ('OF-038-A', 'OF', 'Cliente 038', current_date + 5),
+              ('OF-038-B', 'OF', 'Cliente 038', current_date + 7)
+       returning id, code`,
+    );
+    const orderA = orderRows.find((order) => order.code === "OF-038-A")?.id as string;
+    const orderB = orderRows.find((order) => order.code === "OF-038-B")?.id as string;
+    const { rows: rootRows } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, family, parent_item, description, quantity, unit_weight_kg, seq, op)
+       values ($1, 'GC', 'P-038-1', 'Guarda-corpo', 1, 10, 2, 'OP-777') returning id`,
+      [orderA],
+    );
+    const rootA = rootRows[0]?.id as string;
+    // Grupos do filho: X (2 itens, peso unit. uniforme, seq 3 e 5),
+    // Y (unit. uniforme, sem seq) e Z (unit. DIVERGENTE — exibe "—").
+    await db.query(
+      `insert into public.order_items (order_id, parent_order_item_id, family, parent_item, description, quantity, unit_weight_kg, seq)
+       values ($1, $2, 'TP', 'F-038-X', 'Tampo X', 4, 2.5, 3),
+              ($1, $2, 'TP', 'F-038-X', 'Tampo X', 6, 2.5, 5),
+              ($1, $2, 'GC', 'F-038-Y', 'Tampo Y', 2, 7, null),
+              ($1, $2, null, 'F-038-Z', 'Régua Z', 1, 1, null),
+              ($1, $2, null, 'F-038-Z', 'Régua Z', 1, 2, null)`,
+      [orderA, rootA],
+    );
+    const { rows: rootBRows } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, parent_item, description, quantity, unit_weight_kg, seq)
+       values ($1, 'P-038-B1', 'Rack servidor', 3, 4, 1) returning id`,
+      [orderB],
+    );
+    const rootB = rootBRows[0]?.id as string;
+
+    // --- Unicidade de seq por OF (trigger 038) ---
+    // Mesma OF: segundo item com o MESMO número (2) é liberado.
+    await db.query(
+      `insert into public.order_items (order_id, parent_item, description, quantity, seq)
+       values ($1, 'P-038-2', 'Mesa redonda', 1, 2)`,
+      [orderA],
+    );
+    // Outra OF: número em uso é recusado com a mensagem pt-BR.
+    await expect(
+      db.query(
+        `insert into public.order_items (order_id, parent_item, description, quantity, seq)
+         values ($1, 'P-038-B2', 'Coluna B', 1, 2)`,
+        [orderB],
+      ),
+    ).rejects.toThrow(/outra OF/);
+    // UPDATE que colide também recusa (o caminho de edição por tela).
+    await expect(
+      db.query(`update public.order_items set seq = 3 where id = $1`, [rootB]),
+    ).rejects.toThrow(/outra OF/);
+    // Update sem colisão segue liberado (B passa a valer 7).
+    await db.query(`update public.order_items set seq = 7 where id = $1`, [rootB]);
+
+    // --- F2: p_seq por igualdade (só RAÍZES; seq 3 é de filho) ---
+    // A mesma OF pode compartilhar o número: os dois ramos com seq 2 casam.
+    const f2Seq = await db.query<{ parent_item: string }>(
+      `select parent_item from public.get_production_rows(p_search => 'OF-038', p_seq => 2)`,
+    );
+    expect(f2Seq.rows.map((row) => row.parent_item)).toEqual(["P-038-1", "P-038-2"]);
+    const f2SeqFilho = await db.query(
+      `select * from public.get_production_rows(p_search => 'OF-038', p_seq => 3)`,
+    );
+    expect(f2SeqFilho.rows).toHaveLength(0);
+
+    // --- F2: p_op "contém" (insensível a maiúsculas) ---
+    const f2Op = await db.query<{ parent_item: string }>(
+      `select parent_item from public.get_production_rows(p_search => 'OF-038', p_op => 'op-77')`,
+    );
+    expect(f2Op.rows.map((row) => row.parent_item)).toEqual(["P-038-1"]);
+    const f2OpVazio = await db.query(
+      `select * from public.get_production_rows(p_search => 'OF-038', p_op => 'zzz-038')`,
+    );
+    expect(f2OpVazio.rows).toHaveLength(0);
+
+    // --- Gestão: p_seq sobre o MENOR seq dos itens raiz da OF ---
+    const byOrderSeq = await db.query<{ order_code: string }>(
+      `select order_code from public.get_production_rows_by_order(p_search => 'OF-038', p_seq => 2)`,
+    );
+    expect(byOrderSeq.rows.map((row) => row.order_code)).toEqual(["OF-038-A"]);
+    const byOrderSeq7 = await db.query<{ order_code: string }>(
+      `select order_code from public.get_production_rows_by_order(p_search => 'OF-038', p_seq => 7)`,
+    );
+    expect(byOrderSeq7.rows.map((row) => row.order_code)).toEqual(["OF-038-B"]);
+
+    // --- F1: filtros pós-agrupamento (menor seq, Σ qtd, Σ peso, peso un.) ---
+    const groupKeys = async (extra: string): Promise<{ keys: string[]; total: number }> => {
+      const { rows } = await db.query<{ page: GroupPage }>(
+        `select public.get_child_item_groups(p_order_code => 'OF-038-A'${extra}) as page`,
+      );
+      return {
+        keys: (rows[0]?.page.groups ?? []).map((group) => group.key),
+        total: Number(rows[0]?.page.total ?? 0),
+      };
+    };
+    expect(await groupKeys("")).toEqual({
+      keys: ["F-038-X", "F-038-Y", "F-038-Z"],
+      total: 3,
+    });
+    // Seq por igualdade = MENOR seq do grupo (5 do segundo membro não casa).
+    expect(await groupKeys(", p_seq => 3")).toEqual({ keys: ["F-038-X"], total: 1 });
+    expect(await groupKeys(", p_seq => 5")).toEqual({ keys: [], total: 0 });
+    // Faixa de Qtd. sobre o Σ dos membros (X = 4 + 6 = 10; Y/Z = 2).
+    expect(await groupKeys(", p_qty_min => 10")).toEqual({ keys: ["F-038-X"], total: 1 });
+    expect(await groupKeys(", p_qty_max => 2")).toEqual({
+      keys: ["F-038-Y", "F-038-Z"],
+      total: 2,
+    });
+    // Faixa de Peso total (X = 10 + 15 = 25 kg; Z = 1 + 2 = 3 kg).
+    expect(await groupKeys(", p_weight_min => 20")).toEqual({ keys: ["F-038-X"], total: 1 });
+    expect(await groupKeys(", p_weight_max => 5")).toEqual({ keys: ["F-038-Z"], total: 1 });
+    // Peso unitário exibido: só grupos com membros coincidentes (Z = "—").
+    expect(await groupKeys(", p_weight_unit_min => 7")).toEqual({
+      keys: ["F-038-Y"],
+      total: 1,
+    });
+    expect(await groupKeys(", p_weight_unit_max => 3")).toEqual({
+      keys: ["F-038-X"],
+      total: 1,
+    });
+
+    // --- Totais do card casam com a lista filtrada ---
+    const readTotals = async (extra: string): Promise<Totals> => {
+      const { rows } = await db.query<{ totals: Totals }>(
+        `select public.get_child_items_totals(p_order_code => 'OF-038-A'${extra}) as totals`,
+      );
+      return rows[0]?.totals as Totals;
+    };
+    // Sem filtro de grupo: caminho rápido (5 itens, Σ qtd 14, Σ peso 42 kg).
+    const fastTotals = await readTotals("");
+    expect(Number(fastTotals.total)).toBe(5);
+    expect(Number(fastTotals.qtyTotal)).toBe(14);
+    expect(Number(fastTotals.weightTotal)).toBe(42);
+    expect(fastTotals.families).toEqual([
+      { family: "TP", qty: 10, weight: 25 },
+      { family: "GC", qty: 2, weight: 14 },
+      { family: null, qty: 2, weight: 3 },
+    ]);
+    // Com filtro de grupo: agrupa por (OF, código) — bate com a lista (X).
+    const groupedTotals = await readTotals(", p_qty_min => 10");
+    expect(Number(groupedTotals.total)).toBe(2);
+    expect(Number(groupedTotals.qtyTotal)).toBe(10);
+    expect(Number(groupedTotals.weightTotal)).toBe(25);
+    expect(groupedTotals.families).toEqual([{ family: "TP", qty: 10, weight: 25 }]);
+
+    await db.query(`delete from public.orders where code in ('OF-038-A', 'OF-038-B')`);
   });
 });
 

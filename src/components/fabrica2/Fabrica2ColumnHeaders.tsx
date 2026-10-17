@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 import {
   DeliveryPeriodPopover,
   FilterMenu,
+  NumericRangeFilter,
+  SeqEqualityFilter,
   TextColumnFilter as SharedTextColumnFilter,
 } from "@/components/shared/column-filters";
 import { Label } from "@/components/ui/label";
@@ -187,7 +189,7 @@ export function Fabrica2ProcessGroupFilter({ filters }: { filters: ProductionFil
 }
 
 /** Colunas de texto — filtro "contém" (valor parcial, sem diferenciar maiúsculas). */
-export type Fabrica2TextFilterField = "orderCode" | "customer" | "parentItem" | "description";
+export type Fabrica2TextFilterField = "orderCode" | "customer" | "parentItem" | "description" | "family" | "op";
 
 interface Fabrica2TextColumnFilterProps {
   filters: ProductionFilters;
@@ -211,6 +213,89 @@ export function Fabrica2TextColumnFilter({ filters, field, column, context }: Fa
         patch[field] = value;
         apply(patch);
       }}
+    />
+  );
+}
+
+/** Filtro da coluna Seq. — igualdade (seq = N, exclusivo por OF — 038). */
+export function Fabrica2SeqFilter({ filters }: { filters: ProductionFilters }) {
+  const apply = useApplyFilters(filters);
+
+  return (
+    <SeqEqualityFilter
+      context="sequência de fabricação"
+      value={filters.seq}
+      idPrefix="f2-seq"
+      onApply={(value) => apply({ seq: value })}
+    />
+  );
+}
+
+interface Fabrica2NumericColumnFilterProps {
+  filters: ProductionFilters;
+  minField: "qtyMin" | "weightMin";
+  maxField: "qtyMax" | "weightMax";
+  /** Rótulo da coluna, ex.: "Qtd.". */
+  column: string;
+  /** Contexto do título/aria, ex.: "quantidade". */
+  context: string;
+  /** Passo dos campos (padrão "1"; pesos usam "0.001"). */
+  step?: string;
+}
+
+/** Filtro de faixa numérica (De/Até) por coluna — Qtd., Peso un. (038). */
+export function Fabrica2NumericColumnFilter({
+  filters,
+  minField,
+  maxField,
+  column,
+  context,
+  step,
+}: Fabrica2NumericColumnFilterProps) {
+  const apply = useApplyFilters(filters);
+
+  return (
+    <NumericRangeFilter
+      context={context}
+      column={column}
+      min={filters[minField]}
+      max={filters[maxField]}
+      idPrefix={`f2-${minField}`}
+      step={step}
+      onApply={(min, max) => apply({ [minField]: min, [maxField]: max })}
+    />
+  );
+}
+
+/**
+ * Filtro de UMA coluna de processo: situação daquele processo específico
+ * (038). Só existe um filtro de processo por vez no backend — ativar aqui
+ * substitui o de outra coluna/de grupo; "Todas" limpa o par.
+ */
+export function Fabrica2ProcessColumnFilter({ filters, code }: { filters: ProductionFilters; code: string }) {
+  const apply = useApplyFilters(filters);
+  const active = filters.processCode === code && filters.processStatus !== "ALL";
+  const value = active && filters.processStatus ? filters.processStatus : "ALL";
+
+  return (
+    <FilterMenu
+      context={`situação do processo ${code}`}
+      value={value}
+      active={active}
+      options={[
+        { value: "ALL", label: "Todas as situações" },
+        ...PROCESS_STATUSES.map((status) => ({
+          value: status,
+          label: `${PROCESS_STATUS_SYMBOLS[status]} ${PROCESS_STATUS_LABELS[status]}`,
+        })),
+      ]}
+      onValueChange={(next) =>
+        apply(
+          next === "ALL"
+            ? { processCode: "ALL", processStatus: "ALL" }
+            : { processCode: code, processStatus: next as ProductionFilters["processStatus"] },
+        )
+      }
     />
   );
 }

@@ -19,6 +19,8 @@ import { truncate } from "@/lib/utils/formatting";
 import {
   DeliveryPeriodPopover,
   FilterMenu,
+  NumericRangeFilter,
+  SeqEqualityFilter,
   TextColumnFilter,
 } from "@/components/shared/column-filters";
 import { Button } from "@/components/ui/button";
@@ -122,6 +124,92 @@ export function Fabrica1DeliveryFilter({ filters }: { filters: ChildItemFilters 
       to={filters.deliveryTo}
       idPrefix="f1-entrega"
       onApply={(from, to) => apply({ deliveryFrom: from, deliveryTo: to })}
+    />
+  );
+}
+
+/** Filtro da coluna Seq. — igualdade (menor seq do grupo = N, 038). */
+export function Fabrica1SeqFilter({ filters }: { filters: ChildItemFilters }) {
+  const apply = useApplyChildItemFilters(filters);
+
+  return (
+    <SeqEqualityFilter
+      context="sequência de fabricação"
+      value={filters.seq}
+      idPrefix="f1-seq"
+      onApply={(value) => apply({ seq: value })}
+    />
+  );
+}
+
+interface Fabrica1NumericFilterProps {
+  filters: ChildItemFilters;
+  minField: "qtyMin" | "weightMin" | "weightUnitMin";
+  maxField: "qtyMax" | "weightMax" | "weightUnitMax";
+  /** Rótulo da coluna, ex.: "Qtd.". */
+  column: string;
+  /** Contexto do título/aria, ex.: "quantidade do grupo". */
+  context: string;
+  /** Passo dos campos (padrão "1"; pesos usam "0.001"). */
+  step?: string;
+}
+
+/**
+ * Filtro de faixa numérica (De/Até) por coluna da Fábrica 1 (038) —
+ * a faixa vale sobre os AGREGADOS do grupo (Σ qtd, Σ peso, peso unitário).
+ */
+export function Fabrica1NumericFilter({
+  filters,
+  minField,
+  maxField,
+  column,
+  context,
+  step,
+}: Fabrica1NumericFilterProps) {
+  const apply = useApplyChildItemFilters(filters);
+
+  return (
+    <NumericRangeFilter
+      context={context}
+      column={column}
+      min={filters[minField]}
+      max={filters[maxField]}
+      idPrefix={`f1-${minField}`}
+      step={step}
+      onApply={(min, max) => apply({ [minField]: min, [maxField]: max } as Partial<ChildItemFilters>)}
+    />
+  );
+}
+
+/**
+ * Filtro de UMA coluna de processo: situação daquele processo da cadeia
+ * (038). Só existe um filtro de processo por vez no backend — ativar aqui
+ * substitui o de outra coluna/de grupo; "Todas" limpa o par.
+ */
+export function Fabrica1ProcessColumnFilter({ filters, code }: { filters: ChildItemFilters; code: string }) {
+  const apply = useApplyChildItemFilters(filters);
+  const active = filters.processCode === code && filters.processStatus !== "ALL";
+  const value = active && filters.processStatus ? filters.processStatus : "ALL";
+
+  return (
+    <FilterMenu
+      context={`situação do processo ${code}`}
+      value={value}
+      active={active}
+      options={[
+        { value: "ALL", label: "Todas as situações" },
+        ...PROCESS_STATUSES.map((status) => ({
+          value: status,
+          label: `${PROCESS_STATUS_SYMBOLS[status]} ${PROCESS_STATUS_LABELS[status]}`,
+        })),
+      ]}
+      onValueChange={(next) =>
+        apply(
+          next === "ALL"
+            ? { processCode: "ALL", processStatus: "ALL" }
+            : { processCode: code, processStatus: next as ProcessStatus },
+        )
+      }
     />
   );
 }

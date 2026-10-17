@@ -25,8 +25,11 @@ import { updateItemsSeqAction } from "@/lib/actions/orders.actions";
 import {
   Fabrica2ColumnHeader,
   Fabrica2DeliveryFilter,
+  Fabrica2NumericColumnFilter,
   Fabrica2OrderGroupHeader,
+  Fabrica2ProcessColumnFilter,
   Fabrica2ProcessGroupFilter,
+  Fabrica2SeqFilter,
   Fabrica2TextColumnFilter,
 } from "@/components/fabrica2/Fabrica2ColumnHeaders";
 import { Fabrica2DeliveryDatePopover } from "@/components/fabrica2/Fabrica2DeliveryDatePopover";
@@ -211,6 +214,7 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
             fullLabel="Sequência de fabricação"
             columnId="seq"
             filters={filters}
+            filter={<Fabrica2SeqFilter filters={filters} />}
           />
         ),
         cell: (info) => {
@@ -263,7 +267,13 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
       helper.accessor("family", {
         id: "family",
         header: () => (
-          <Fabrica2ColumnHeader label="TP" fullLabel="Tipo" columnId="family" filters={filters} />
+          <Fabrica2ColumnHeader
+            label="TP"
+            fullLabel="Tipo"
+            columnId="family"
+            filters={filters}
+            filter={<Fabrica2TextColumnFilter filters={filters} field="family" column="Tipo" context="tipo (família)" />}
+          />
         ),
         cell: (info) => <span className="block max-w-[96px] truncate">{info.getValue() || "—"}</span>,
       }),
@@ -299,14 +309,42 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
       helper.accessor("quantity", {
         id: "quantity",
         header: () => (
-          <Fabrica2ColumnHeader label="Qtd." columnId="quantity" filters={filters} />
+          <Fabrica2ColumnHeader
+            label="Qtd."
+            columnId="quantity"
+            filters={filters}
+            filter={
+              <Fabrica2NumericColumnFilter
+                filters={filters}
+                minField="qtyMin"
+                maxField="qtyMax"
+                column="Qtd."
+                context="quantidade"
+              />
+            }
+          />
         ),
         cell: (info) => <span className="tabular-nums">{formatQuantity(info.getValue())}</span>,
       }),
       helper.accessor("unitWeightKg", {
         id: "unitWeightKg",
         header: () => (
-          <Fabrica2ColumnHeader label="Peso" fullLabel="Peso un." columnId="unit_weight_kg" filters={filters} />
+          <Fabrica2ColumnHeader
+            label="Peso"
+            fullLabel="Peso un."
+            columnId="unit_weight_kg"
+            filters={filters}
+            filter={
+              <Fabrica2NumericColumnFilter
+                filters={filters}
+                minField="weightMin"
+                maxField="weightMax"
+                column="Peso un."
+                context="peso unitário"
+                step="0.001"
+              />
+            }
+          />
         ),
         cell: (info) => <span className="tabular-nums">{formatWeight(info.getValue())}</span>,
       }),
@@ -331,6 +369,7 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
             fullLabel="Ordem de Produção"
             columnId="op"
             filters={filters}
+            filter={<Fabrica2TextColumnFilter filters={filters} field="op" column="OP" context="OP" />}
           />
         ),
         cell: (info) => (
@@ -349,7 +388,12 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
         helper.accessor((row) => row.processes[process.code] ?? null, {
           id: process.code,
           header: () => (
-            <Fabrica2ColumnHeader label={process.code} columnId={process.code} filters={filters} />
+            <Fabrica2ColumnHeader
+              label={process.code}
+              columnId={process.code}
+              filters={filters}
+              filter={<Fabrica2ProcessColumnFilter filters={filters} code={process.code} />}
+            />
           ),
           cell: (info) => {
             const row = info.row.original;

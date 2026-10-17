@@ -95,30 +95,25 @@ export interface ProductionFilters {
   family: string;
   parentItem: string;
   description: string;
+  /** 038: coluna OP ("contém") — só a Fábrica 2 exibe a coluna. */
+  op: string;
   /** Filtro por coluna — faixa numérica (null = sem limite). */
   qtyMin: number | null;
   qtyMax: number | null;
   weightMin: number | null;
   weightMax: number | null;
+  /**
+   * 038: coluna Seq. por IGUALDADE (seq = N). O número é exclusivo por
+   * OF (trigger da 038) — o filtro devolve a linha do planejamento.
+   */
+  seq: number | null;
   sort: string;
   sortDir: "asc" | "desc";
   page: number;
   pageSize: number;
 }
 
-/**
- * Total por FAMÍLIA do produto no conjunto filtrado inteiro (035) —
- * exibido nos cards de resumo da Fábrica 1 e da Fábrica 2.
- */
-export interface FamilyTotal {
-  /** Família (coluna TP / order_items.family) — null = item sem família. */
-  family: string | null;
-  /** Σ das quantidades dos itens da família. */
-  qty: number;
-  /** Σ do peso total (qtd × peso unit.) dos itens da família. */
-  weight: number;
-}
-
+/** Resultado da listagem da Fábrica 2 (uma linha por item raiz). */
 export interface ProductionResult {
   rows: ProductionRow[];
   total: number;
@@ -126,8 +121,6 @@ export interface ProductionResult {
   weightTotal: number;
   /** Soma da coluna "Qtd." da lista filtrada inteira — de todas as páginas. */
   qtyTotal: number;
-  /** 035: quebra por família do MESMO conjunto dos totais acima (todas as páginas). */
-  familyTotals: FamilyTotal[];
 }
 
 /** Resultado da listagem consolidada por OF (025). */
@@ -138,8 +131,6 @@ export interface ProductionOrderResult {
   weightTotal: number;
   /** Soma das quantidades da lista filtrada inteira — de todas as páginas. */
   qtyTotal: number;
-  /** 037: quebra por família do MESMO conjunto dos totais acima (card "OFs"). */
-  familyTotals: FamilyTotal[];
 }
 
 /** Processo do catálogo (ordem de exibição). */
@@ -189,14 +180,6 @@ export interface ProductionStats {
     qty: number;
     weight: number;
   };
-  /**
-   * 037: quebra por família dos MESMOS conjuntos dos cards — lista dos
-   * cards "Atrasados" e "Expedição" (F1, F2 e Gestão). Normalizada para
-   * array no repository (sem a 037 aplicada o RPC não traz as chaves e
-   * a lista nasce vazia — o card exibe "—").
-   */
-  overdueFamilies: FamilyTotal[];
-  expeditionFamilies: FamilyTotal[];
   processes: ProcessStat[];
 }
 

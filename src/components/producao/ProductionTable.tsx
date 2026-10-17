@@ -30,8 +30,11 @@ import { updateOrderItemsSeqAction } from "@/lib/actions/orders.actions";
 import {
   ColumnHeader,
   DeliveryFilter,
+  NumericColumnFilter,
   OrderGroupHeader,
+  ProcessColumnFilter,
   ProcessGroupFilter,
+  SeqFilter,
   TextColumnFilter,
 } from "@/components/producao/ColumnHeaders";
 import { DeliveryDatePopover } from "@/components/producao/DeliveryDatePopover";
@@ -229,6 +232,7 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
             fullLabel="Sequência de fabricação"
             columnId="seq"
             filters={filters}
+            filter={<SeqFilter filters={filters} />}
           />
         ),
         cell: (info) => {
@@ -282,14 +286,45 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
       helper.accessor("quantity", {
         id: "quantity",
         header: () => (
-          <ColumnHeader label="Qtd." fullLabel="Qtd. total" columnId="quantity" filters={filters} />
+          <ColumnHeader
+            label="Qtd."
+            fullLabel="Qtd. total"
+            columnId="quantity"
+            filters={filters}
+            filter={
+              <NumericColumnFilter
+                filters={filters}
+                minField="qtyMin"
+                maxField="qtyMax"
+                column="Qtd."
+                context="quantidade"
+                idPrefix="gestao-qtd"
+              />
+            }
+          />
         ),
         cell: (info) => <span className="tabular-nums">{formatQuantity(info.getValue())}</span>,
       }),
       helper.accessor("weightTotal", {
         id: "weightTotal",
         header: () => (
-          <ColumnHeader label="Peso" fullLabel="Peso total" columnId="weight_total" filters={filters} />
+          <ColumnHeader
+            label="Peso"
+            fullLabel="Peso total"
+            columnId="weight_total"
+            filters={filters}
+            filter={
+              <NumericColumnFilter
+                filters={filters}
+                minField="weightMin"
+                maxField="weightMax"
+                column="Peso"
+                context="peso total"
+                idPrefix="gestao-peso"
+                step="0.001"
+              />
+            }
+          />
         ),
         cell: (info) => <span className="tabular-nums">{formatWeight(info.getValue())}</span>,
       }),
@@ -315,7 +350,12 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
       helper.accessor((row) => row.processes[process.code] ?? null, {
         id: process.code,
         header: () => (
-          <ColumnHeader label={process.code} columnId={process.code} filters={filters} />
+          <ColumnHeader
+            label={process.code}
+            columnId={process.code}
+            filters={filters}
+            filter={<ProcessColumnFilter filters={filters} code={process.code} />}
+          />
         ),
         cell: (info) => {
           const row = info.row.original;

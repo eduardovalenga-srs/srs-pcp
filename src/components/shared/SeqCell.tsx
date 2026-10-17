@@ -86,10 +86,11 @@ export function SeqCell({ value, canEdit, label, onCommit }: SeqCellProps) {
 
   return (
     <input
-      type="number"
+      // Texto + inputMode numérico: mantém o teclado numérico no celular e
+      // REMOVE as setinhas ▲▼ (spinner) do input type="number" — a
+      // validação (inteiro >= 1) é feita em `valid` abaixo.
+      type="text"
       inputMode="numeric"
-      min={1}
-      step={1}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
       onKeyDown={onKeyDown}

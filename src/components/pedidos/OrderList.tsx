@@ -3,17 +3,34 @@
 import Link from "next/link";
 import { Pencil } from "lucide-react";
 
-import type { OrderSummary } from "@/lib/types/order";
+import type { OrderFilters, OrderSummary } from "@/lib/types/order";
 import { formatDate } from "@/lib/utils/dates";
 import { pluralize } from "@/lib/utils/formatting";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
 import { DeleteOrderButton } from "@/components/pedidos/DeleteOrderButton";
+import {
+  OrderDeliveryFilter,
+  OrderStatusFilter,
+  OrderTextFilter,
+} from "@/components/pedidos/OrderColumnHeaders";
 
 interface OrderListProps {
   orders: OrderSummary[];
   canDelete: boolean;
+  /** 038: filtros vigentes — os cabeçalhos de coluna aplicam na URL. */
+  filters: OrderFilters;
+}
+
+/** Rótulo do cabeçalho com o funil de filtro ao lado. */
+function HeaderLabel({ label, filter }: { label: string; filter?: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {label}
+      {filter}
+    </span>
+  );
 }
 
 function RowActions({ order, canDelete }: { order: OrderSummary; canDelete: boolean }) {
@@ -31,7 +48,7 @@ function RowActions({ order, canDelete }: { order: OrderSummary; canDelete: bool
 }
 
 /** Listagem de pedidos: tabela no desktop (lg+) e cards no mobile. */
-export function OrderList({ orders, canDelete }: OrderListProps) {
+export function OrderList({ orders, canDelete, filters }: OrderListProps) {
   return (
     <>
       {/* Desktop / tablet largo: tabela */}
@@ -42,10 +59,32 @@ export function OrderList({ orders, canDelete }: OrderListProps) {
           </caption>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-              <th scope="col" className="px-3 py-2 font-semibold">Código</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Cliente</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Entrega</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Situação</th>
+              <th scope="col" className="px-3 py-2 font-semibold">
+                <HeaderLabel
+                  label="Código"
+                  filter={<OrderTextFilter filters={filters} field="code" column="OF/OS" context="OF/OS" />}
+                />
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold">
+                <HeaderLabel
+                  label="Cliente"
+                  filter={
+                    <OrderTextFilter
+                      filters={filters}
+                      field="customer"
+                      column="Cliente"
+                      context="cliente"
+                    />
+                  }
+                />
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold">
+                <HeaderLabel label="Entrega" filter={<OrderDeliveryFilter filters={filters} />} />
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold">
+                <HeaderLabel label="Situação" filter={<OrderStatusFilter filters={filters} />} />
+              </th>
+              {/* Coluna informativa (038): sem filtro por decisão de escopo. */}
               <th scope="col" className="px-3 py-2 text-right font-semibold">Itens</th>
               <th scope="col" className="px-3 py-2 text-right font-semibold">Ações</th>
             </tr>

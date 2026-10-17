@@ -19,17 +19,17 @@ describe("ChildItemsPagination", () => {
   it("expõe o seletor \"Por página\" com o tamanho atual vindo da URL", () => {
     const markup = html(
       createElement(ChildItemsPagination, {
-        filters: parseChildItemFilters({ porpagina: "100" }),
-        total: 500,
+        filters: parseChildItemFilters({ porpagina: "500" }),
+        total: 1500,
       }),
     );
     expect(markup).toContain('for="fabrica1-por-pagina"');
     expect(markup).toContain("Por página");
-    // O trigger carrega o valor selecionado (100 itens por página).
-    expect(markup).toContain("100");
-    // Faixa exibida com o tamanho escolhido: 100 por página.
-    expect(markup).toContain("1–100");
-    expect(markup).toContain("Página 1 de 5");
+    // O trigger carrega o valor selecionado (500 itens por página).
+    expect(markup).toContain("500");
+    // Faixa exibida com o tamanho escolhido: 500 por página.
+    expect(markup).toContain("1–500");
+    expect(markup).toContain("Página 1 de 3");
   });
 
   it("resume à última página quando o total não cabe mais na página atual", () => {
@@ -56,8 +56,8 @@ describe("ChildItemsPagination", () => {
     expect(markup).toBe("");
   });
 
-  it("publica 4 opções de tamanho, todas válidas para o backend (1–200)", () => {
-    expect([...CHILD_ITEMS_PAGE_SIZE_OPTIONS]).toEqual([25, 50, 100, 200]);
+  it("publica 3 opções de tamanho, todas válidas para o backend (1–1000)", () => {
+    expect([...CHILD_ITEMS_PAGE_SIZE_OPTIONS]).toEqual([200, 500, 1000]);
     for (const size of CHILD_ITEMS_PAGE_SIZE_OPTIONS) {
       expect(parseChildItemFilters({ porpagina: String(size) }).pageSize).toBe(size);
     }

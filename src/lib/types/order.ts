@@ -1,6 +1,5 @@
 import type { OrderStatus, OrderType } from "@/lib/constants/orders";
 import type { ProcessStatus } from "@/lib/constants/production";
-import type { FamilyTotal } from "@/lib/types/production";
 
 /** Resumo de pedido para listagens. */
 export interface OrderSummary {
@@ -67,6 +66,13 @@ export interface OrderDetails extends Omit<OrderSummary, "itemCount"> {
 export interface OrderFilters {
   search: string;
   status: OrderStatus | "ALL";
+  /** 038: coluna OF/OS por "contém" (dedicado — a busca `q` varre mais campos). */
+  code: string;
+  /** 038: coluna Cliente por "contém" (dedicado). */
+  customer: string;
+  /** 038: coluna Entrega — período inclusivo (null = lado aberto). */
+  deliveryFrom: string | null;
+  deliveryTo: string | null;
   page: number;
   pageSize: number;
 }
@@ -106,6 +112,20 @@ export interface ChildItemFilters {
   processCode: string | "ALL";
   /** Situação do processo (combinável com o código ou sozinha). */
   processStatus: ProcessStatus | "ALL";
+  /**
+   * 038: Seq. do grupo por IGUALDADE (menor seq dos membros = N) — o
+   * número é exclusivo por OF (trigger da 038).
+   */
+  seq: number | null;
+  /** 038: faixa sobre a Qtd. do GRUPO (Σ dos membros). */
+  qtyMin: number | null;
+  qtyMax: number | null;
+  /** 038: faixa sobre o Peso total do GRUPO (Σ qtd × peso unit.). */
+  weightMin: number | null;
+  weightMax: number | null;
+  /** 038: faixa sobre o Peso unitário exibido ("—" quando os membros divergem). */
+  weightUnitMin: number | null;
+  weightUnitMax: number | null;
   page: number;
   pageSize: number;
 }
@@ -210,8 +230,6 @@ export interface ChildItemGroupsResult {
   qtyTotal: number;
   /** Peso total (kg) do conjunto filtrado — Σ (qtd × peso unit.). */
   weightTotal: number;
-  /** 035: quebra por família do MESMO conjunto dos totais acima (todas as páginas). */
-  familyTotals: FamilyTotal[];
 }
 
 /** Payload de um item enviado pelo formulário. */

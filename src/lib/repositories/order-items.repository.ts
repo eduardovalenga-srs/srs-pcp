@@ -20,6 +20,24 @@ function toNumber(value: number | string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Lotes para o `.in("id", …")` de LEITURA da página da Fábrica 1. Com
+ * 1000 grupos por página a lista de ids passa de milhares de UUIDs e a
+ * URL do PostgREST estoura o limite do proxy (414/431) — o próprio
+ * updateItemsSeq impõe teto de 500 pelo mesmo motivo. Em lotes o total
+ * de linhas lidas é o mesmo e as buscas rodam em paralelo (a latência
+ * da página é a do pior lote, não a soma).
+ */
+const READ_ID_CHUNK_SIZE = 250;
+
+function chunkIds(ids: readonly string[], size = READ_ID_CHUNK_SIZE): string[][] {
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += size) {
+    chunks.push(ids.slice(index, index + size));
+  }
+  return chunks;
+}
+
 /** Item com seus processos e materiais (usado na edição de item). */
 export async function getOrderItemWithProcesses(
   client: SupabaseServer,
@@ -364,6 +382,15 @@ export async function listChildItemGroups(
     p_delivery_to: filters.deliveryTo || null,
     p_process_id: processId,
     p_process_status: filters.processStatus !== "ALL" ? filters.processStatus : null,
+    // 038: seq por igualdade + faixas sobre os AGREGADOS do grupo
+    // (menor seq, Σ qtd, Σ peso, peso unitário exibido).
+    p_seq: filters.seq,
+    p_qty_min: filters.qtyMin,
+    p_qty_max: filters.qtyMax,
+    p_weight_min: filters.weightMin,
+    p_weight_max: filters.weightMax,
+    p_weight_unit_min: filters.weightUnitMin,
+    p_weight_unit_max: filters.weightUnitMax,
   };
   const from = (filters.page - 1) * filters.pageSize;
   const [groupsResult, totalsResult] = await Promise.all([
@@ -392,7 +419,7 @@ export async function listChildItemGroups(
     total: number | string;
     qtyTotal: number | string;
     weightTotal: number | string;
-    /** 035: quebra por família do conjunto filtrado (chave nova da 024). */
+    /** 035: a RPC ainda devolve `families` — a quebra por família não é mais exibida. */
     families?: { family: string | null; qty: number | string; weight: number | string }[];
   };
   const totals = (totalsResult.data ?? {}) as unknown as TotalsRow;
@@ -401,12 +428,6 @@ export async function listChildItemGroups(
     total: toNumber(groupsPayload.total ?? null) ?? 0,
     qtyTotal: toNumber(totals.qtyTotal) ?? 0,
     weightTotal: toNumber(totals.weightTotal) ?? 0,
-    //035: família vazia vem null; a UI exibe "—".
-    familyTotals: (totals.families ?? []).map((entry) => ({
-      family: entry.family,
-      qty: toNumber(entry.qty) ?? 0,
-      weight: toNumber(entry.weight) ?? 0,
-    })),
   };
   if (memberIds.length === 0) {
     return { items: [], ...aggregated };
@@ -423,14 +444,21 @@ export async function listChildItemGroups(
    production_processes ( id, status, quantity_planned, quantity_completed, notes, processes ( code, name, display_order ) ),
    ${materialEmbed} ( id, description, quantity, unit, notes )`;
 
-  let memberQuery = client.from("order_items").select(pageColumns).in("id", memberIds);
-  if (materialIlike) {
-    // Com filtro de material, o embed entrega só os materiais casados
-    // (quem casou o filtro na RPC tem o material — ninguém cai fora).
-    memberQuery = memberQuery.ilike("order_item_materials.description", materialIlike);
+  const memberResults = await Promise.all(
+    chunkIds(memberIds).map((ids) => {
+      let query = client.from("order_items").select(pageColumns).in("id", ids);
+      if (materialIlike) {
+        // Com filtro de material, o embed entrega só os materiais casados
+        // (quem casou o filtro na RPC tem o material — ninguém cai fora).
+        query = query.ilike("order_item_materials.description", materialIlike);
+      }
+      return query;
+    }),
+  );
+  for (const result of memberResults) {
+    assertOk(result.error, "Não foi possível carregar os itens filhos");
   }
-  const { data: memberRows, error: membersError } = await memberQuery;
-  assertOk(membersError, "Não foi possível carregar os itens filhos");
+  const memberRows = memberResults.flatMap((result) => result.data ?? []);
 
   type RawParent = {
     id: string;
@@ -450,7 +478,7 @@ export async function listChildItemGroups(
   // do mesmo pai sem repetir dado.
   const pageParentIds = [
     ...new Set(
-      ((memberRows ?? []) as unknown as { parent_order_item_id: string | null }[])
+      (memberRows as unknown as { parent_order_item_id: string | null }[])
         .map((row) => row.parent_order_item_id)
         .filter((id): id is string => id !== null),
     ),
@@ -458,15 +486,21 @@ export async function listChildItemGroups(
 
   const parentsById = new Map<string, RawParent>();
   if (pageParentIds.length > 0) {
-    const { data, error } = await client
-      .from("order_items")
-      .select(
-        "id, parent_item, description, delivery_date, orders ( delivery_date ), production_processes ( status, completed_at, processes ( code ) )",
-      )
-      .in("id", pageParentIds);
-    assertOk(error, "Não foi possível carregar os itens pai");
-    for (const parent of (data ?? []) as unknown as RawParent[]) {
-      parentsById.set(parent.id, parent);
+    const parentResults = await Promise.all(
+      chunkIds(pageParentIds).map((ids) =>
+        client
+          .from("order_items")
+          .select(
+            "id, parent_item, description, delivery_date, orders ( delivery_date ), production_processes ( status, completed_at, processes ( code ) )",
+          )
+          .in("id", ids),
+      ),
+    );
+    for (const result of parentResults) {
+      assertOk(result.error, "Não foi possível carregar os itens pai");
+      for (const parent of (result.data ?? []) as unknown as RawParent[]) {
+        parentsById.set(parent.id, parent);
+      }
     }
   }
 
@@ -500,7 +534,7 @@ export async function listChildItemGroups(
 
   // Ordenação determinística dos membros (pai → descrição → id): define
   // o "primeiro" membro de cada grupo (badge do pai, descrição, notas).
-  const rows = ((memberRows ?? []) as unknown as Raw[]).slice().sort(
+  const rows = (memberRows as unknown as Raw[]).slice().sort(
     (left, right) =>
       (left.parent_item ?? "").localeCompare(right.parent_item ?? "") ||
       left.description.localeCompare(right.description) ||

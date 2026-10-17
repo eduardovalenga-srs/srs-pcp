@@ -43,6 +43,9 @@ function applyOrderFilters<T>(query: T, filters: OrderFilters): T {
   const builder = query as unknown as {
     or: (filter: string) => unknown;
     eq: (column: string, value: string) => unknown;
+    ilike: (column: string, value: string) => unknown;
+    gte: (column: string, value: string) => unknown;
+    lte: (column: string, value: string) => unknown;
   };
   const term = escapeFilterTerm(filters.search);
   if (term) {
@@ -50,6 +53,22 @@ function applyOrderFilters<T>(query: T, filters: OrderFilters): T {
   }
   if (filters.status !== "ALL") {
     builder.eq("status", filters.status);
+  }
+  // 038: filtros por coluna — OF/OS e Cliente por "contém" (dedicados,
+  // separados da busca genérica) e período de entrega inclusivo.
+  const code = escapeFilterTerm(filters.code);
+  if (code) {
+    builder.ilike("code", `%${code}%`);
+  }
+  const customer = escapeFilterTerm(filters.customer);
+  if (customer) {
+    builder.ilike("customer_name", `%${customer}%`);
+  }
+  if (filters.deliveryFrom) {
+    builder.gte("delivery_date", filters.deliveryFrom);
+  }
+  if (filters.deliveryTo) {
+    builder.lte("delivery_date", filters.deliveryTo);
   }
   return query;
 }

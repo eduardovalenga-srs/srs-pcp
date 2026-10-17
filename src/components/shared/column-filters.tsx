@@ -4,6 +4,7 @@ import { useId, useState, type ReactNode } from "react";
 import { Filter, X } from "lucide-react";
 
 import { normalizeDeliveryPeriod } from "@/lib/utils/filters";
+import { toNumber } from "@/lib/utils/formatting";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -392,6 +393,316 @@ export function DeliveryPeriodPopover({
             </Button>
           ) : null}
           <Button type="button" size="sm" disabled={!canApply} onClick={() => commit(false)}>
+            Aplicar
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Rascunho numérico de filtro de coluna: vazio = null (sem limite);
+ * negativo ou não numérico é sinalizado para a UI (nunca chega à URL).
+ */
+function parseNumberDraft(draft: string): { value: number | null; invalid: boolean } {
+  const trimmed = draft.trim();
+  if (trimmed === "") return { value: null, invalid: false };
+  const parsed = toNumber(trimmed);
+  if (parsed === null || parsed < 0) return { value: null, invalid: true };
+  return { value: parsed, invalid: false };
+}
+
+export interface NumericRangeFilterProps {
+  /** Contexto do título/aria do funil, ex.: "quantidade". */
+  context: string;
+  /** Rótulo dos campos no painel, ex.: "Qtd.". */
+  column: string;
+  /** Faixa vigente (null = lado aberto). */
+  min: number | null;
+  max: number | null;
+  /** Aplica a faixa na URL (a tela decide os parâmetros). */
+  onApply: (min: number | null, max: number | null) => void;
+  /** Prefixo dos ids dos campos (cada tela tem os seus). */
+  idPrefix: string;
+  /** Passo dos campos (padrão "1"; pesos usam "0.001"). */
+  step?: string;
+}
+
+/**
+ * Filtro de faixa numérica (De/Até) por cabeçalho de coluna — Qtd.,
+ * Peso etc. Mesmo padrão do DeliveryPeriodPopover: rascunho local e a
+ * URL só muda em "Aplicar"/Enter (o blur não navega).
+ */
+export function NumericRangeFilter({
+  context,
+  column,
+  min,
+  max,
+  onApply,
+  idPrefix,
+  step = "1",
+}: NumericRangeFilterProps) {
+  const [open, setOpen] = useState(false);
+  const [draftMin, setDraftMin] = useState(min?.toString() ?? "");
+  const [draftMax, setDraftMax] = useState(max?.toString() ?? "");
+  const [synced, setSynced] = useState({ min, max });
+  // Última faixa enviada à URL: o eco da navegação não pode reescrever o
+  // rascunho do campo que o usuário está digitando em seguida.
+  const [sent, setSent] = useState({ min, max });
+
+  if (synced.min !== min || synced.max !== max) {
+    setSynced({ min, max });
+    const echo = sent.min === min && sent.max === max;
+    if (!echo) {
+      setSent({ min, max });
+      setDraftMin(min?.toString() ?? "");
+      setDraftMax(max?.toString() ?? "");
+    }
+  }
+
+  const active = min !== null || max !== null;
+  const parsedMin = parseNumberDraft(draftMin);
+  const parsedMax = parseNumberDraft(draftMax);
+  const invalid = parsedMin.invalid || parsedMax.invalid;
+  const inverted =
+    !invalid && parsedMin.value !== null && parsedMax.value !== null && parsedMin.value > parsedMax.value;
+
+  const commit = () => {
+    if (invalid || inverted) return;
+    if (sent.min === parsedMin.value && sent.max === parsedMax.value) {
+      setOpen(false);
+      return;
+    }
+    setSent({ min: parsedMin.value, max: parsedMax.value });
+    onApply(parsedMin.value, parsedMax.value);
+    setOpen(false);
+  };
+
+  const onOpenChange = (next: boolean) => {
+    setOpen(next);
+    // Cada abertura parte da faixa vigente — descartar edições abandonadas.
+    if (next) {
+      setDraftMin(min?.toString() ?? "");
+      setDraftMax(max?.toString() ?? "");
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title={funnelTitle(context)}
+          aria-label={funnelAriaLabel(context, active)}
+          className={funnelClassName(active)}
+        >
+          <FunnelIcon active={active} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <Label htmlFor={`${idPrefix}-de`} className="text-xs text-muted-foreground">
+              {column} — de
+            </Label>
+            <Input
+              id={`${idPrefix}-de`}
+              type="text"
+              inputMode="decimal"
+              step={step}
+              value={draftMin}
+              onChange={(event) => setDraftMin(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commit();
+                }
+              }}
+              placeholder="Mínimo"
+              autoComplete="off"
+              className="h-8"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor={`${idPrefix}-ate`} className="text-xs text-muted-foreground">
+              {column} — até
+            </Label>
+            <Input
+              id={`${idPrefix}-ate`}
+              type="text"
+              inputMode="decimal"
+              step={step}
+              value={draftMax}
+              onChange={(event) => setDraftMax(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commit();
+                }
+              }}
+              placeholder="Máximo"
+              autoComplete="off"
+              className="h-8"
+            />
+          </div>
+        </div>
+
+        {invalid ? (
+          <p className="text-xs text-destructive" role="status">
+            Informe números válidos (sem negativos).
+          </p>
+        ) : inverted ? (
+          <p className="text-xs text-destructive" role="status">
+            O mínimo é maior que o máximo.
+          </p>
+        ) : null}
+
+        <div className="flex items-center justify-end gap-2">
+          {active ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSent({ min: null, max: null });
+                setDraftMin("");
+                setDraftMax("");
+                onApply(null, null);
+                setOpen(false);
+              }}
+            >
+              Limpar
+            </Button>
+          ) : null}
+          <Button type="button" size="sm" disabled={invalid || inverted} onClick={commit}>
+            Aplicar
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export interface SeqEqualityFilterProps {
+  /** Contexto do título/aria do funil, ex.: "sequência de fabricação". */
+  context: string;
+  /** Sequência vigente (null = sem filtro). */
+  value: number | null;
+  /** Aplica a sequência na URL (null limpa o filtro). */
+  onApply: (value: number | null) => void;
+  /** Prefixo dos ids dos campos (cada tela tem os seus). */
+  idPrefix: string;
+}
+
+/**
+ * Filtro da coluna Seq. por IGUALDADE (seq = N, 038): inteiro >= 1 —
+ * o número é exclusivo por OF, então o filtro devolve a linha do
+ * planejamento. Mesmo padrão dos demais popovers de cabeçalho.
+ */
+export function SeqEqualityFilter({ context, value, onApply, idPrefix }: SeqEqualityFilterProps) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(value?.toString() ?? "");
+  const [synced, setSynced] = useState(value);
+  // Último valor enviado à URL — o eco da navegação não reescreve o rascunho.
+  const [sent, setSent] = useState(value);
+
+  if (synced !== value) {
+    setSynced(value);
+    if (sent !== value) {
+      setSent(value);
+      setDraft(value?.toString() ?? "");
+    }
+  }
+
+  const active = value !== null;
+  const trimmed = draft.trim();
+  let parsed: number | null = null;
+  let invalid = false;
+  if (trimmed !== "") {
+    if (/^\d{1,6}$/.test(trimmed) && Number.parseInt(trimmed, 10) >= 1) {
+      parsed = Number.parseInt(trimmed, 10);
+    } else {
+      invalid = true;
+    }
+  }
+
+  const commit = () => {
+    if (invalid) return;
+    if (sent === parsed) {
+      setOpen(false);
+      return;
+    }
+    setSent(parsed);
+    onApply(parsed);
+    setOpen(false);
+  };
+
+  const onOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (next) {
+      setDraft(value?.toString() ?? "");
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title={funnelTitle(context)}
+          aria-label={funnelAriaLabel(context, active)}
+          className={funnelClassName(active)}
+        >
+          <FunnelIcon active={active} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-56 space-y-3">
+        <div className="space-y-1">
+          <Label htmlFor={`${idPrefix}-seq`} className="text-xs text-muted-foreground">
+            Seq. — igual a
+          </Label>
+          <Input
+            id={`${idPrefix}-seq`}
+            type="text"
+            inputMode="numeric"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commit();
+              }
+            }}
+            placeholder="Ex.: 7"
+            autoComplete="off"
+            className="h-8"
+          />
+        </div>
+
+        {invalid ? (
+          <p className="text-xs text-destructive" role="status">
+            Digite um número inteiro maior que zero.
+          </p>
+        ) : null}
+
+        <div className="flex items-center justify-end gap-2">
+          {active ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSent(null);
+                setDraft("");
+                onApply(null);
+                setOpen(false);
+              }}
+            >
+              Limpar
+            </Button>
+          ) : null}
+          <Button type="button" size="sm" disabled={invalid} onClick={commit}>
             Aplicar
           </Button>
         </div>

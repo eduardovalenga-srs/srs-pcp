@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 import {
   DeliveryPeriodPopover,
   FilterMenu,
+  NumericRangeFilter,
+  SeqEqualityFilter,
   TextColumnFilter as SharedTextColumnFilter,
 } from "@/components/shared/column-filters";
 import { Label } from "@/components/ui/label";
@@ -211,6 +213,93 @@ export function TextColumnFilter({ filters, field, column, context }: TextColumn
         patch[field] = value;
         apply(patch);
       }}
+    />
+  );
+}
+
+/** Filtro da coluna Seq. — igualdade (seq = N, exclusivo por OF — 038). */
+export function SeqFilter({ filters }: { filters: ProductionFilters }) {
+  const apply = useApplyFilters(filters);
+
+  return (
+    <SeqEqualityFilter
+      context="sequência de fabricação"
+      value={filters.seq}
+      idPrefix="gestao-seq"
+      onApply={(value) => apply({ seq: value })}
+    />
+  );
+}
+
+interface NumericColumnFilterProps {
+  filters: ProductionFilters;
+  minField: "qtyMin" | "weightMin";
+  maxField: "qtyMax" | "weightMax";
+  /** Rótulo da coluna, ex.: "Qtd.". */
+  column: string;
+  /** Contexto do título/aria, ex.: "quantidade". */
+  context: string;
+  /** Prefixo dos ids dos campos (cada tela/coluna tem os seus). */
+  idPrefix: string;
+  /** Passo dos campos (padrão "1"; pesos usam "0.001"). */
+  step?: string;
+}
+
+/** Filtro de faixa numérica (De/Até) por coluna — Qtd., Peso etc. (038). */
+export function NumericColumnFilter({
+  filters,
+  minField,
+  maxField,
+  column,
+  context,
+  idPrefix,
+  step,
+}: NumericColumnFilterProps) {
+  const apply = useApplyFilters(filters);
+
+  return (
+    <NumericRangeFilter
+      context={context}
+      column={column}
+      min={filters[minField]}
+      max={filters[maxField]}
+      idPrefix={idPrefix}
+      step={step}
+      onApply={(min, max) => apply({ [minField]: min, [maxField]: max })}
+    />
+  );
+}
+
+/**
+ * Filtro de UMA coluna de processo: situação daquele processo específico
+ * (038). Só existe um filtro de processo por vez no backend — ativar aqui
+ * substitui o de outra coluna/de grupo (processCode vira o código desta
+ * coluna); "Todas" limpa o par processo+situação.
+ */
+export function ProcessColumnFilter({ filters, code }: { filters: ProductionFilters; code: string }) {
+  const apply = useApplyFilters(filters);
+  const active = filters.processCode === code && filters.processStatus !== "ALL";
+  const value = active && filters.processStatus ? filters.processStatus : "ALL";
+
+  return (
+    <FilterMenu
+      context={`situação do processo ${code}`}
+      value={value}
+      active={active}
+      options={[
+        { value: "ALL", label: "Todas as situações" },
+        ...PROCESS_STATUSES.map((status) => ({
+          value: status,
+          label: `${PROCESS_STATUS_SYMBOLS[status]} ${PROCESS_STATUS_LABELS[status]}`,
+        })),
+      ]}
+      onValueChange={(next) =>
+        apply(
+          next === "ALL"
+            ? { processCode: "ALL", processStatus: "ALL" }
+            : { processCode: code, processStatus: next as ProductionFilters["processStatus"] },
+        )
+      }
     />
   );
 }
