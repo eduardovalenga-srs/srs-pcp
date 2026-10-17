@@ -7,6 +7,7 @@ import type {
   FileOrder,
   ImportErrorEntry,
   ImportPreview,
+  ImportSheetFormat,
   OfDecisionMap,
   OfPreview,
 } from "@/lib/types/import";
@@ -19,6 +20,7 @@ import {
 } from "@/lib/repositories/import.repository";
 import { parseExcelFile } from "@/lib/import/excel-parser";
 import { buildOfStructure, orderStatusOf } from "@/lib/import/of-structure";
+import { buildPartsOfStructure } from "@/lib/import/of-structure-parts";
 import { buildOfFromPdfRows, PDF_COMPOSITION_SHEET_NAME } from "@/lib/import/of-pdf";
 import { extractPdfRows } from "@/lib/import/pdf-text";
 import { buildOfImportPlan, computeOfDifferences } from "@/lib/import/of-plan";
@@ -50,10 +52,11 @@ export class ImportInputError extends Error {
  * pelo NOME técnico e os processos são criados pelo catálogo (o arquivo
  * não traz status de processo nem OP).
  *
- * Duas fontes, o MESMO downstream: planilha (.xlsx/.xls, colunas
- * técnicas) e PDF da A1 (.pdf, seção "COMPOSIÇÃO DOS CONJUNTOS").
- * Ambas produzem `BuiltOf` — prévia, diffs, decisões, plano e RPC não
- * mudam conforme a origem.
+ * Três fontes, o MESMO downstream: planilha da fábrica (.xlsx/.xls,
+ * colunas técnicas), lista de peças e conjuntos de cliente (038, colunas
+ * CONJUNTO/PEÇA/...) e PDF da A1 (.pdf, seção "COMPOSIÇÃO DOS
+ * CONJUNTOS"). Todas produzem `BuiltOf` — prévia, diffs, decisões,
+ * plano e RPC não mudam conforme a origem.
  */
 
 export interface AnalyzeOutput {
@@ -62,7 +65,7 @@ export interface AnalyzeOutput {
   /** Origem do arquivo: planilha Excel ou PDF da A1 (seção de composição). */
   source: "excel" | "pdf";
   /** Abas (Excel) ou a seção reconhecida do PDF, no formato reconhecido. */
-  sheets: { name: string; rowCount: number; columnCount: number }[];
+  sheets: { name: string; rowCount: number; columnCount: number; format: ImportSheetFormat | null }[];
   defaultSheet: string;
 }
 
@@ -100,13 +103,13 @@ export function analyzeWorkbook(buffer: ArrayBuffer, fileName: string, fileSize:
 
   if (importable.length === 0) {
     throw new Error(
-      'O arquivo não contém nenhuma aba no formato reconhecido (colunas técnicas "of_idOF" e "ps_idPos" não encontradas). Baixe o modelo e use a planilha da fábrica.',
+      'O arquivo não contém nenhuma aba no formato reconhecido — planilha da fábrica (colunas técnicas "of_idOF" e "ps_idPos") ou lista de peças e conjuntos (colunas "CONJUNTO", "PEÇA" e "QTDE").',
     );
   }
 
   const first = importable[0];
   if (!first) return { fileName, fileSize, source: "excel", sheets: [], defaultSheet: "" };
-  assertSheetStructure(first.headers, first.rows.length);
+  assertSheetStructure(first.headers, first.rows.length, workbook.headerBySheet[first.name]?.format ?? "layout-of");
 
   return {
     fileName,
@@ -116,6 +119,7 @@ export function analyzeWorkbook(buffer: ArrayBuffer, fileName: string, fileSize:
       name: sheet.name,
       rowCount: sheet.rows.length,
       columnCount: sheet.headers.filter((header) => header.trim() !== "").length,
+      format: workbook.headerBySheet[sheet.name]?.format ?? null,
     })),
     defaultSheet: first.name,
   };
@@ -138,6 +142,8 @@ export async function analyzePdf(buffer: ArrayBuffer, fileName: string, fileSize
           rowCount: parents,
           // Campos lidos por linha de composição (cabeçalho/filho/material).
           columnCount: 9,
+          // O PDF não tem cabeçalho de planilha: formato não se aplica.
+          format: null,
         },
       ],
       defaultSheet: PDF_COMPOSITION_SHEET_NAME,
@@ -191,15 +197,23 @@ export async function buildPreview(client: SupabaseServer, input: PreviewInput):
       if (!sheet) throw new Error(`Planilha "${input.sheetName}" não encontrada.`);
 
       const detection = workbook.headerBySheet[sheet.name];
-      if (!detection?.detected) {
-        throw new Error(`A aba "${input.sheetName}" não tem o cabeçalho técnico do layout novo.`);
+      if (!detection?.detected || !detection.format) {
+        throw new Error(
+          `A aba "${input.sheetName}" não tem o cabeçalho reconhecido (layout da fábrica ou lista de peças e conjuntos).`,
+        );
       }
-      assertSheetStructure(sheet.headers, sheet.rows.length);
+      assertSheetStructure(sheet.headers, sheet.rows.length, detection.format);
 
-      const built = buildOfStructure(sheet, {
-        customerName: input.customerName,
-        deliveryDate: input.deliveryDate,
-      });
+      const built =
+        detection.format === "lista-pecas"
+          ? buildPartsOfStructure(sheet, {
+              customerName: input.customerName,
+              deliveryDate: input.deliveryDate,
+            })
+          : buildOfStructure(sheet, {
+              customerName: input.customerName,
+              deliveryDate: input.deliveryDate,
+            });
       orders = built.orders;
       ignoredColumns = built.ignoredColumns;
     }

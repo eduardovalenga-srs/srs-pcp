@@ -23,3 +23,24 @@ export function normalizeOrderCode(id: string, typeHint: OrderType | string): {
   const rawId = (prefixed ? prefixed[2] : id).trim();
   return { code: `${type} ${rawId}`.trim(), type };
 }
+
+/**
+ * Código da OF gerado da DATA DE ENTREGA para a lista de peças e conjuntos
+ * (038) — a lista não traz código: dia e mês viram o número, no mesmo
+ * padrão "<TIPO> <número>" dos demais pedidos ("2026-11-05" -> "OF 0511").
+ *
+ * Determinístico de propósito: reimportar o mesmo arquivo com a mesma
+ * entrega gera o MESMO código e cai no fluxo de decisão da prévia
+ * (UPDATE/KEEP/SKIP) em vez de criar uma OF duplicada.
+ */
+export function orderCodeFromDeliveryDate(deliveryDate: string): {
+  code: string;
+  type: OrderType;
+} {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(deliveryDate.trim());
+  if (!match) {
+    throw new Error("Data de entrega inválida (AAAA-MM-DD) para gerar o código da OF.");
+  }
+  const [, , month, day] = match;
+  return normalizeOrderCode(`${day}${month}`, "OF");
+}

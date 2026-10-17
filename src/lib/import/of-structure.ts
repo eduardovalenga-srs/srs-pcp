@@ -64,7 +64,7 @@ const CONSUMED_COLUMNS = [
 ] as const;
 
 /** Valor textual de uma célula (números viram texto sem sinalizador). */
-function cellText(row: unknown[], index: number | undefined): string {
+export function cellText(row: unknown[], index: number | undefined): string {
   if (index === undefined) return "";
   const cell = row[index];
   if (cell === null || cell === undefined) return "";
@@ -72,13 +72,15 @@ function cellText(row: unknown[], index: number | undefined): string {
   return String(cell).trim();
 }
 
-function cellNumber(row: unknown[], index: number | undefined): { value: number | null; raw: string } {
+/** Valor numérico de uma célula com o texto original (para avisos). */
+export function cellNumber(row: unknown[], index: number | undefined): { value: number | null; raw: string } {
   const text = cellText(row, index);
   if (!text) return { value: null, raw: "" };
   return { value: toNumber(text), raw: text };
 }
 
-function isEmptyRow(row: unknown[]): boolean {
+/** Linha inteiramente vazia (qualquer formato de planilha). */
+export function isEmptyRow(row: unknown[]): boolean {
   return row.every((cell) => cell === null || cell === undefined || String(cell).trim() === "");
 }
 
@@ -128,7 +130,7 @@ function pushTotalWeightDivergence(
 }
 
 /** Material válido? "SEM MATERIAL" (e variantes) significa ausência. */
-function materialDescription(raw: string): string | null {
+export function materialDescription(raw: string): string | null {
   const text = raw.trim();
   if (!text) return null;
   const normalized = normalizeHeader(text);

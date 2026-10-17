@@ -70,6 +70,9 @@ const TECH_HEADERS = [
   "cp_Qualidade",
 ];
 
+/** Cabeçalho da lista de peças e conjuntos de cliente (038). */
+const PARTS_HEADERS = ["CONJUNTO", "PEÇA", "QTDE", "PERFIL", "MATERIAL", "COMPR.(mm)", "MASSA(Kg)"];
+
 const FORM = { sheetName: "Fábrica", customerName: "ACME", deliveryDate: "2026-12-15" };
 
 const PDF_FIXTURE_PATH = path.join(process.cwd(), "tests", "fixtures", "of-2615-aa-4.pdf");
@@ -174,7 +177,22 @@ describe("POST /api/importacao — etapa analyze", () => {
     const body = await response.json();
     expect(body.fileName).toBe("OF 107482.xlsx");
     expect(body.defaultSheet).toBe("Fábrica");
-    expect(body.sheets).toEqual([{ name: "Fábrica", rowCount: 2, columnCount: 20 }]);
+    expect(body.sheets).toEqual([
+      { name: "Fábrica", rowCount: 2, columnCount: 20, format: "layout-of" },
+    ]);
+  });
+
+  it("reconhece a lista de peças e conjuntos (formato do cliente)", async () => {
+    const bytes = workbookBytes({
+      Planilha1: [PARTS_HEADERS, ["SOL-PAS-GC1", null, 2, "GUARDA-CORPO", null, null, 120.4]],
+    });
+    const response = await postForm({ file: new File([bytes], "lista.xlsx"), step: "analyze" });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.defaultSheet).toBe("Planilha1");
+    expect(body.sheets).toEqual([
+      { name: "Planilha1", rowCount: 1, columnCount: 7, format: "lista-pecas" },
+    ]);
   });
 
   it("rejeita arquivo no formato antigo (sem cabeçalho técnico)", async () => {
@@ -215,7 +233,7 @@ describe("POST /api/importacao — etapa analyze", () => {
     const body = await response.json();
     expect(body.source).toBe("pdf");
     expect(body.sheets).toEqual([
-      { name: "Composição dos conjuntos", rowCount: 77, columnCount: 9 },
+      { name: "Composição dos conjuntos", rowCount: 77, columnCount: 9, format: null },
     ]);
     expect(body.defaultSheet).toBe("Composição dos conjuntos");
   });
@@ -269,6 +287,43 @@ describe("POST /api/importacao — etapa preview", () => {
     expect(entry.requiresDecision).toBe(true);
     expect(entry.differences.length).toBeGreaterThan(0);
     expect(body.totals.existing).toBe(1);
+  });
+
+  it("monta a prévia da lista de peças com OF gerada da data de entrega", async () => {
+    const bytes = workbookBytes({
+      Planilha1: [
+        PARTS_HEADERS,
+        ["SOL-PAS-GC1", null, 2, "GUARDA-CORPO", null, null, 13.02],
+        [null, "P113", 1, "TB. RED. 42,2X3,56", "DIN 2440", 260, 0.91],
+        [null, "P194", 10, "BARRA22X3.2", "A36", 995, 0.56],
+      ],
+    });
+    const response = await postForm({
+      file: new File([bytes], "lista.xlsx"),
+      step: "preview",
+      sheetName: "Planilha1",
+      customerName: "VIA RONDON",
+      deliveryDate: "2026-11-05",
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+
+    expect(body.totals).toMatchObject({
+      orders: 1,
+      importable: 1,
+      errors: 0,
+      parents: 1,
+      children: 2,
+      materials: 2,
+    });
+    const entry = body.orders[0];
+    expect(entry.status).toBe("VALID");
+    expect(entry.exists).toBe(false);
+    expect(entry.order.code).toBe("OF 0511");
+    expect(entry.order.type).toBe("OF");
+    expect(entry.order.customerName).toBe("VIA RONDON");
+    expect(entry.order.description).toBe("GUARDA-CORPO");
+    expect(entry.counts).toEqual({ parents: 1, children: 2, materials: 2 });
   });
 
   it("valida cliente e data de entrega no servidor", async () => {

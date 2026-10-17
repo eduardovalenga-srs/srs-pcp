@@ -14,6 +14,13 @@ export interface ParsedWorkbook {
   sheets: ParsedSheet[];
 }
 
+/**
+ * Formatos de planilha reconhecidos pela importação:
+ * - `layout-of`: planilha da fábrica (colunas técnicas of_idOF, ps_idPos, ...);
+ * - `lista-pecas`: lista de peças e conjuntos de cliente (CONJUNTO, PEÇA, ...).
+ */
+export type ImportSheetFormat = "layout-of" | "lista-pecas";
+
 /** Status de uma OF na prévia. */
 export type RowStatus = "VALID" | "WARNING" | "ERROR";
 

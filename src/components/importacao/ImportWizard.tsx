@@ -10,6 +10,7 @@ import { IMPORT_DECISION_LABELS, IMPORT_DECISIONS, type ImportDecision } from "@
 import { undecidedOrders } from "@/lib/import/of-plan";
 import type { AnalyzeOutput, ExecuteImportOutput } from "@/lib/services/import.service";
 import type { ImportPreview, OfDecisionMap } from "@/lib/types/import";
+import { orderCodeFromDeliveryDate } from "@/lib/utils/order-code";
 import { FileDrop } from "@/components/importacao/FileDrop";
 import { OfPreviewList } from "@/components/importacao/OfPreviewList";
 import { Button } from "@/components/ui/button";
@@ -102,6 +103,14 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
   const [status, setStatus] = useState("");
 
   const activeSheet = sheetName || analysis?.defaultSheet || "";
+  const activeFormat = analysis?.sheets.find((sheet) => sheet.name === activeSheet)?.format ?? null;
+  const isPartsList = activeFormat === "lista-pecas";
+  // Código que a lista de peças vai gerar — mesma regra do servidor
+  // (dia e mês da entrega viram o número da OF).
+  const generatedOrderCode =
+    isPartsList && /^\d{4}-\d{2}-\d{2}$/.test(deliveryDate)
+      ? orderCodeFromDeliveryDate(deliveryDate).code
+      : null;
   const undecided = preview ? undecidedOrders(preview, decisions) : [];
   const canContinue = preview !== null && preview.totals.importable > 0 && undecided.length === 0;
   const existingCodes = preview?.orders.filter((entry) => entry.requiresDecision).map((entry) => entry.order.code) ?? [];
@@ -368,7 +377,9 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
                   aria-invalid={Boolean(error) && !deliveryDate}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Vinculada a todos os registros: OF, itens pai e filhos.
+                  {generatedOrderCode
+                    ? `Vinculada a todos os registros. Nesta lista o código da OF é gerado da data: ${generatedOrderCode}.`
+                    : "Vinculada a todos os registros: OF, itens pai e filhos."}
                 </p>
               </div>
             </div>
@@ -402,17 +413,23 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
                     } conjunto(s) lidos`
                   : `${activeSheet} · ${
                       analysis.sheets.find((sheet) => sheet.name === activeSheet)?.columnCount ?? 0
-                    } coluna(s) técnicas · cabeçalho detectado automaticamente`}
+                    } coluna(s) · ${
+                      isPartsList ? "lista de peças e conjuntos" : "layout técnico da fábrica"
+                    } · cabeçalho detectado automaticamente`}
               </p>
             ) : null}
 
             <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
               <li>Planilha (.xlsx): o modelo traz o cabeçalho técnico e linhas de exemplo da hierarquia.</li>
               <li>
+                Lista de peças e conjuntos (.xlsx): colunas CONJUNTO, PEÇA, QTDE, PERFIL, MATERIAL e MASSA(Kg) —
+                conjuntos viram itens pai, peças viram filhos; o código da OF é gerado da data de entrega (dia e mês).
+              </li>
+              <li>
                 PDF (.pdf): a seção <strong>COMPOSIÇÃO DOS CONJUNTOS</strong> da Ordem de Fabricação da A1 vira a
                 estrutura — conjuntos são itens pai, peças são filhos, perfis/chapas viram matéria-prima.
               </li>
-              <li>Não existe etapa de mapeamento: as colunas são reconhecidas pelo nome técnico.</li>
+              <li>Não existe etapa de mapeamento: as colunas são reconhecidas pelo nome.</li>
               <li>A prévia mostra a estrutura, erros/alertas e as diferenças por OF — nada é gravado antes da confirmação.</li>
             </ul>
           </div>

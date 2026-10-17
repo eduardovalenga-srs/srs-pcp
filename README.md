@@ -122,7 +122,7 @@ src/
         [id]/               detalhes da OF (itens pai + filhos aninhados, processos e MP)
         [id]/editar/        formulário de edição
       dashboard/            KPIs, janelas de entrega, carga por processo
-      importacao/           assistente de importação (Excel ou PDF da A1)
+      importacao/           assistente de importação (Excel, lista de peças ou PDF da A1)
       processos/            catálogo de processos (fluxo fabril)
       configuracoes/        usuários e permissões
     api/importacao/         análise / prévia / execução + modelo .xlsx (aceita .pdf)
@@ -132,8 +132,9 @@ src/
     services/               regras de negócio (server-only)
     repositories/           acesso a dados (Supabase)
     validators/             schemas zod
-    import/                 parser/estrutura/diferenças/plano da importação (layout OF)
-                            excel-parser (SheetJS) + of-pdf/pdf-text (PDF da A1)
+    import/                 parser/estrutura/diferenças/plano da importação
+                            excel-parser (SheetJS, layout OF e lista de peças),
+                            of-structure/of-structure-parts + of-pdf/pdf-text (PDF da A1)
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
@@ -299,6 +300,27 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   cabeçalho (aviso quando diverge). PDF ilegível, sem a seção ou com outra seção geram
   erro amigável (entrada do usuário). Fixture real reduzida em
   `tests/fixtures/of-2615-aa-4.pdf` (77 pais, 154 filhos, 154 materiais).
+- **Importação da lista de peças e conjuntos (3ª fonte)**: o assistente aceita também a
+  **lista de peças e conjuntos de cliente** — 7 colunas `CONJUNTO | PEÇA | QTDE | PERFIL |
+  MATERIAL | COMPR.(mm) | MASSA(Kg)` detectadas pelo cabeçalho (`detectHeaderRow` devolve
+  `format: "lista-pecas"` ao lado de `"layout-of"`; `assertSheetStructure` valida colunas
+  condicional ao formato). A **linha-mãe** (CONJUNTO com nome e PEÇA vazia) vira **item pai**:
+  `PERFIL` é o **tipo do produto** (GUARDA-CORPO → família GC) e `MASSA` o peso total do
+  conjunto; as linhas logo abaixo (`CONJUNTO` = `#`) viram **filhos** — `PEÇA` o código,
+  `QTDE` a quantidade **por conjunto**, `PERFIL` a **matéria-prima** (papel do `cp_DesMaterial`),
+  `MATERIAL` a qualidade do aço e `MASSA` o peso unitário, com `COMPR.(mm)` entrando na
+  observação da MP (`DIN 2440 · 995 mm`); filho sem PERFIL cai para o código como descrição
+  e avisa "sem matéria-prima". O **código da OF não vem do arquivo**: é **gerado da data de
+  entrega** (`orderCodeFromDeliveryDate` — `2026-11-05` → `OF 0511`), determinístico de
+  propósito (reimportar a mesma entrega gera o mesmo código e cai na decisão
+  Atualizar/Mantir/Ignorar em vez de criar OF nova) e o wizard mostra o código que será
+  gerado. Pesos derivam igual ao layout da fábrica (unitário do pai = Σ peça unit × qtd;
+  total = qtd × unit, 023) e a `MASSA` da linha-mãe só **avisa** quando diverge da fórmula
+  (tolerância 0,5% — a lista arredonda a massa para 1 casa). Avisos e erros: conjunto sem
+  peças (aviso), peça/conjunto repetido (aviso, 1ª ocorrência mantida), linha órfã ou sem
+  identificação (erro), quantidade ≤ 0 (erro) e números inválidos (aviso); nada muda na
+  prévia, diffs, decisões, lote e RPC `apply_of_import` — testes sintéticos em
+  `tests/import-parts.test.ts` (a planilha-exemplo do cliente fica fora do repositório).
 - **Matérias-primas** (`order_item_materials`, migração 011): insumo do **sub-item**
   (descrição, quantidade, unidade e observação) — sem processos próprios e fora da grade
   de produção. Sempre gravadas em lote pela RPC `replace_item_materials` (troca a lista

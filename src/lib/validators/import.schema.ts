@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 import { ALLOWED_IMPORT_EXTENSIONS, IMPORT_DECISIONS, MAX_IMPORT_ROWS } from "@/lib/constants/import";
-import { findMissingTechnicalColumns } from "@/lib/import/excel-parser";
+import { findMissingPartsColumns, findMissingTechnicalColumns } from "@/lib/import/excel-parser";
+import type { ImportSheetFormat } from "@/lib/types/import";
 import { isValidISODate } from "@/lib/utils/dates";
 
 /**
@@ -26,9 +27,14 @@ export function validateImportFile(file: File): { ok: true } | { ok: false; erro
 
 /**
  * Limites defensivos da estrutura do arquivo: linhas/colunas e colunas
- * técnicas obrigatórias (sem elas o arquivo não é o layout novo).
+ * obrigatórias do FORMATO detectado — técnicas do layout da fábrica ou da
+ * lista de peças e conjuntos (sem elas, o arquivo não é reconhecível).
  */
-export function assertSheetStructure(headers: string[], rowCount: number): void {
+export function assertSheetStructure(
+  headers: string[],
+  rowCount: number,
+  format: ImportSheetFormat = "layout-of",
+): void {
   if (headers.length > 200) {
     throw new Error("A planilha possui colunas demais (máximo 200).");
   }
@@ -39,11 +45,13 @@ export function assertSheetStructure(headers: string[], rowCount: number): void 
     throw new Error(`A planilha possui muitas linhas (máximo ${MAX_IMPORT_ROWS}).`);
   }
 
-  const missing = findMissingTechnicalColumns(headers);
+  const missing = format === "lista-pecas" ? findMissingPartsColumns(headers) : findMissingTechnicalColumns(headers);
   if (missing.length > 0) {
-    throw new Error(
-      `Colunas obrigatórias ausentes na planilha: ${missing.join(", ")}. O arquivo não está no formato esperado — use o modelo oficial.`,
-    );
+    const hint =
+      format === "lista-pecas"
+        ? "A lista de peças precisa das colunas CONJUNTO, PEÇA, QTDE, PERFIL, MATERIAL e MASSA(Kg)."
+        : "O arquivo não está no formato esperado — use o modelo oficial.";
+    throw new Error(`Colunas obrigatórias ausentes na planilha: ${missing.join(", ")}. ${hint}`);
   }
 }
 

@@ -31,10 +31,35 @@ const TECHNICAL_HEADER_TOKENS = [
 /** Nomes técnicos que PRECISAM existir para o arquivo ser reconhecido. */
 export const REQUIRED_TECHNICAL_COLUMNS = ["of_idOF", "ps_idPos", "ps_Descr", "cp_comp"] as const;
 
-/** Colunas técnicas ausentes em relação ao layout esperado (vazio = ok). */
+/** Colunas ausentes em relação ao layout esperado (vazio = ok). */
 export function findMissingTechnicalColumns(headers: string[]): string[] {
   const present = new Set(headers.map(normalizeHeader));
   return REQUIRED_TECHNICAL_COLUMNS.filter((column) => !present.has(normalizeHeader(column)));
+}
+
+/**
+ * Colunas da LISTA DE PEÇAS E CONJUNTOS de cliente (038) — normalizadas.
+ * Cabeçalho de 1 linha: CONJUNTO, PEÇA, QTDE, PERFIL, MATERIAL,
+ * COMPR.(mm) e MASSA(Kg). Reconhecimento pelo NOME, como no layout da
+ * fábrica — nenhuma coluna é mapeada pela posição.
+ */
+const PARTS_HEADER_TOKENS = [
+  "CONJUNTO",
+  "PECA",
+  "QTDE",
+  "PERFIL",
+  "MATERIAL",
+  "COMPRMM",
+  "MASSAKG",
+];
+
+/** Colunas da lista de peças que PRECISAM existir para o arquivo ser reconhecido (nomes de exibição; a comparação normaliza acento). */
+export const REQUIRED_PARTS_COLUMNS = ["CONJUNTO", "PEÇA", "QTDE"] as const;
+
+/** Colunas da lista de peças ausentes (vazio = ok). */
+export function findMissingPartsColumns(headers: string[]): string[] {
+  const present = new Set(headers.map(normalizeHeader));
+  return REQUIRED_PARTS_COLUMNS.filter((column) => !present.has(normalizeHeader(column)));
 }
 
 /** Normaliza texto de cabeçalho: sem acento, sem espaço, maiúsculo. */
@@ -105,32 +130,52 @@ export function parseExcelFile(data: ArrayBuffer, fileName: string, fileSize: nu
 }
 
 /**
- * Detecta a linha de cabeçalho TÉCNICO pontuando as primeiras linhas por
- * coincidência com nomes técnicos do layout da fábrica. A linha só é
- * considerada válida se trouxer ao menos `of_idOF` e `ps_idPos` — que
- * identificam as colunas da OF e do item pai, o núcleo da estrutura.
+ * Detecta a linha de cabeçalho pontuando as primeiras linhas por
+ * coincidência com os nomes de coluna dos DOIS formatos reconhecidos:
+ *
+ *  - layout da fábrica: válida com ao menos `of_idOF` e `ps_idPos`
+ *    (o núcleo da estrutura OF -> pais -> filhos);
+ *  - lista de peças e conjuntos: válida com ao menos `CONJUNTO`,
+ *    `PEÇA` e `QTDE` (conjunto -> peça e quantidade).
+ *
+ * O formato vencedor fica em `format`; sem reconhecimento, `detected`
+ * false e a primeira linha é sugerida como está.
  */
 export function detectHeaderRow(matrix: SheetMatrix): HeaderDetection {
   const searchLimit = Math.min(matrix.length, 15);
-  let best: HeaderDetection = { headerRowIndex: 0, headers: [], score: 0, detected: false };
+  let best: HeaderDetection = { headerRowIndex: 0, headers: [], score: 0, detected: false, format: null };
 
   for (let index = 0; index < searchLimit; index += 1) {
     const row = matrix[index] ?? [];
     const normalized = row.map(normalizeHeader);
-    const score = normalized.reduce(
+    const technicalScore = normalized.reduce(
       (total, cell) => total + (cell && TECHNICAL_HEADER_TOKENS.includes(cell) ? 1 : 0),
       0,
     );
-    const hasCore = normalized.includes("OFIDOF") && normalized.includes("PSIDPOS");
+    const partsScore = normalized.reduce(
+      (total, cell) => total + (cell && PARTS_HEADER_TOKENS.includes(cell) ? 1 : 0),
+      0,
+    );
+    const hasTechnicalCore = normalized.includes("OFIDOF") && normalized.includes("PSIDPOS");
+    const hasPartsCore =
+      normalized.includes("CONJUNTO") && normalized.includes("PECA") && normalized.includes("QTDE");
 
-    if (hasCore && score > best.score) {
-      best = { headerRowIndex: index, headers: row.map(cellToString), score, detected: true };
+    if (hasTechnicalCore && technicalScore > best.score) {
+      best = { headerRowIndex: index, headers: row.map(cellToString), score: technicalScore, detected: true, format: "layout-of" };
+    } else if (hasPartsCore && partsScore > best.score) {
+      best = { headerRowIndex: index, headers: row.map(cellToString), score: partsScore, detected: true, format: "lista-pecas" };
     }
   }
 
   if (!best.detected) {
     const firstRow = matrix[0] ?? [];
-    return { headerRowIndex: 0, headers: firstRow.map(cellToString), score: best.score, detected: false };
+    return {
+      headerRowIndex: 0,
+      headers: firstRow.map(cellToString),
+      score: best.score,
+      detected: false,
+      format: null,
+    };
   }
 
   return best;
