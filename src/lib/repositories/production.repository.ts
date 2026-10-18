@@ -26,12 +26,15 @@ function mapProductionRow(raw: ProductionRowRecord): ProductionRow {
   const processes: Record<string, ProcessCell> = {};
   for (const [code, cell] of Object.entries(raw.processes ?? {})) {
     processes[code] = {
-      id: cell.id,
+      // 039: célula KIT agregada dos filhos vem com id null (somente leitura).
+      id: cell.id ?? null,
       status: cell.status,
       quantityPlanned: toNumber(cell.quantityPlanned),
       quantityCompleted: toNumber(cell.quantityCompleted),
       notes: cell.notes ?? null,
       completedAt: cell.completedAt ?? null,
+      // 039: flag de agregado (KTI dos filhos na Fábrica 2).
+      ...(cell.aggregated ? { aggregated: true } : {}),
     };
   }
 

@@ -122,13 +122,49 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
       ? formatBusinessDayMonth(cell.completedAt)
       : null;
 
+  // 039: célula KIT agregada dos filhos = SOMENTE LEITURA (o kit é marcado
+  // na Fábrica 1, na linha do filho). Mesmo visual, mas sem onClick.
+  const content = (
+    <>
+      <span className="inline-flex items-center gap-1">
+        <span aria-hidden>{PROCESS_STATUS_SYMBOLS[cell.status]}</span>
+        {quantity ? <span className="tabular-nums">{quantity}</span> : null}
+      </span>
+      {receivedDay ? <span className="tabular-nums text-[10px]">{receivedDay}</span> : null}
+      {plannedDay ? (
+        <span className={cn("tabular-nums text-[10px]", plannedDayPast && "text-status-late")}>
+          {plannedDay}
+        </span>
+      ) : null}
+      <span className="sr-only">{label}</span>
+    </>
+  );
+  const tooltip = `${processName} — ${context.itemDescription}: ${label}${quantity ? ` (${quantity})` : ""}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`;
+  const aria = `${processName} de ${context.itemDescription}: ${label}${quantity ? `, produzido ${quantity}` : ""}${plan ? `, previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? `, recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`;
+
+  if (cell.aggregated) {
+    return (
+      <span
+        className={cn(
+          "inline-flex h-8 w-full cursor-default flex-col items-center justify-center rounded border px-1 text-[10px] font-semibold leading-none",
+          receivedDay && plannedDay ? "gap-0" : "gap-0.5",
+          statusClass(cell.status),
+        )}
+        title={`${tooltip} — agregado dos itens filhos (marque na Fábrica 1)`}
+        aria-label={`${aria} — agregado dos itens filhos`}
+      >
+        {content}
+      </span>
+    );
+  }
+
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={() =>
         onSelect({
-          productionProcessId: cell.id,
+          productionProcessId: cell.id ?? "",
           orderItemId: context.orderItemId,
           orderCode: context.orderCode,
           itemDescription: context.itemDescription,
@@ -148,20 +184,10 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
         "hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70",
         statusClass(cell.status),
       )}
-      title={`${processName} — ${context.itemDescription}: ${label}${quantity ? ` (${quantity})` : ""}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`}
-      aria-label={`${processName} de ${context.itemDescription}: ${label}${quantity ? `, produzido ${quantity}` : ""}${plan ? `, previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? `, recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`}
+      title={tooltip}
+      aria-label={aria}
     >
-      <span className="inline-flex items-center gap-1">
-        <span aria-hidden>{PROCESS_STATUS_SYMBOLS[cell.status]}</span>
-        {quantity ? <span className="tabular-nums">{quantity}</span> : null}
-      </span>
-      {receivedDay ? <span className="tabular-nums text-[10px]">{receivedDay}</span> : null}
-      {plannedDay ? (
-        <span className={cn("tabular-nums text-[10px]", plannedDayPast && "text-status-late")}>
-          {plannedDay}
-        </span>
-      ) : null}
-      <span className="sr-only">{label}</span>
+      {content}
     </button>
   );
 }

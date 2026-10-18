@@ -4,13 +4,24 @@ import type { ProcessStatus } from "@/lib/constants/production";
 
 /** Situação de um processo em um item (célula da tabela). */
 export interface ProcessCell {
-  id: string;
+  /**
+   * 039: o `id` é null na célula KIT agregada dos filhos (Fábrica 2) —
+   * não aponta para nenhuma linha de `production_processes` e a célula
+   * é somente leitura (a marcação do kit acontece na Fábrica 1).
+   */
+  id: string | null;
   status: ProcessStatus;
   quantityPlanned: number | null;
   quantityCompleted: number | null;
   notes: string | null;
   /** 031: data/hora efetiva da conclusão (production_processes.completed_at). */
   completedAt: string | null;
+  /**
+   * 039: true quando a célula é um AGREGADO das linhas dos filhos (só o
+   * KIT, na Fábrica 2) — exibição sem edição, para não apontar gravação
+   * para a linha do pai (que não é onde o kit mora).
+   */
+  aggregated?: boolean;
 }
 
 /**

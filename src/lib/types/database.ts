@@ -180,13 +180,16 @@ export type ProductionRowRecord = {
   processes: Record<
     string,
     {
-      id: string;
+      /** 039: null na célula KIT agregada dos filhos (somente leitura). */
+      id: string | null;
       status: ProcessStatusValue;
       quantityPlanned: number | string | null;
       quantityCompleted: number | string | null;
       notes: string | null;
       /** 031: data efetiva da conclusão (exibida no MP). */
       completedAt: string | null;
+      /** 039: true quando a célula é um agregado das linhas dos filhos. */
+      aggregated?: boolean;
     }
   >;
   /** 035: totais por família do conjunto filtrado inteiro (mesma janela dos totais). */

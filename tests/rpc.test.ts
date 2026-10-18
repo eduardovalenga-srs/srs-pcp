@@ -1749,24 +1749,24 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
 
     const paiA = await createRootItem(order801, "P-801A", "Treliça 801", 3, 10, [
       { code: "MP", status: "NAO_INICIADO" },
-      { code: "KIT", status: "CONCLUIDO" },
+      // 039: o KIT do RAIZ é ignorado — ele passa a vir dos FILHOS.
       { code: "SOLDA", status: "NAO_INICIADO" },
       { code: "EXP", status: "NAO_INICIADO" },
     ]);
     await createRootItem(order801, "P-801B", "Porta 801", 2, 5, [
       { code: "MP", status: "CONCLUIDO" },
-      { code: "KIT", status: "NAO_APLICAVEL" },
       { code: "SOLDA", status: "NAO_APLICAVEL" },
       { code: "EXP", status: "CONCLUIDO" },
     ]);
 
-    // A cadeia da Fábrica 1 é rastreada nos FILHOS. Os processos fora de
-    // escopo lançados aqui (KIT/SOLDA no filho) NÃO podem vazar para a
-    // célula da OF — são os raiz que mandam nesses códigos.
+    // A cadeia da Fábrica 1 é rastreada nos FILHOS. O SOLDA lançado aqui no
+    // filho NÃO vaza para a célula da OF (continua sendo o raiz que manda).
+    // O KIT, desde a 039, passa a vir daQUI: C-801A concluído => célula
+    // CONCLUIDO com a data efetiva maior entre os filhos aplicáveis.
     await createChild(order801, paiA, "C-801A", "Componente 801A", 3, [
       { code: "LASER", status: "CONCLUIDO" },
       { code: "SERRA", status: "NAO_INICIADO" },
-      { code: "KIT", status: "NAO_INICIADO" },
+      { code: "KIT", status: "CONCLUIDO" },
       { code: "SOLDA", status: "CONCLUIDO" },
     ]);
     await createChild(order801, paiA, "C-801B", "Componente 801B", 3, [
@@ -1774,11 +1774,12 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
     ]);
 
     const pai802 = await createRootItem(order802, "P-802A", "Grade 802", 4, 12.5, [
-      { code: "KIT", status: "NAO_APLICAVEL" },
+      // 039: o KIT do raiz é ignorado — só o do filho conta.
       { code: "EXP", status: "CONCLUIDO" },
     ]);
     await createChild(order802, pai802, "C-802A", "Componente 802A", 4, [
       { code: "LASER", status: "NAO_INICIADO" },
+      { code: "KIT", status: "NAO_APLICAVEL" },
     ]);
 
     // Cliente próprio — os fixtures antigos compartilham "Metalúrgica Alfa".
@@ -1813,7 +1814,8 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
     );
 
     const [of801] = await callOrderRows({ p_search: "OF-801" });
-    // KIT 1/1 concluído → a data efetiva (maior conclusão) aparece.
+    // 039: o KIT vem dos FILHOS. C-801A concluído (C-801B não tem KIT) =>
+    // célula CONCLUIDO com a data efetiva (maior conclusão entre filhos).
     expect(of801?.processes.KIT?.status).toBe("CONCLUIDO");
     expect(of801?.processes.KIT?.completedAt).toBeTruthy();
     // MP 1 de 2 concluído → célula NAO_INICIADO não mostra a data,
@@ -1833,10 +1835,12 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
     });
     expect(of801?.processes.SERRA).toMatchObject({ status: "NAO_INICIADO", done: 0, applicable: 1 });
 
-    // MP e SOLDA vêm dos RAIZ: o KIT/SOLDA lançado no filho foi ignorado
-    // (o SOLDA do filho está CONCLUIDO e não puxou a célula para "concluído").
+    // MP e SOLDA continuam vindo dos RAIZ: o SOLDA lançado no FILHO é
+    // ignorado (não puxa a célula para "concluído").
     expect(of801?.processes.MP).toMatchObject({ status: "NAO_INICIADO", done: 1, applicable: 2 });
     expect(of801?.processes.SOLDA).toMatchObject({ status: "NAO_INICIADO", done: 0, applicable: 1 });
+    // 039: o KIT agora vem dos FILHOS (o do raiz foi removido do seed) —
+    // C-801A concluído e C-801B sem KIT => aplicável 1, concluído 1.
     expect(of801?.processes.KIT).toMatchObject({ status: "CONCLUIDO", done: 1, applicable: 1 });
 
     // EXP: um raiz expedido e outro não => pior situação + contador 1/2.
@@ -1847,6 +1851,7 @@ describe("get_production_rows_by_order (025) — consolidada por OF", () => {
 
   it("processo 100% não aplicável vira NAO_APLICAVEL (célula \"—\")", async () => {
     const [of802] = await callOrderRows({ p_search: "OF-802" });
+    // 039: o KIT vem dos FILHOS — o filho C-802A tem KIT não aplicável.
     expect(of802?.processes.KIT).toMatchObject({
       status: "NAO_APLICAVEL",
       done: 0,

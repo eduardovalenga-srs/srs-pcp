@@ -1585,6 +1585,142 @@ describe("migrations", () => {
 
     await db.query(`delete from public.orders where code in ('OF-038-A', 'OF-038-B')`);
   });
+
+  it("039: KIT agregado dos filhos na F2 e na Gestão (somente leitura na F2)", async () => {
+    await asSuperUser(db);
+
+    // A assinatura NÃO muda (create or replace): 23 params na F2 e 19 na
+    // gestão — a 039 só mexe no corpo. Nenhuma assinatura antiga sobra.
+    const { rows: fns } = await db.query<{
+      rows_23: string;
+      by_order_19: string;
+      rows_21: string;
+      by_order_18: string;
+    }>(
+      `select (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows'
+                  and p.pronargs = 23) as rows_23,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows_by_order'
+                  and p.pronargs = 19) as by_order_19,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows'
+                  and p.pronargs = 21) as rows_21,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows_by_order'
+                  and p.pronargs = 18) as by_order_18`,
+    );
+    expect(fns[0]?.rows_23).toBe("1");
+    expect(fns[0]?.by_order_19).toBe("1");
+    expect(fns[0]?.rows_21).toBe("0");
+    expect(fns[0]?.by_order_18).toBe("0");
+
+    // --- OF com pai + 2 filhos, cada um com seu KIT ---
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type, customer_name, delivery_date)
+       values ('OF-039', 'OF', 'Cliente 039', current_date + 10) returning id`,
+    );
+    const orderId = orderRows[0]?.id as string;
+    // Raiz (pai) — o KIT do RAIZ nasce NAO_APLICAVEL no import; aqui criamos
+    // explicitamente para provar que a agregação IGNORA a raiz.
+    const { rows: roots } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, parent_item, description, quantity, unit_weight_kg)
+       values ($1, 'P-039', 'Pai 039', 1, 5) returning id`,
+      [orderId],
+    );
+    const rootId = roots[0]?.id as string;
+    // 2 filhos.
+    const { rows: children } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, parent_order_item_id, parent_item, description, quantity, unit_weight_kg)
+       values ($1, $2, 'F-039-1', 'Filho 1', 3, 2),
+              ($1, $2, 'F-039-2', 'Filho 2', 4, 2)
+       returning id`,
+      [orderId, rootId],
+    );
+    const child1 = children[0]?.id as string;
+    const child2 = children[1]?.id as string;
+
+    const { rows: kitRows } = await db.query<{ id: string }>(
+      `select id from public.processes where code = 'KIT'`,
+    );
+    const kitId = kitRows[0]?.id as string;
+
+    // --- Cenário 1: filhos NAO_INICIADO + NAO_APLICAVEL => agregado NAO_INICIADO ---
+    // Raiz com KIT NAO_APLICAVEL (deve ser ignorado pela agregação).
+    await db.query(
+      `insert into public.production_processes (order_item_id, process_id, status)
+       values ($1, $2, 'NAO_APLICAVEL')`,
+      [rootId, kitId],
+    );
+    // Filho 1 aplicável NAO_INICIADO; filho 2 fora (NAO_APLICAVEL).
+    await db.query(
+      `insert into public.production_processes (order_item_id, process_id, status)
+       values ($1, $2, 'NAO_INICIADO')`,
+      [child1, kitId],
+    );
+    await db.query(
+      `insert into public.production_processes (order_item_id, process_id, status)
+       values ($1, $2, 'NAO_APLICAVEL')`,
+      [child2, kitId],
+    );
+
+    type KitCell = {
+      id: string | null;
+      status: string;
+      aggregated?: boolean;
+      quantityPlanned: number | null;
+      quantityCompleted: number | null;
+    };
+
+    // F2 (linha do pai): KIT agregado dos filhos = NAO_INICIADO (não o da raiz).
+    const { rows: f2 } = await db.query<{ processes: Record<string, KitCell> }>(
+      `select processes from public.get_production_rows(p_search => 'OF-039')`,
+    );
+    const f2Kit = f2[0]?.processes?.KIT;
+    expect(f2Kit?.status).toBe("NAO_INICIADO");
+    expect(f2Kit?.aggregated).toBe(true);
+    expect(f2Kit?.id).toBeNull();
+
+    // Gestão (uma linha por OF): mesmo agregado vindo dos filhos.
+    const { rows: gestao } = await db.query<{ processes: Record<string, KitCell> }>(
+      `select processes from public.get_production_rows_by_order(p_search => 'OF-039')`,
+    );
+    const gestaoKit = gestao[0]?.processes?.KIT;
+    expect(gestaoKit?.status).toBe("NAO_INICIADO");
+    // A célula da gestão é a agregada de escopo (done/applicable), sem id.
+    expect(Number(gestaoKit?.quantityPlanned ?? 0)).toBeGreaterThanOrEqual(0);
+
+    // --- Cenário 2: os DOIS filhos aplicáveis CONCLUIDOS => agregado CONCLUIDO ---
+    await db.query(
+      `update public.production_processes set status = 'CONCLUIDO'
+        where order_item_id = any($1::uuid[]) and process_id = $2`,
+      [[child1, child2], kitId],
+    );
+    const { rows: f2done } = await db.query<{ processes: Record<string, KitCell> }>(
+      `select processes from public.get_production_rows(p_search => 'OF-039')`,
+    );
+    expect(f2done[0]?.processes?.KIT?.status).toBe("CONCLUIDO");
+
+    // --- Cenário 3: nenhum filho aplicável => NAO_APLICAVEL (célula "—") ---
+    await db.query(
+      `update public.production_processes set status = 'NAO_APLICAVEL'
+        where order_item_id = any($1::uuid[]) and process_id = $2`,
+      [[child1, child2], kitId],
+    );
+    const { rows: f2na } = await db.query<{ processes: Record<string, KitCell> }>(
+      `select processes from public.get_production_rows(p_search => 'OF-039')`,
+    );
+    expect(f2na[0]?.processes?.KIT?.status).toBe("NAO_APLICAVEL");
+
+    await db.query(`delete from public.production_processes where order_item_id = any($1::uuid[])`, [
+      [rootId, child1, child2],
+    ]);
+    await db.query(`delete from public.orders where id = $1`, [orderId]);
+  });
 });
 
 describe("RLS", () => {
