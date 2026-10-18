@@ -263,9 +263,13 @@ describe("tabela da Fábrica 1", () => {
     );
     expect(markup).toContain("DADOS DOS PEDIDOS");
     expect(markup).toContain("PROCESSOS");
-    for (const label of ["Seq.", "OF/OS", "Cli.", "Item pai", "Filho", "Matérias-primas", "Qtd.", "Peso un.", "Peso total"]) {
+    for (const label of ["Seq.", "OF/OS", "Cli.", "Filho", "Matérias-primas", "Qtd.", "Peso un.", "Peso total"]) {
       expect(markup).toContain(label);
     }
+    // A coluna "Item pai" foi ocultada na tabela do desktop (o card mobile
+    // do mesmo markup ainda traz "Item pai: ..." — asserção escopada).
+    const table = markup.slice(markup.indexOf("<table"), markup.indexOf("</table>"));
+    expect(table).not.toContain("Item pai");
   });
 
   it("mostra uma coluna por processo da cadeia Fábrica 1 e esconde o pós-KIT", () => {
@@ -329,7 +333,7 @@ describe("tabela da Fábrica 1", () => {
     expect(markup).toContain("Nenhum item filho encontrado");
   });
 
-  it("sinaliza o agrupamento: ×N no filho e +N no item pai", () => {
+  it("coluna Filho exibe só o código — sem descrição e sem multiplicador", () => {
     const markup = html(
       createElement(Fabrica1Table, {
         items: [
@@ -347,8 +351,70 @@ describe("tabela da Fábrica 1", () => {
         today: "2026-10-09",
       }),
     );
-    expect(markup).toContain("×3");
-    expect(markup).toContain("+1");
-    expect(markup).toContain("2 itens pai: 72ST18, 72ST19");
+    // As asserções valem sobre a tabela do desktop (o card mobile do mesmo
+    // componente ainda traz descrição e ×N — outro layout, fora do escopo).
+    const table = markup.slice(markup.indexOf("<table"), markup.indexOf("</table>"));
+    // O código segue no badge do filho...
+    expect(table).toContain("72ST18-025");
+    // ...sem os multiplicadores do agrupamento nem a descrição.
+    expect(table).not.toContain("×3");
+    expect(table).not.toContain("+1");
+    expect(table).not.toContain("GUARDA CORPO");
+    expect(table).not.toContain('title="BOTÃO DE PORTA"');
+    expect(table).not.toContain(">BOTÃO DE PORTA</span>");
+  });
+
+  it("código vazio do filho cai para a descrição (a chave do grupo)", () => {
+    const markup = html(
+      createElement(Fabrica1Table, {
+        items: [item({ childItem: null })],
+        processes: catalog,
+        filters: noFilters,
+        capabilities,
+        today: "2026-10-09",
+      }),
+    );
+    const table = markup.slice(markup.indexOf("<table"), markup.indexOf("</table>"));
+    expect(table).toContain("BOTÃO DE PORTA");
+  });
+
+  it("Matérias-primas exibem só a descrição — sem quantidade/unidade e sem observações", () => {
+    const markup = html(
+      createElement(Fabrica1Table, {
+        items: [
+          item({
+            materials: [
+              {
+                id: "m1",
+                description: "CH6.30 CIVIL350",
+                quantity: 98765,
+                unit: "KG",
+                notes: "DIN 2440 · 995 mm",
+              },
+              {
+                id: "m2",
+                description: "TB40X40",
+                quantity: 12,
+                unit: "UN",
+                notes: null,
+              },
+            ],
+          }),
+        ],
+        processes: catalog,
+        filters: noFilters,
+        capabilities,
+        today: "2026-10-09",
+      }),
+    );
+    const table = markup.slice(markup.indexOf("<table"), markup.indexOf("</table>"));
+    // Só a descrição de cada material...
+    expect(table).toContain("CH6.30 CIVIL350");
+    expect(table).toContain("TB40X40");
+    // ...sem quantidade/unidade e sem a linha de observações.
+    expect(table).not.toContain("98765");
+    expect(table).not.toContain("DIN 2440");
+    expect(table).not.toContain("KG");
+    expect(table).not.toContain("12 UN");
   });
 });

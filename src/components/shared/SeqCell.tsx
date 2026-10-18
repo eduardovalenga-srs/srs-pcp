@@ -23,7 +23,9 @@ interface SeqCellProps {
  * saída da célula (blur) grava o que foi digitado — commit
  * instantâneo, sem botão (mesma disciplina do Select da tela de
  * configurações). Gravada a sequência, o refresh da página reordena as
- * linhas (seq nulls last).
+ * linhas (seq nulls last). Gravação REJEITADA (ex.: número já em uso
+ * por outra OF — trigger 038) dispara o toast de erro e LIMPA o campo,
+ * sinalizando que o número digitado não foi aceito.
  */
 export function SeqCell({ value, canEdit, label, onCommit }: SeqCellProps) {
   const router = useRouter();
@@ -57,6 +59,11 @@ export function SeqCell({ value, canEdit, label, onCommit }: SeqCellProps) {
       const result = await onCommit(parsed);
       if (!result.success) {
         toast.error(result.message);
+        // Rejeição (ex.: número já em uso por outra OF — trigger 038): limpa
+        // o campo para deixar claro que o número digitado NÃO foi aceito —
+        // sem isso o valor rejeitado continuava na célula como se tivesse
+        // sido salvo.
+        setDraft("");
         return;
       }
       toast.success(result.message);

@@ -5,12 +5,11 @@ import Link from "next/link";
 import { coreFeatures, createColumnHelper, flexRender, useTable, type CoreFeatures } from "@tanstack/react-table";
 
 import { FABRICA1_EDITABLE_PROCESS_CODES, MP_PROCESS_CODE } from "@/lib/constants/processes";
-import { MATERIAL_UNIT_LABELS, type MaterialUnit } from "@/lib/constants/materials";
 import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
 import type { ChildItemFilters, ChildItemGroup, ChildItemProcess, OrderItemMaterial } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
 import { formatBusinessDate, formatBusinessDayMonth, formatDate, formatDayMonth } from "@/lib/utils/dates";
-import { formatQuantity, formatWeight, truncate } from "@/lib/utils/formatting";
+import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import {
   computeProcessSchedule,
   scheduleProcessesForItem,
@@ -256,10 +255,6 @@ function InheritedMpChip({
   );
 }
 
-function unitLabel(unit: string): string {
-  return MATERIAL_UNIT_LABELS[unit as MaterialUnit] ?? unit;
-}
-
 /** Materiais de um item filho — filho sem material fica sinalizado (pendência de compra). */
 function MaterialsList({ materials }: { materials: OrderItemMaterial[] }) {
   if (materials.length === 0) {
@@ -268,14 +263,10 @@ function MaterialsList({ materials }: { materials: OrderItemMaterial[] }) {
   return (
     <ul className="space-y-0.5">
       {materials.map((material) => (
-        <li key={material.id} className="text-xs">
-          <span className="font-medium">{material.description}</span>{" "}
-          <span className="tabular-nums text-muted-foreground">
-            {formatQuantity(material.quantity)} {unitLabel(material.unit)}
-          </span>
-          {material.notes ? (
-            <span className="block text-[11px] text-muted-foreground">{material.notes}</span>
-          ) : null}
+        // Só a DESCRIÇÃO do material (ex.: "CH6.30 CIVIL350") — sem
+        // quantidade/unidade e sem a linha de observações, para não poluir.
+        <li key={material.id} className="text-xs font-medium">
+          {material.description}
         </li>
       ))}
     </ul>
@@ -420,72 +411,23 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         ),
         cell: (info) => <span className="block max-w-[120px] truncate">{info.getValue() || "—"}</span>,
       }),
-      helper.accessor("parentItem", {
-        id: "parentItem",
-        header: () => (
-          <Fabrica1ColumnHeader
-            label="Item pai"
-            filter={
-              <Fabrica1TextFilter
-                filters={filters}
-                field="parentItem"
-                column="Item pai"
-                context="item pai"
-              />
-            }
-          />
-        ),
-        cell: (info) => {
-          const row = info.row.original;
-          return (
-            <span className="flex min-w-0 items-center gap-1.5">
-              {info.getValue() ? (
-                <Badge variant="outline" className="px-1 py-0 tabular-nums">
-                  {info.getValue()}
-                </Badge>
-              ) : null}
-              {row.parentItems.length > 1 ? (
-                <span
-                  className="whitespace-nowrap text-[10px] text-muted-foreground"
-                  title={`Componente usado por ${row.parentItems.length} itens pai: ${row.parentItems.join(", ")}`}
-                >
-                  +{row.parentItems.length - 1}
-                </span>
-              ) : null}
-              <span
-                className="min-w-0 max-w-[200px] truncate"
-                title={row.parentDescription ?? undefined}
-              >
-                {row.parentDescription ?? "—"}
-              </span>
-            </span>
-          );
-        },
-      }),
+      // Coluna "Item pai" oculta na lista do desktop (decisão de layout —
+      // o código do pai segue no card mobile; o filtro `itempai` continua
+      // aceito na URL para links antigos).
       helper.accessor("childItem", {
         id: "childItem",
         header: () => <Fabrica1ColumnHeader label="Filho" filter={<Fabrica1ChildItemFilter filters={filters} />} />,
         cell: (info) => {
           const row = info.row.original;
+          // Coluna só com o CÓDIGO — sem descrição nem "×N" para não poluir
+          // a lista. Código vazio cai para a descrição (a chave do grupo).
+          if (!row.childItem) {
+            return <span className="block max-w-[220px] truncate">{row.description || "—"}</span>;
+          }
           return (
-            <span className="flex min-w-0 items-center gap-1.5">
-              {info.getValue() ? (
-                <Badge variant="secondary" className="px-1 py-0 tabular-nums">
-                  {info.getValue()}
-                </Badge>
-              ) : null}
-              <span className="min-w-0 max-w-[220px] truncate" title={row.description}>
-                {truncate(row.description, 45)}
-              </span>
-              {row.memberCount > 1 ? (
-                <span
-                  className="whitespace-nowrap text-[10px] text-muted-foreground"
-                  title={`${row.memberCount} itens agrupados nesta linha — quantidades somadas.`}
-                >
-                  ×{row.memberCount}
-                </span>
-              ) : null}
-            </span>
+            <Badge variant="secondary" className="px-1 py-0 tabular-nums">
+              {row.childItem}
+            </Badge>
           );
         },
       }),

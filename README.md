@@ -331,12 +331,16 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   mesma OF** (033) com suas **matérias-primas e quantidades somadas** — visão de
   insumos/compras: o mesmo componente repetido entre os pais da OF vira **UMA linha**
   (Σ de quantidade, peso total Σ, entrega = menor dos membros; peso unitário só quando
-  todos os membros coincidem, senão "—"). O filho exibe **×N** (itens agrupados) e o
-  item pai **+N** (outros pais do grupo, com a lista no hover). Colunas, nesta ordem:
+  todos os membros coincidem, senão "—"). Colunas, nesta ordem:
   **Seq.** (036 — prioridade do planejamento: o MENOR seq dos membros; editar aplica o
-  número a TODO o grupo, `orders.edit`), OF (link para `/pedidos/[id]`), **item pai** (badge + descrição + "+N"), filho
-  (badge + descrição + "×N"), **matérias-primas** mescladas por descrição + unidade com
-  Σ de quantidade ("descrição — qtd UN"; **grupo sem material aparece sinalizado** —
+  número a TODO o grupo, `orders.edit`), OF (link para `/pedidos/[id]`),
+  **filho** (somente o **código** em badge — sem descrição e sem multiplicador `×N`,
+  para não poluir a lista; código vazio cai para a descrição, que é a chave do grupo;
+  a coluna **Item pai** foi ocultada da tabela do desktop — o código do pai continua no
+  card mobile, e o filtro `itempai` segue aceito na URL),
+  **matérias-primas** mescladas por descrição + unidade, exibindo **só a descrição** de
+  cada material (ex.: `CH6.30 CIVIL350` — sem quantidade/unidade e sem a linha de
+  observações, para não poluir; **grupo sem material aparece sinalizado** —
   "Nenhum material cadastrado"), quantidade (Σ), **peso unitário**, **peso total**
   (Σ qtd × peso unit. — coluna derivada `total_weight_kg`, migração 023; sem peso em
   nenhum membro não mostra total), entrega (menor dos membros) e **processos**
@@ -456,7 +460,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   de seq) recusa seq em uso por outra OF com mensagem pt-BR; dentro da MESMA OF a
   repetição segue permitida (F1 e Gestão regravam o mesmo número em vários itens por vez;
   o agrupamento usa o menor). O campo perdeu as setinhas ▲▼ do `type="number"` (038 —
-  vira `type="text"` + `inputMode="numeric"`, validação de inteiro ≥ 1 no commit).
+  vira `type="text"` + `inputMode="numeric"`, validação de inteiro ≥ 1 no commit) e a
+  gravação rejeitada (ex.: número já em uso por outra OF) limpa o campo depois do toast
+  de erro — o valor não fica na célula como se tivesse sido salvo).
   Redefinidas
   pela 036 (e novamente pela **038**, acrescentando `p_seq`): `get_child_item_groups`, `get_production_rows` e `get_production_rows_by_order`.
 - **Quebra por família nos cards — removida da UI** (migração 037, saída na **038**):
