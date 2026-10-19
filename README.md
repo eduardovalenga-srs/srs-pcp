@@ -129,6 +129,7 @@ src/
       processos/            catálogo de processos (fluxo fabril)
       configuracoes/        usuários e permissões
     api/importacao/         análise / prévia / execução + modelo .xlsx (aceita .pdf)
+    api/export/             .xlsx da lista filtrada INTEIRA (4 rotas GET: gestão, F2, F1, pedidos)
   components/               ui (shadcn) + producao/fabrica1/fabrica2/pedidos/dashboard/…
   lib/
     actions/                Server Actions (única porta de escrita)
@@ -138,10 +139,11 @@ src/
     import/                 parser/estrutura/diferenças/plano da importação
                             excel-parser (SheetJS, layout OF e lista de peças),
                             of-structure/of-structure-parts + of-pdf/pdf-text (PDF da A1)
+    export/                 colunas/workbook das planilhas de exportação (SheetJS)
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..038 (ordem obrigatória)
+  migrations/               001..040 (ordem obrigatória)
   seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
@@ -209,6 +211,25 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   data completa na folha de detalhes. Datas já vencidas aparecem em **vermelho**: a
   **entrega** apenas quando a expedição ainda não concluiu (a mesma regra de atraso) e
   as datas de **processo** (MP e células), exceto o processo já concluído.
+- **Data de proposta (DP)**: coluna **DP**, ao lado da Ent. nas quatro telas
+  grandes (gestão de OF, Fábrica 2, Fábrica 1 e Pedidos) e nas planilhas do
+  botão **Exportar Excel** — responde "se a matéria-prima chegar **hoje**, para
+  quando podemos entregar?". Enquanto o **MP do item/OF não está concluído**, a
+  DP é **hoje + a soma das `duration_days` dos processos APLICÁVEIS, exceto o
+  próprio MP** (quem chega hoje não ocupa tempo; processos já concluídos
+  continuam contando), contada **em dias úteis** com a mesma convenção das
+  janelas (seg–sex, feriados não considerados; partida em fim de semana rola
+  para a segunda). Com MP concluído, sem MP aplicável ou sem registro de MP, a
+  célula é **"—"** — não há cenário a propor. O escopo da soma espelha cada
+  tela: na **gestão de OF** e em **Pedidos** vale o da RPC
+  `get_production_rows_by_order` (039 — cadeia F1+KIT vêm dos filhos, MP e
+  pós-KIT dos itens raiz; Pedidos agrega as células crus com o mesmo filtro e
+  entrega o mapa por pedido em `getOrdersProposal`); na **Fábrica 2** somam as
+  células do próprio item; na **Fábrica 1** soma a cadeia do filho (o MP
+  herdado do pai abre o cenário e o KIT encerra). Cálculo puro em
+  `lib/utils/proposal-date.ts` (avanço em `addBusinessDays`,
+  `lib/utils/dates.ts`), testado em `tests/proposal-date.test.ts` e nas
+  colunas das planilhas (`tests/export-columns.test.ts`).
 - **Edição manual da entrega**: a data de entrega de um item pode ser alterada na
   própria coluna **Ent.** da gestão de OF (popover com data + Salvar) e na
   folha do processo (campo **Entrega**, com prévia recalculando ao digitar) — sempre

@@ -4,6 +4,7 @@ import { pedidosSheet } from "@/lib/export/columns";
 import { EXPORT_PAGE_SIZE, collectAllPages, exportFileName, searchParamsRecord } from "@/lib/export/common";
 import { workbookResponse } from "@/lib/export/workbook";
 import { listOrders } from "@/lib/repositories/orders.repository";
+import { getOrdersProposal } from "@/lib/services/orders.service";
 import { createClient } from "@/lib/supabase/server";
 import { parseOrderFilters } from "@/lib/utils/filters";
 import { errorMessage } from "@/lib/utils/supabase-result";
@@ -35,7 +36,14 @@ export async function GET(request: Request) {
       })),
     );
 
-    return workbookResponse(exportFileName("pedidos"), pedidosSheet(orders));
+    // Data de proposta (DP) calculada com a MESMA regra da página — o
+    // servidor agrega os processos do conjunto inteiro exportado.
+    const proposalByOrder = await getOrdersProposal(
+      client,
+      orders.map((order) => order.id),
+    );
+
+    return workbookResponse(exportFileName("pedidos"), pedidosSheet(orders, proposalByOrder));
   } catch (error) {
     return Response.json(
       { error: errorMessage(error, "Não foi possível exportar a lista.") },

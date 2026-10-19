@@ -23,9 +23,49 @@ import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import { firstZodMessage } from "@/lib/validators/common";
 import { deriveOrderItemStatus, deriveOrderStatus } from "@/lib/utils/production";
 import { calculateTotalWeight } from "@/lib/utils/formatting";
+import { getOrdersProcessRows } from "@/lib/repositories/orders.repository";
+import { ordersProposalDates } from "@/lib/utils/proposal-date";
 
-export async function getOrdersPage(client: SupabaseServer, filters: OrderFilters): Promise<OrderListResult> {
-  return listOrders(client, filters);
+/** Página de pedidos + a data de proposta (DP) de cada linha. */
+export interface OrdersPage extends OrderListResult {
+  /**
+   * DP por pedido (ISO `AAAA-MM-DD` ou null = célula "—"): quando a MP do
+   * pedido ainda não foi entregue, hoje + Σ das durações dos processos
+   * aplicáveis (sem o MP) em dias úteis. Pedido sem linha de processo não
+   * entra no mapa (trate como null).
+   */
+  proposalByOrder: Record<string, string | null>;
+  /** Data de referência (AAAA-MM-DD) usada no cálculo da DP. */
+  today: string;
+}
+
+/**
+ * DP dos pedidos informados — usada pela página de Pedidos (só a página
+ * visível) e pela exportação (o conjunto inteiro), para as duas lerem a
+ * mesma regra. Busca os processos em lotes e agrega no cliente.
+ */
+export async function getOrdersProposal(
+  client: SupabaseServer,
+  orderIds: readonly string[],
+  today: string = todayISODate(),
+): Promise<Record<string, string | null>> {
+  if (orderIds.length === 0) return {};
+  const [catalog, processRows] = await Promise.all([
+    getActiveProcesses(client),
+    getOrdersProcessRows(client, orderIds),
+  ]);
+  return ordersProposalDates(processRows, catalog, today);
+}
+
+export async function getOrdersPage(client: SupabaseServer, filters: OrderFilters): Promise<OrdersPage> {
+  const ordersPage = await listOrders(client, filters);
+  const today = todayISODate();
+  const proposalByOrder = await getOrdersProposal(
+    client,
+    ordersPage.orders.map((order) => order.id),
+    today,
+  );
+  return { ...ordersPage, proposalByOrder, today };
 }
 
 export interface ChildItemPage extends ChildItemGroupsResult {

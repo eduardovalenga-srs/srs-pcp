@@ -428,6 +428,72 @@ export async function updateOrderDeliveryDate(
   }
 }
 
+/**
+ * Linha crua da consulta de processos das OFs informadas — base do cálculo
+ * da data de proposta (DP) nas telas/planilhas de PEDIDOS.
+ *
+ * Uma linha por célula de processo, com o código do processo, a situação e
+ * se a célula veio do item RAIZ (`parent_order_item_id` nulo) ou de um
+ * FILHO (cadeia F1/KIT). O agregado por pedido é feito na camada pura
+ * (`ordersProposalDates`).
+ */
+export interface OrderProcessRawRow {
+  orderId: string;
+  code: string;
+  status: ProcessStatus;
+  isRootItem: boolean;
+}
+
+/** Tamanho do lote de pedidos por consulta (mesmo piso do repositório de itens). */
+const PROCESS_ROW_CHUNK_SIZE = 250;
+
+/**
+ * Busca todas as células de processo dos pedidos informados, em lotes de
+ * `PROCESS_ROW_CHUNK_SIZE` para não estourar o limite de linhas por
+ * requisição do PostgREST. Usado pela data de proposta (DP) de PEDIDOS.
+ */
+export async function getOrdersProcessRows(
+  client: SupabaseServer,
+  orderIds: readonly string[],
+): Promise<OrderProcessRawRow[]> {
+  const ids = [...orderIds];
+  const result: OrderProcessRawRow[] = [];
+  if (ids.length === 0) return result;
+
+  for (let index = 0; index < ids.length; index += PROCESS_ROW_CHUNK_SIZE) {
+    const chunk = ids.slice(index, index + PROCESS_ROW_CHUNK_SIZE);
+    const { data, error } = await client
+      .from("production_processes")
+      .select(
+        `status,
+         processes ( code ),
+         order_items!inner ( order_id, parent_order_item_id )`,
+      )
+      .in("order_items.order_id", chunk);
+
+    assertOk(error, "Não foi possível carregar os processos dos pedidos");
+    for (const row of (data ?? []) as unknown as RawProductionProcessJoin[]) {
+      const embeddedItem = row.order_items;
+      const embeddedProcess = row.processes;
+      if (!embeddedItem || !embeddedProcess) continue;
+      result.push({
+        orderId: embeddedItem.order_id,
+        code: embeddedProcess.code,
+        status: row.status as ProcessStatus,
+        isRootItem: embeddedItem.parent_order_item_id === null,
+      });
+    }
+  }
+  return result;
+}
+
+/** Forma crua retornada pelo PostgREST para o join de processos da OF. */
+interface RawProductionProcessJoin {
+  status: string;
+  processes: { code: string } | null;
+  order_items: { order_id: string; parent_order_item_id: string | null } | null;
+}
+
 export interface DashboardOrdersSummary {
   /** Top clientes (nome + nº de pedidos), já agregados no banco. */
   topCustomers: { name: string; count: number }[];

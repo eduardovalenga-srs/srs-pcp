@@ -103,12 +103,13 @@ describe("filtros por coluna de Pedidos (038)", () => {
 });
 
 describe("cabeçalho da tabela de Pedidos", () => {
-  it("renderiza os quatro filtros do desktop (Itens/Ações sem funil)", () => {
+  it("renderiza os quatro filtros do desktop (Itens/DP/Ações sem funil)", () => {
     const markup = html(
       createElement(OrderList, {
         orders: [],
         canDelete: false,
         filters: parseOrderFilters({ cliente: "ACME" }),
+        proposalByOrder: {},
       }),
     );
     expect(markup).toContain('aria-label="Filtrar por OF/OS"');
@@ -117,5 +118,9 @@ describe("cabeçalho da tabela de Pedidos", () => {
     expect(markup).toContain('aria-label="Filtrar por situação do pedido"');
     // Coluna informativa: Itens não tem filtro (decisão de escopo 038).
     expect(markup).toContain("Itens");
+    // DP (data de proposta): informativa, sem filtro — leitor de tela
+    // enxerga o nome completo (o visível é a abreviação).
+    expect(markup).toContain("DP");
+    expect(markup).toContain("Data de proposta");
   });
 });

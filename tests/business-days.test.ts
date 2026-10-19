@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addBusinessDays,
   formatDayMonth,
   isBusinessDay,
   previousBusinessDay,
@@ -58,6 +59,28 @@ describe("subBusinessDays", () => {
   it("valor negativo ou ilegível não anda", () => {
     expect(subBusinessDays("2026-10-09", -3)).toBe("2026-10-09");
     expect(subBusinessDays("lixo", 2)).toBe("lixo");
+  });
+});
+
+describe("addBusinessDays", () => {
+  it("0 dias devolve a própria data (dia útil)", () => {
+    expect(addBusinessDays("2026-10-09", 0)).toBe("2026-10-09");
+  });
+
+  it("soma apenas dias úteis para frente", () => {
+    expect(addBusinessDays("2026-10-05", 1)).toBe("2026-10-06"); // seg → ter
+    expect(addBusinessDays("2026-10-05", 4)).toBe("2026-10-09"); // seg → sex
+    expect(addBusinessDays("2026-10-09", 1)).toBe("2026-10-12"); // sex → seg (pula o fim de semana)
+  });
+
+  it("partida em fim de semana rola para a segunda antes de somar", () => {
+    expect(addBusinessDays("2026-10-10", 0)).toBe("2026-10-12"); // sáb → seg
+    expect(addBusinessDays("2026-10-11", 1)).toBe("2026-10-13"); // dom → ter
+  });
+
+  it("valor negativo ou ilegível não anda", () => {
+    expect(addBusinessDays("2026-10-09", -3)).toBe("2026-10-09");
+    expect(addBusinessDays("lixo", 2)).toBe("lixo");
   });
 });
 

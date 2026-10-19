@@ -9,6 +9,7 @@ import { pluralize } from "@/lib/utils/formatting";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
+import { ProposalDateCell } from "@/components/shared/ProposalDateCell";
 import { DeleteOrderButton } from "@/components/pedidos/DeleteOrderButton";
 import {
   OrderDeliveryFilter,
@@ -21,6 +22,12 @@ interface OrderListProps {
   canDelete: boolean;
   /** 038: filtros vigentes — os cabeçalhos de coluna aplicam na URL. */
   filters: OrderFilters;
+  /**
+   * Data de proposta (DP) por pedido (ISO ou null = "—"): quando a MP do
+   * pedido ainda não foi entregue, hoje + Σ dos processos aplicáveis (sem
+   * o MP) em dias úteis. Pedido fora do mapa é tratado como null.
+   */
+  proposalByOrder: Record<string, string | null>;
 }
 
 /** Rótulo do cabeçalho com o funil de filtro ao lado. */
@@ -48,7 +55,7 @@ function RowActions({ order, canDelete }: { order: OrderSummary; canDelete: bool
 }
 
 /** Listagem de pedidos: tabela no desktop (lg+) e cards no mobile. */
-export function OrderList({ orders, canDelete, filters }: OrderListProps) {
+export function OrderList({ orders, canDelete, filters, proposalByOrder }: OrderListProps) {
   return (
     <>
       {/* Desktop / tablet largo: tabela */}
@@ -81,6 +88,15 @@ export function OrderList({ orders, canDelete, filters }: OrderListProps) {
               <th scope="col" className="px-3 py-2 font-semibold">
                 <HeaderLabel label="Entrega" filter={<OrderDeliveryFilter filters={filters} />} />
               </th>
+              {/* DP (data de proposta): informativa, sem filtro por decisão de escopo. */}
+              <th
+                scope="col"
+                className="px-3 py-2 font-semibold"
+                title="Data de proposta — se a MP chegar hoje"
+              >
+                <span aria-hidden>DP</span>
+                <span className="sr-only">Data de proposta</span>
+              </th>
               <th scope="col" className="px-3 py-2 font-semibold">
                 <HeaderLabel label="Situação" filter={<OrderStatusFilter filters={filters} />} />
               </th>
@@ -105,6 +121,9 @@ export function OrderList({ orders, canDelete, filters }: OrderListProps) {
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 tabular-nums">
                   {formatDate(order.deliveryDate)}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2">
+                  <ProposalDateCell value={proposalByOrder[order.id] ?? null} />
                 </td>
                 <td className="px-3 py-2">
                   <OrderStatusBadge status={order.status} />
@@ -140,6 +159,12 @@ export function OrderList({ orders, canDelete, filters }: OrderListProps) {
                 <dt className="inline">Entrega: </dt>
                 <dd className="inline tabular-nums text-foreground">
                   {formatDate(order.deliveryDate)}
+                </dd>
+              </div>
+              <div>
+                <dt className="inline">Proposta: </dt>
+                <dd className="inline text-foreground">
+                  <ProposalDateCell value={proposalByOrder[order.id] ?? null} />
                 </dd>
               </div>
               <div>

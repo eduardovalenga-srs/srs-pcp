@@ -6,6 +6,7 @@ import { workbookResponse } from "@/lib/export/workbook";
 import { listChildItemGroups } from "@/lib/repositories/order-items.repository";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { createClient } from "@/lib/supabase/server";
+import { todayISODate } from "@/lib/utils/dates";
 import { parseChildItemFilters } from "@/lib/utils/filters";
 import { errorMessage } from "@/lib/utils/supabase-result";
 
@@ -48,7 +49,7 @@ export async function GET(request: Request) {
             ).then((result) => ({ rows: result.items, total: result.total })),
           );
 
-    return workbookResponse(exportFileName("fabrica-1"), fabrica1Sheet(items, processes));
+    return workbookResponse(exportFileName("fabrica-1"), fabrica1Sheet(items, processes, todayISODate()));
   } catch (error) {
     return Response.json(
       { error: errorMessage(error, "Não foi possível exportar a lista.") },

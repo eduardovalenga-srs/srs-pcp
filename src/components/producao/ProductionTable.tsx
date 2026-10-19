@@ -21,10 +21,12 @@ import {
   type ProcessWindow,
 } from "@/lib/utils/process-schedule";
 import { isProcessStartOverdue } from "@/lib/utils/production";
+import { orderProposalDate } from "@/lib/utils/proposal-date";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ProposalDateCell } from "@/components/shared/ProposalDateCell";
 import { SeqCell } from "@/components/shared/SeqCell";
 import { updateOrderItemsSeqAction } from "@/lib/actions/orders.actions";
 import {
@@ -341,6 +343,15 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
         ),
         cell: (info) => <DeliveryCell row={info.row.original} canEdit={capabilities.canEditDelivery} />,
       }),
+      // DP (data de proposta): ao lado da entrega — quando a MP ainda não
+      // foi entregue, é a data até a qual podemos entregar se ela chegar
+      // hoje (hoje + Σ dos processos aplicáveis, em dias úteis). Sem MP
+      // pendente a célula é "—".
+      helper.accessor((row) => orderProposalDate(row, processes, today), {
+        id: "proposalDate",
+        header: () => <ColumnHeader label="DP" fullLabel="Data de proposta" filters={filters} />,
+        cell: (info) => <ProposalDateCell value={info.getValue()} />,
+      }),
     ];
 
     // 025: TODAS as etapas do catálogo abrem coluna — inclusive a cadeia da
@@ -525,6 +536,12 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
                   ) : (
                     <span className="tabular-nums">{formatDate(row.deliveryDate)}</span>
                   )}
+                </dd>
+              </div>
+              <div>
+                <dt className="inline">Proposta: </dt>
+                <dd className="inline text-foreground">
+                  <ProposalDateCell value={orderProposalDate(row, processes, today)} />
                 </dd>
               </div>
               <div>

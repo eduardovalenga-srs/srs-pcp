@@ -36,7 +36,7 @@ export async function GET(request: Request) {
       getProductionOrderRows(client, { ...filters, page, pageSize: EXPORT_PAGE_SIZE }, today),
     );
 
-    return workbookResponse(exportFileName("gestao-entregas"), gestaoEntregasSheet(rows, processes));
+    return workbookResponse(exportFileName("gestao-entregas"), gestaoEntregasSheet(rows, processes, today));
   } catch (error) {
     return Response.json(
       { error: errorMessage(error, "Não foi possível exportar a lista.") },

@@ -16,10 +16,12 @@ import {
   type ProcessWindow,
 } from "@/lib/utils/process-schedule";
 import { isProcessStartOverdue } from "@/lib/utils/production";
+import { itemProposalDate } from "@/lib/utils/proposal-date";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ProposalDateCell } from "@/components/shared/ProposalDateCell";
 import { SeqCell } from "@/components/shared/SeqCell";
 import { updateItemsSeqAction } from "@/lib/actions/orders.actions";
 import {
@@ -404,6 +406,14 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
         ),
         cell: (info) => <DeliveryCell row={info.row.original} canEdit={capabilities.canEditDelivery} />,
       }),
+      // DP (data de proposta): ao lado da entrega — quando a MP do item
+      // ainda não foi entregue, é a data até a qual podemos entregar se
+      // ela chegar hoje (hoje + Σ dos processos aplicáveis, em dias úteis).
+      helper.accessor((row) => itemProposalDate(row, processes, today), {
+        id: "proposalDate",
+        header: () => <Fabrica2ColumnHeader label="DP" fullLabel="Data de proposta" filters={filters} />,
+        cell: (info) => <ProposalDateCell value={info.getValue()} />,
+      }),
       helper.accessor("op", {
         id: "op",
         header: () => (
@@ -609,6 +619,12 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
                   ) : (
                     <span className="tabular-nums">{formatDate(row.deliveryDate)}</span>
                   )}
+                </dd>
+              </div>
+              <div>
+                <dt className="inline">Proposta: </dt>
+                <dd className="inline text-foreground">
+                  <ProposalDateCell value={itemProposalDate(row, processes, today)} />
                 </dd>
               </div>
               <div>

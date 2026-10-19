@@ -10,6 +10,7 @@ import type {
 } from "@/lib/types/production";
 import { formatQuantity } from "@/lib/utils/formatting";
 import { fabrica1ProcessColumns } from "@/lib/utils/production";
+import { childItemProposalDate, itemProposalDate, orderProposalDate } from "@/lib/utils/proposal-date";
 
 /**
  * Montagem das planilhas de exportação (.xlsx) — uma função por tela,
@@ -90,14 +91,16 @@ function isFabrica1Editable(code: string): boolean {
 }
 
 /**
- * Gestão de OF (ProductionTable): Seq., OF/OS, Cli., Qtd., Peso, Ent. e
- * UMA coluna por processo do catálogo ativo (ordem do catálogo).
+ * Gestão de OF (ProductionTable): Seq., OF/OS, Cli., Qtd., Peso, Ent.,
+ * DP (data de proposta) e UMA coluna por processo do catálogo ativo
+ * (ordem do catálogo).
  */
 export function gestaoEntregasSheet(
   rows: readonly ProductionOrderRow[],
   processes: readonly ProcessDefinition[],
+  today: string,
 ): ExportSheet {
-  const headers = ["Seq.", "OF/OS", "Cli.", "Qtd.", "Peso", "Ent.", ...processes.map((p) => p.code)];
+  const headers = ["Seq.", "OF/OS", "Cli.", "Qtd.", "Peso", "Ent.", "DP", ...processes.map((p) => p.code)];
   const body: ExportCell[][] = rows.map((row) => [
     seq(row.seq),
     text(row.orderCode),
@@ -105,20 +108,22 @@ export function gestaoEntregasSheet(
     number(row.quantity),
     number(row.weightTotal),
     dateCell(row.deliveryDate),
+    dateCell(orderProposalDate(row, processes, today)),
     ...processes.map((process) => orderProcessCell(row.processes[process.code])),
   ]);
-  return { headers, rows: body, dateColumns: [5] };
+  return { headers, rows: body, dateColumns: [5, 6] };
 }
 
 /**
  * Fábrica 2 (Fabrica2Table): Seq., OF/OS, Cli., TP, Item pai, Desc., Qtd.,
- * Peso, Ent., OP e os processos FORA da cadeia da Fábrica 1 (a cadeia
- * fica oculta — a MP abre a lista, como na tela). Os rótulos são os que a
- * tela EXIBE (o nome completo mora só no tooltip).
+ * Peso, Ent., DP (data de proposta), OP e os processos FORA da cadeia da
+ * Fábrica 1 (a cadeia fica oculta — a MP abre a lista, como na tela). Os
+ * rótulos são os que a tela EXIBE (o nome completo mora só no tooltip).
  */
 export function fabrica2Sheet(
   rows: readonly ProductionRow[],
   processes: readonly ProcessDefinition[],
+  today: string,
 ): ExportSheet {
   const processColumns = processes.filter(
     (process) => !(F1_PROCESS_CODES as readonly string[]).includes(process.code),
@@ -133,6 +138,7 @@ export function fabrica2Sheet(
     "Qtd.",
     "Peso",
     "Ent.",
+    "DP",
     "OP",
     ...processColumns.map((p) => p.code),
   ];
@@ -146,20 +152,23 @@ export function fabrica2Sheet(
     number(row.quantity),
     number(row.unitWeightKg),
     dateCell(row.deliveryDate),
+    dateCell(itemProposalDate(row, processes, today)),
     text(row.op),
     ...processColumns.map((process) => itemProcessCell(row.processes[process.code])),
   ]);
-  return { headers, rows: body, dateColumns: [8] };
+  return { headers, rows: body, dateColumns: [8, 9] };
 }
 
 /**
  * Fábrica 1 (Fabrica1Table): Seq., OF/OS, Cli., Filho, Matérias-primas,
- * Qtd., Peso un., Peso total, Ent. e a cadeia F1 (MP primeiro, depois
- * LASER…FICEP e o KIT) — o que vem depois do KIT mora na gestão de OF.
+ * Qtd., Peso un., Peso total, Ent., DP (data de proposta) e a cadeia F1
+ * (MP primeiro, depois LASER…FICEP e o KIT) — o que vem depois do KIT
+ * mora na gestão de OF.
  */
 export function fabrica1Sheet(
   items: readonly ChildItemGroup[],
   processes: readonly ProcessDefinition[],
+  today: string,
 ): ExportSheet {
   const processColumns = fabrica1ProcessColumns(processes);
   const headers = [
@@ -172,6 +181,7 @@ export function fabrica1Sheet(
     "Peso un.",
     "Peso total",
     "Ent.",
+    "DP",
     ...processColumns.map((p) => p.code),
   ];
   const body: ExportCell[][] = items.map((item) => [
@@ -186,27 +196,34 @@ export function fabrica1Sheet(
     number(item.unitWeightKg),
     number(item.weightTotal),
     dateCell(item.deliveryDate),
+    dateCell(childItemProposalDate(item, processes, today)),
     ...processColumns.map((process) =>
       isFabrica1Editable(process.code)
         ? itemProcessCell(item.processes.find((entry) => entry.code === process.code))
         : inheritedProcessCell(item.parentProcessStatuses[process.code]),
     ),
   ]);
-  return { headers, rows: body, dateColumns: [8] };
+  return { headers, rows: body, dateColumns: [8, 9] };
 }
 
 /**
  * Pedidos (OrderList): Código (com o prefixo OF/OS do badge), Cliente,
- * Entrega, Situação e Itens — ordem fixa do servidor (entrega, código).
+ * Entrega, DP (data de proposta), Situação e Itens — ordem fixa do
+ * servidor (entrega, código). A DP vem do mapa calculado pelo servidor
+ * (mesma regra da gestão de OF).
  */
-export function pedidosSheet(orders: readonly OrderSummary[]): ExportSheet {
-  const headers = ["Código", "Cliente", "Entrega", "Situação", "Itens"];
+export function pedidosSheet(
+  orders: readonly OrderSummary[],
+  proposalByOrder: Readonly<Record<string, string | null>>,
+): ExportSheet {
+  const headers = ["Código", "Cliente", "Entrega", "DP", "Situação", "Itens"];
   const body: ExportCell[][] = orders.map((order) => [
     `${order.type} ${order.code}`,
     text(order.customerName),
     dateCell(order.deliveryDate),
+    dateCell(proposalByOrder[order.id] ?? null),
     ORDER_STATUS_LABELS[order.status],
     order.itemCount,
   ]);
-  return { headers, rows: body, dateColumns: [2] };
+  return { headers, rows: body, dateColumns: [2, 3] };
 }

@@ -176,6 +176,29 @@ export function subBusinessDays(isoDate: string, days: number): string {
   return toISODate(date);
 }
 
+/**
+ * SOME `days` dias úteis (só seg–sex) a partir de uma data ISO — espelho
+ * forward de `subBusinessDays`, usado pela data de proposta (DP): a DP
+ * conta para FRENTE a partir de hoje.
+ *
+ * Se a data de partida cair em fim de semana, ela rola para o próximo dia
+ * útil ANTES de somar (a fábrica não começa no sábado). `days = 0` devolve
+ * o dia útil; entrada ilegível retorna sem alteração.
+ */
+export function addBusinessDays(isoDate: string, days: number): string {
+  const date = parseISODateToLocal(isoDate);
+  if (!date) return isoDate;
+  while (!isBusinessDay(toISODate(date))) {
+    date.setDate(date.getDate() + 1);
+  }
+  let remaining = Number.isFinite(days) ? Math.max(0, Math.floor(days)) : 0;
+  while (remaining > 0) {
+    date.setDate(date.getDate() + 1);
+    if (isBusinessDay(toISODate(date))) remaining -= 1;
+  }
+  return toISODate(date);
+}
+
 export interface ParsedDateResult {
   value: string | null;
   error: string | null;

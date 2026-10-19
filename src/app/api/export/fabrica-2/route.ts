@@ -36,7 +36,7 @@ export async function GET(request: Request) {
       getProductionRows(client, { ...filters, page, pageSize: EXPORT_PAGE_SIZE }, today),
     );
 
-    return workbookResponse(exportFileName("fabrica-2"), fabrica2Sheet(rows, processes));
+    return workbookResponse(exportFileName("fabrica-2"), fabrica2Sheet(rows, processes, today));
   } catch (error) {
     return Response.json(
       { error: errorMessage(error, "Não foi possível exportar a lista.") },

@@ -16,9 +16,11 @@ import {
   type ProcessWindow,
 } from "@/lib/utils/process-schedule";
 import { fabrica1ItemProcesses, fabrica1ProcessColumns, isProcessStartOverdue } from "@/lib/utils/production";
+import { childItemProposalDate } from "@/lib/utils/proposal-date";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ProposalDateCell } from "@/components/shared/ProposalDateCell";
 import { SeqCell } from "@/components/shared/SeqCell";
 import { updateItemsSeqAction } from "@/lib/actions/orders.actions";
 import {
@@ -522,6 +524,13 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
           <span className="whitespace-nowrap tabular-nums">{formatDate(info.getValue())}</span>
         ),
       }),
+      // DP (data de proposta): ao lado da entrega — quando o MP do pai
+      // ainda não foi entregue, é hoje + Σ da cadeia do filho (dias úteis).
+      helper.accessor((row) => childItemProposalDate(row, processes, today), {
+        id: "proposalDate",
+        header: () => <Fabrica1ColumnHeader label="DP" fullLabel="Data de proposta" />,
+        cell: (info) => <ProposalDateCell value={info.getValue()} />,
+      }),
     ];
 
     const processGroupColumns = processColumns.map((process) => {
@@ -586,7 +595,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         columns: helper.columns(processGroupColumns),
       }),
     ]);
-  }, [filters, processColumns, capabilities.canUpdateStatus, capabilities.canEditSeq, scheduleByItem, parentMpPlanByItem, today]);
+  }, [filters, processes, processColumns, capabilities.canUpdateStatus, capabilities.canEditSeq, scheduleByItem, parentMpPlanByItem, today]);
 
   const table = useTable({
     features: coreFeatures,
@@ -745,6 +754,12 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
                 <dt className="inline">Peso total: </dt>
                 <dd className="inline tabular-nums text-foreground">
                   {item.weightTotal === null ? "—" : `${formatWeight(item.weightTotal)} kg`}
+                </dd>
+              </div>
+              <div>
+                <dt className="inline">Proposta: </dt>
+                <dd className="inline text-foreground">
+                  <ProposalDateCell value={childItemProposalDate(item, processes, today)} />
                 </dd>
               </div>
             </dl>

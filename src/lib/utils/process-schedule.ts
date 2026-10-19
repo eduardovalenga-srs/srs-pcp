@@ -24,7 +24,7 @@ export interface ScheduleProcess {
 }
 
 /** Sem duração cadastrada (ou valor inválido), o processo vale 1 dia útil. */
-function normalizeDuration(days: number): number {
+export function normalizeDuration(days: number): number {
   return Number.isFinite(days) && days >= 1 ? Math.floor(days) : 1;
 }
 

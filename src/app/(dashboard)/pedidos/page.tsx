@@ -6,7 +6,7 @@ import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getOrdersPage } from "@/lib/services/orders.service";
-import type { OrderListResult } from "@/lib/types/order";
+import type { OrdersPage } from "@/lib/services/orders.service";
 import { parseOrderFilters } from "@/lib/utils/filters";
 import { pluralize } from "@/lib/utils/formatting";
 import { AccessDenied } from "@/components/shared/AccessDenied";
@@ -37,7 +37,7 @@ export default async function PedidosPage({ searchParams }: PageProps<"/pedidos"
     );
   }
 
-  let data: OrderListResult;
+  let data: OrdersPage;
   try {
     const client = await createClient();
     data = await getOrdersPage(client, filters);
@@ -98,6 +98,7 @@ export default async function PedidosPage({ searchParams }: PageProps<"/pedidos"
               orders={orders}
               canDelete={can(sessionUser.role, "orders.delete")}
               filters={filters}
+              proposalByOrder={data.proposalByOrder}
             />
             <OrderPagination filters={filters} total={total} />
           </>
