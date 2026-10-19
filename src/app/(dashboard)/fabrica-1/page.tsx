@@ -9,6 +9,7 @@ import { parseChildItemFilters } from "@/lib/utils/filters";
 import { pluralize } from "@/lib/utils/formatting";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { ExportButton } from "@/components/shared/ExportButton";
 import { Header } from "@/components/layout/Header";
 import { Fabrica1Filters } from "@/components/fabrica1/Fabrica1Filters";
 import { Fabrica1Summary } from "@/components/fabrica1/Fabrica1Summary";
@@ -79,6 +80,7 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
       <Header
         title="Fábrica 1"
         description={`Itens filhos das OFs agrupados por código — ${pluralize(data.total, "linha")}.`}
+        actions={<ExportButton endpoint="/api/export/fabrica-1" fallbackFileName="export-fabrica-1.xlsx" />}
       />
 
       <div className="space-y-3">

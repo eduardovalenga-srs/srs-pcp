@@ -7,6 +7,7 @@ import { getDashboardData, getProductionPage } from "@/lib/services/production.s
 import { parseProductionFilters } from "@/lib/utils/filters";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { ExportButton } from "@/components/shared/ExportButton";
 import { Header } from "@/components/layout/Header";
 import { Fabrica2ActiveFilters } from "@/components/fabrica2/Fabrica2ActiveFilters";
 import { Fabrica2FiltersBar } from "@/components/fabrica2/Fabrica2Filters";
@@ -67,6 +68,7 @@ export default async function Fabrica2Page({ searchParams }: PageProps<"/fabrica
       <Header
         title="Fábrica 2"
         description="Uma linha por item, uma coluna por processo. Clique em uma célula para atualizar."
+        actions={<ExportButton endpoint="/api/export/fabrica-2" fallbackFileName="export-fabrica-2.xlsx" />}
       />
 
       <div className="space-y-3">

@@ -11,6 +11,7 @@ import { parseOrderFilters } from "@/lib/utils/filters";
 import { pluralize } from "@/lib/utils/formatting";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ExportButton } from "@/components/shared/ExportButton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -66,6 +67,7 @@ export default async function PedidosPage({ searchParams }: PageProps<"/pedidos"
       <Header
         title="Pedidos"
         description={pluralize(total, "pedido")}
+        actions={<ExportButton endpoint="/api/export/pedidos" fallbackFileName="export-pedidos.xlsx" />}
       />
 
       <div className="space-y-3">

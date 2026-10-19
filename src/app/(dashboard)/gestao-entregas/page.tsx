@@ -9,6 +9,7 @@ import { getDashboardData, getProductionOrdersPage } from "@/lib/services/produc
 import { parseProductionFilters } from "@/lib/utils/filters";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { ExportButton } from "@/components/shared/ExportButton";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { ActiveFilters } from "@/components/producao/ActiveFilters";
@@ -68,6 +69,7 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
         description="Uma linha por OF — quantidades e pesos somados, com uma coluna por processo. Clique numa célula para aplicar a situação a toda a OF."
         actions={
           <>
+            <ExportButton endpoint="/api/export/gestao-entregas" fallbackFileName="export-gestao-entregas.xlsx" />
             {can(sessionUser.role, "orders.create") ? (
               <Button type="button" variant="outline" size="sm" asChild>
                 <Link href="/pedidos/novo">
