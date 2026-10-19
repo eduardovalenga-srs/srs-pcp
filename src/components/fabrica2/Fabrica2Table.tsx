@@ -229,6 +229,15 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
     [rows, processes],
   );
 
+  // Largura da coluna "Item pai": cabe o código mais longo da página atual.
+  // Piso = cabeçalho "Item pai"; teto = um código maluco não desloca as
+  // demais colunas (Cli./TP/Desc. continuam com seu teto próprio).
+  const parentItemWidthCh = useMemo(() => {
+    const longest = rows.reduce((max, row) => Math.max(max, row.parentItem?.length ?? 0), 0);
+    // +2: `ch` mede a largura do "0" e o código tem letras maiúsculas largas.
+    return Math.min(Math.max(longest + 2, 8), 28);
+  }, [rows]);
+
   const columns = useMemo(() => {
     const orderColumns = [
       // 036: prioridade do planejamento — primeiro campo da linha.
@@ -313,7 +322,15 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
             filter={<Fabrica2TextColumnFilter filters={filters} field="parentItem" column="Item pai" context="item pai" />}
           />
         ),
-        cell: (info) => <span className="block max-w-[96px] truncate">{info.getValue() || "—"}</span>,
+        cell: (info) => (
+          <span
+            className="block truncate tabular-nums"
+            style={{ width: `${parentItemWidthCh}ch` }}
+            title={info.getValue() || undefined}
+          >
+            {info.getValue() || "—"}
+          </span>
+        ),
       }),
       helper.accessor("description", {
         id: "description",
@@ -461,7 +478,7 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
         columns: helper.columns(processColumns),
       }),
     ]);
-  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, capabilities.canEditSeq, scheduleByItem, today]);
+  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, capabilities.canEditSeq, scheduleByItem, today, parentItemWidthCh]);
 
   const table = useTable({
     features: coreFeatures,

@@ -72,6 +72,8 @@ cp .env.example .env.local
 #    supabase/migrations/036_order_item_seq.sql
 #    supabase/migrations/037_family_totals_by_card.sql
 #    supabase/migrations/038_column_filters_and_seq.sql
+#    supabase/migrations/039_kit_aggregation.sql
+#    supabase/migrations/040_import_material_prefix_serra_laser.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -259,9 +261,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   (`NAO_INICIADO`, obrigatório) e os demais nascem desmarcados (`NAO_APLICAVEL`,
   migração 027). O prefixo do material decide mais no nascer da linha: **TB** nas duas
   primeiras letras marca **SERRA** e **DB TB**; **CH** marca **DB CH** e **LASER**
-  (migração 030, corrigindo o CH da 028); **L** ou **F** na primeira letra marca só
-  **SERRA** (migração 034, pai e filho como as demais regras — sem backfill: re-importação
-  não altera status já gravado). A **cadeia final** também nasce
+  (migração 030, corrigindo o CH da 028); **L**, **F**, **P**, **T** ou **B** na primeira letra
+  marca só **SERRA** (migração 034) e **C** na primeira letra marca só **LASER** (migração 040 —
+  pai e filho como as demais regras; DB CH só com o prefixo CH e DB TB só com o prefixo TB —
+  sem backfill: re-importação não altera status já gravado). A **cadeia final** também nasce
   marcada, por tipo de item (migração 032): no **pai**, `PRE_MTG`, `SOLDA`,
   `ACAB`, `QUALITY` e `EXP` (o kit montado acontece nele); no **filho**, o
   `KIT` (encerra a cadeia da Fábrica 1) — os dois entram assim na previsão de

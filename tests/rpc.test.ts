@@ -1628,8 +1628,11 @@ describe("apply_of_import (016)", () => {
     expect(statusOf("B-1-F", "SERRA")).toBe("NAO_INICIADO");
     expect(statusOf("B-1-F", "DB_TB")).toBe("NAO_APLICAVEL");
 
-    // Outra letra inicial (C): nada muda.
+    // Outra letra inicial (C): SERRA continua desmarcado, mas o LASER
+    // nasce marcado desde a 040 (C não é CH, então o DB CH fica fora).
     expect(statusOf("B-2", "SERRA")).toBe("NAO_APLICAVEL");
+    expect(statusOf("B-2", "LASER")).toBe("NAO_INICIADO");
+    expect(statusOf("B-2", "DB_CH")).toBe("NAO_APLICAVEL");
 
     // União TB + L: SERRA e DB TB (o TB manda no DB TB).
     expect(statusOf("B-3", "SERRA")).toBe("NAO_INICIADO");
@@ -1647,6 +1650,125 @@ describe("apply_of_import (016)", () => {
       "delete from public.order_items where order_id = (select id from public.orders where code = 'OF-910')",
     );
     await db.query("delete from public.orders where code = 'OF-910'");
+  });
+
+  it("material começando com P, T ou B marca SERRA e com C marca LASER (040)", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    await callApplyOfPlan({
+      operations: [
+        {
+          action: "CREATE",
+          order: {
+            code: "OF-920",
+            type: "OF",
+            customerName: "Cliente Letras 040",
+            description: "Regras de letras do material",
+            deliveryDate: "2026-12-30",
+          },
+          parents: [
+            {
+              code: "C-1",
+              description: "PAI COM PERFIL",
+              family: "TB",
+              quantity: 1,
+              unitWeightKg: 1,
+              totalWeightKg: 1,
+              deliveryDate: "2026-12-30",
+              materials: [{ description: "  perfil 30x30", quantity: 1, unit: "UN", notes: null }],
+              children: [
+                {
+                  code: "C-1-F",
+                  description: "FILHO COM TUBO",
+                  family: "TB",
+                  quantity: 1,
+                  unitWeightKg: 1,
+                  totalWeightKg: 1,
+                  deliveryDate: "2026-12-30",
+                  // T que não é TB: SERRA sim, DB TB não.
+                  materials: [{ description: "Tubo 40x40", quantity: 1, unit: "UN", notes: null }],
+                },
+              ],
+            },
+            {
+              code: "C-2",
+              description: "PAI COM BLOCO",
+              family: "TB",
+              quantity: 1,
+              unitWeightKg: 1,
+              totalWeightKg: 1,
+              deliveryDate: "2026-12-30",
+              materials: [{ description: "Bloco 100mm", quantity: 1, unit: "UN", notes: null }],
+              children: [],
+            },
+            {
+              code: "C-3",
+              description: "PAI COM COBRE",
+              family: "CH",
+              quantity: 1,
+              unitWeightKg: 1,
+              totalWeightKg: 1,
+              deliveryDate: "2026-12-30",
+              materials: [{ description: "  cobre 2mm", quantity: 1, unit: "UN", notes: null }],
+              children: [],
+            },
+            {
+              code: "C-4",
+              description: "PAI COM ACO",
+              family: "TB",
+              quantity: 1,
+              unitWeightKg: 1,
+              totalWeightKg: 1,
+              deliveryDate: "2026-12-30",
+              materials: [{ description: "Aço carbono", quantity: 1, unit: "UN", notes: null }],
+              children: [],
+            },
+          ],
+        },
+      ],
+    });
+
+    const { rows } = await db.query<{ parent_item: string; code: string; status: string }>(
+      `select oi.parent_item, p.code, pp.status
+         from public.production_processes pp
+         join public.processes p on p.id = pp.process_id
+         join public.order_items oi on oi.id = pp.order_item_id
+         join public.orders o on o.id = oi.order_id
+        where o.code = 'OF-920'
+          and p.code in ('SERRA', 'DB_TB', 'DB_CH', 'LASER')`,
+    );
+    const statusOf = (item: string, code: string) =>
+      rows.find((row) => row.parent_item === item && row.code === code)?.status;
+
+    // Pai com material P (espaço e minúsculo — normaliza): só o SERRA.
+    expect(statusOf("C-1", "SERRA")).toBe("NAO_INICIADO");
+    expect(statusOf("C-1", "DB_TB")).toBe("NAO_APLICAVEL");
+    expect(statusOf("C-1", "LASER")).toBe("NAO_APLICAVEL");
+
+    // Filho com material T que não é TB: SERRA marcado, DB TB fora.
+    expect(statusOf("C-1-F", "SERRA")).toBe("NAO_INICIADO");
+    expect(statusOf("C-1-F", "DB_TB")).toBe("NAO_APLICAVEL");
+
+    // Pai com material B: só o SERRA.
+    expect(statusOf("C-2", "SERRA")).toBe("NAO_INICIADO");
+    expect(statusOf("C-2", "DB_TB")).toBe("NAO_APLICAVEL");
+    expect(statusOf("C-2", "LASER")).toBe("NAO_APLICAVEL");
+
+    // C que não é CH: LASER marcado, DB CH e SERRA fora.
+    expect(statusOf("C-3", "LASER")).toBe("NAO_INICIADO");
+    expect(statusOf("C-3", "DB_CH")).toBe("NAO_APLICAVEL");
+    expect(statusOf("C-3", "SERRA")).toBe("NAO_APLICAVEL");
+
+    // Letra fora do conjunto: nada nasce marcado além das regras gerais.
+    expect(statusOf("C-4", "SERRA")).toBe("NAO_APLICAVEL");
+    expect(statusOf("C-4", "LASER")).toBe("NAO_APLICAVEL");
+
+    // Limpeza: a OF-920 não pode vazar para os testes seguintes.
+    await asSuperUser(db);
+    await db.query(
+      "delete from public.order_items where order_id = (select id from public.orders where code = 'OF-920')",
+    );
+    await db.query("delete from public.orders where code = 'OF-920'");
   });
 });
 
