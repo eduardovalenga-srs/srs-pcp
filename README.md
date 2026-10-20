@@ -269,7 +269,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   completo, estados finais e eventos dedicados) fica para a fase 2 — a planilha de
   importação também não tem coluna de OP (item importado nasce sem OP).
 - **Atraso**: `delivery_date < hoje` **e** processo `EXP <> CONCLUIDO`
-  ("hoje" calculado no fuso do negócio, `America/Sao_Paulo`).
+  ("hoje" calculado no fuso do negócio, `America/Sao_Paulo`). É a regra das
+  telas de produção (gestão, Fábrica 2, dashboard); o card **Atrasados da
+  Fábrica 1** tem regra própria — a data da coluna **KIT** do conjunto
+  filtrado (ver a tela).
 - **Importação (layout novo — estrutura OF)**: o arquivo da fábrica **substitui** a
   planilha antiga de 22 colunas. Ele traz a árvore completa — **OF → itens pai
   (`ps_idPos`) → itens filhos (`cp_comp`) → matéria-prima por item** — reconhecida
@@ -379,11 +382,18 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   **informativos**, sem clique/filtro, pois esta tela não tem atalho OVERDUE/EXP):
   **Eventos** com Registros = nº de linhas agrupadas, Qtd. total e Peso total do
   **conjunto filtrado inteiro** (RPC `get_child_items_totals` — migração 024,
-  redefinida pela **035** e pelos filtros de grupo da **038**) e os KPIs globais
-  **Atrasados** e **KIT** (na Fábrica 1 o card da EXPEDIÇÃO do item raiz se resolve
-  no KIT — objetos `delivery`/`expedition` da RPC `get_production_stats`, migrações
-  019/020 — contam **itens raiz**, onde a regra de atraso e a expedição valem; os
-  filhos da cadeia não têm expedição própria). **Desde a 038 os cards não exibem
+  redefinida pela **035** e pelos filtros de grupo da **038**) e, pelo MESMO conjunto
+  filtrado inteiro (varredura `collectAllPages` de `lib/utils/collect-pages.ts`, com os
+  mesmos filtros da tela e da exportação), o card **Atrasados** (regra do KIT): os grupos cuja
+  **data da coluna KIT** — o INÍCIO previsto da janela (`plan.start`, o mesmo valor que
+  a célula exibe em vermelho) — é **anterior à data de referência** e cujo KIT ainda
+  **não concluiu**. A regra mora em `isChildItemKitOverdue`
+  (`lib/utils/child-item-groups.ts`) e roda no servidor dentro de `getChildItemsPage`;
+  Registros/Qtd./Peso somam só esses grupos, e linha **sem janela de KIT** (sem entrega,
+  KIT desmarcado `NAO_APLICAVEL` ou sem processo KIT) não conta. O card **KIT** segue
+  **global** (na Fábrica 1 o card da EXPEDIÇÃO do item raiz se resolve no KIT — objeto
+  `expedition` da RPC `get_production_stats`, migração 020 — contam **itens raiz**,
+  onde a expedição vale; os filhos da cadeia não têm expedição própria). **Desde a 038 os cards não exibem
   mais a lista Famílias** (a quebra por TP saiu das três telas; os campos
   `families`/`family_totals`/`overdueFamilies`/`expeditionFamilies` seguem saindo
   das RPCs, sem leitura no front).

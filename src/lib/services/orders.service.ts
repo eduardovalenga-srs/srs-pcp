@@ -16,6 +16,8 @@ import {
 } from "@/lib/repositories/orders.repository";
 import { replaceItemMaterials } from "@/lib/repositories/materials.repository";
 import { getOrderItemWithProcesses, listChildItemGroups } from "@/lib/repositories/order-items.repository";
+import { collectAllPages, EXPORT_PAGE_SIZE } from "@/lib/utils/collect-pages";
+import { summarizeKitOverdue, type KitOverdueTotals } from "@/lib/utils/child-item-groups";
 import { applyPlan } from "@/lib/repositories/import.repository";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { orderWithItemsSchema, type OrderWithItemsOutput } from "@/lib/validators/order-item.schema";
@@ -73,12 +75,39 @@ export interface ChildItemPage extends ChildItemGroupsResult {
   processes: ProcessDefinition[];
   /** Data de referência (AAAA-MM-DD) — mesma base da regra de atraso. */
   today: string;
+  /**
+   * Regra do KIT: card "Atrasados" da Fábrica 1 — grupos do CONJUNTO FILTRADO INTEIRO
+   * (todas as páginas) com o início previsto da coluna KIT anterior a hoje.
+   */
+  kitOverdue: KitOverdueTotals;
+}
+
+/** Card "Atrasados" (regra do KIT): varre o conjunto filtrado inteiro e soma os grupos com o KIT vencido. */
+async function listKitOverdueTotals(
+  client: SupabaseServer,
+  filters: ChildItemFilters,
+  processId: string | null,
+  processes: readonly ProcessDefinition[],
+  today: string,
+): Promise<KitOverdueTotals> {
+  // Mesma varredura da exportação (.xlsx): página de 1000 grupos por chamada,
+  // filtros idênticos aos da lista — o card bate com o que a tela exibe.
+  const items = await collectAllPages((page) =>
+    listChildItemGroups(client, { ...filters, page, pageSize: EXPORT_PAGE_SIZE }, processId).then(
+      (result) => ({ rows: result.items, total: result.total }),
+    ),
+  );
+  return summarizeKitOverdue(items, processes, today);
 }
 
 /**
  * Página de itens filhos com materiais (tela Fábrica 1).
  * O catálogo é carregado antes da lista porque resolve o `processCode`
  * do filtro para o id da linha de processo (filtro no banco).
+ *
+ * O card "Atrasados" (regra do KIT) roda em paralelo com a página: ele varre o
+ * conjunto filtrado inteiro para comparar a data da coluna KIT de cada
+ * grupo com a data de referência.
  */
 export async function getChildItemsPage(
   client: SupabaseServer,
@@ -94,11 +123,22 @@ export async function getChildItemsPage(
 
   // Processo fora do catálogo ativo não casa nenhuma linha.
   if (filters.processCode !== "ALL" && processId === null) {
-    return { items: [], total: 0, qtyTotal: 0, weightTotal: 0, processes, today };
+    return {
+      items: [],
+      total: 0,
+      qtyTotal: 0,
+      weightTotal: 0,
+      processes,
+      today,
+      kitOverdue: { records: 0, qty: 0, weight: 0 },
+    };
   }
 
-  const result = await listChildItemGroups(client, filters, processId);
-  return { ...result, processes, today };
+  const [result, kitOverdue] = await Promise.all([
+    listChildItemGroups(client, filters, processId),
+    listKitOverdueTotals(client, filters, processId, processes, today),
+  ]);
+  return { ...result, processes, today, kitOverdue };
 }
 
 export async function getOrder(client: SupabaseServer, orderId: string): Promise<OrderDetails | null> {

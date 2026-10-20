@@ -1,11 +1,15 @@
 import type { ProcessStatus } from "@/lib/constants/production";
+import { KIT_PROCESS_CODE } from "@/lib/constants/processes";
 import type {
   ChildItemGroup,
   ChildItemGroupMember,
   ChildItemProcess,
   OrderItemMaterial,
 } from "@/lib/types/order";
+import type { ProcessDefinition } from "@/lib/types/production";
 import { calculateTotalWeight } from "@/lib/utils/formatting";
+import { computeProcessSchedule, scheduleProcessesForItem, type ProcessWindow } from "@/lib/utils/process-schedule";
+import { isProcessStartOverdue } from "@/lib/utils/production";
 
 /**
  * Situação agregada de um processo entre os itens de um grupo (033):
@@ -179,4 +183,86 @@ export function buildChildItemGroup(input: {
     parentDeliveryDate: minDate(parentList.map((parent) => parent.parentDeliveryDate)),
     materials: mergeGroupMaterials(members),
   };
+}
+
+/** Dados que o cálculo de janela precisa de cada processo do catálogo. */
+export type KitCatalogProcess = Pick<ProcessDefinition, "code" | "displayOrder" | "durationDays">;
+
+/**
+ * Janela prevista do KIT numa linha agrupada da Fábrica 1 — MESMA receita da
+ * célula da tabela (`scheduleByItem` em `components/fabrica1/Fabrica1Table`):
+ * dias úteis contados de TRÁS para FRENTE a partir da entrega do grupo, com
+ * os status AGREGADOS do grupo (`NAO_APLICAVEL` não ocupa dias nem ganha
+ * janela). Devolve null quando não há entrega válida ou o grupo não tem KIT
+ * aplicável.
+ */
+export function kitWindowForGroup(
+  item: Pick<ChildItemGroup, "deliveryDate" | "processes">,
+  catalog: readonly KitCatalogProcess[],
+): ProcessWindow | null {
+  const statusByCode = new Map(item.processes.map((process) => [process.code, process.status] as const));
+  return (
+    computeProcessSchedule(
+      item.deliveryDate,
+      scheduleProcessesForItem(catalog, (code) => statusByCode.get(code)),
+    ).get(KIT_PROCESS_CODE) ?? null
+  );
+}
+
+/**
+ * REGRA DE ATRASO DA FÁBRICA 1 — card "Atrasados" desta tela:
+ * o grupo está atrasado quando a data da coluna KIT (o INÍCIO previsto da
+ * janela, o mesmo valor exibido/destacado em vermelho na célula) é ANTERIOR
+ * à data de referência.
+ *
+ * Fora da conta:
+ *  - KIT `CONCLUIDO` (`isProcessStartOverdue` nunca marca processo concluído —
+ *    item finalizado não fica eternamente "atrasado");
+ *  - KIT `NAO_APLICAVEL`/ausente no grupo;
+ *  - sem janela calculável (grupo sem data de entrega).
+ *
+ * ATENÇÃO: isto é a regra NOVA do card; a regra global de atraso da gestão
+ * (`isItemOverdue` — entrega da OF vencida + EXPEDIÇÃO pendente) continua
+ * valendo para as demais telas.
+ */
+export function isChildItemKitOverdue(
+  item: Pick<ChildItemGroup, "deliveryDate" | "processes">,
+  catalog: readonly KitCatalogProcess[],
+  today: string,
+): boolean {
+  const kit = item.processes.find((process) => process.code === KIT_PROCESS_CODE);
+  if (!kit || kit.status === "NAO_APLICAVEL") return false;
+
+  const window = kitWindowForGroup(item, catalog);
+  if (!window) return false;
+
+  return isProcessStartOverdue(window.start, kit.status, today);
+}
+
+/** Card "Atrasados" da Fábrica 1: registros (grupos), Σ qtd. e Σ peso (kg). */
+export interface KitOverdueTotals {
+  records: number;
+  qty: number;
+  weight: number;
+}
+
+/**
+ * Totais do card "Atrasados" (regra do KIT) para um CONJUNTO de linhas da Fábrica 1:
+ * soma quantidade e peso total dos grupos com o início do KIT vencido.
+ * Contagem em GRUPOS (linhas), como o card "Eventos"; grupo sem peso entra
+ * como 0 na soma (mesma convenção dos cards da gestão).
+ */
+export function summarizeKitOverdue(
+  items: readonly ChildItemGroup[],
+  catalog: readonly KitCatalogProcess[],
+  today: string,
+): KitOverdueTotals {
+  const totals: KitOverdueTotals = { records: 0, qty: 0, weight: 0 };
+  for (const item of items) {
+    if (!isChildItemKitOverdue(item, catalog, today)) continue;
+    totals.records += 1;
+    totals.qty += item.quantity;
+    totals.weight += item.weightTotal ?? 0;
+  }
+  return totals;
 }

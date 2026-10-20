@@ -49,7 +49,8 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
   let stats: Awaited<ReturnType<typeof getDashboardData>>;
   try {
     const client = await createClient();
-    // 037: os KPIs globais (Atrasados/Expedição) vêm junto — cards novos.
+    // 037: o KPI global de Expedição (card KIT) vem junto; o atraso por KIT
+    // do card "Atrasados" é calculado dentro de getChildItemsPage, pelo filtro atual.
     [data, stats] = await Promise.all([getChildItemsPage(client, filters), getDashboardData(client)]);
   } catch (error) {
     return (
@@ -93,7 +94,7 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
           total={data.total}
           qtyTotal={data.qtyTotal}
           weightTotal={data.weightTotal}
-          delivery={stats.delivery}
+          kitOverdue={data.kitOverdue}
           expedition={stats.expedition}
         />
 

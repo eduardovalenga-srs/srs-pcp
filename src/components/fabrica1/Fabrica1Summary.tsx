@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, Inbox, Truck } from "lucide-react";
 
+import type { KitOverdueTotals } from "@/lib/utils/child-item-groups";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { cn } from "@/lib/utils";
 
@@ -12,12 +13,19 @@ interface Fabrica1SummaryProps {
   /** Peso total (kg) do conjunto filtrado — Σ (qtd × peso unit.). */
   weightTotal: number;
   /**
-   * 037: KPIs globais de item RAIZ (mesmo get_production_stats da Fábrica 2
-   * e da Gestão) para os cards "Atrasados" e "KIT" — a regra de atraso e a
-   * EXPEDIÇÃO pertencem ao item RAIZ (os filhos, cadeia LASER…FICEP, não
-   * têm expedição própria).
+   * Regra do KIT: card "Atrasados" — grupos do CONJUNTO FILTRADO INTEIRO (todas as
+   * páginas) com a data da coluna KIT (início previsto da janela) anterior
+   * à data de referência, com o KIT ainda não concluído. Conta em GRUPOS,
+   * como o card "Eventos" — não são mais os KPIs globais de item raiz da
+   * RPC `get_production_stats` (entrega da OF), usados antes nesta tela.
    */
-  delivery: { overdue: number; overdueQty: number; overdueWeight: number };
+  kitOverdue: KitOverdueTotals;
+  /**
+   * 037: KPI global de item RAIZ (mesmo `get_production_stats` da Fábrica 2
+   * e da Gestão) para o card "KIT" — a EXPEDIÇÃO pertence ao item RAIZ (os
+   * filhos, cadeia LASER…FICEP, não têm expedição própria). Continua
+   * GLOBAL (não respeita os filtros desta tela).
+   */
   expedition?: { count: number; qty: number; weight: number };
 }
 
@@ -32,8 +40,9 @@ interface Card {
 
 /**
  * Resumo da Fábrica 1 — três cards no mesmo modelo da Fábrica 2: "Eventos"
- * com o conjunto FILTRADO (contagem de grupos) e "Atrasados" / "KIT" com os
- * KPIs globais de item raiz. Somente os totais, sem quebra por família.
+ * e "Atrasados" com o conjunto FILTRADO inteiro (contagem de grupos; o
+ * atraso é a regra da coluna KIT) e "KIT" com o KPI global de item
+ * raiz. Somente os totais, sem quebra por família.
  *
  * Sem clique/filtro: os filtros desta tela são por período De→Até e pela
  * cadeia da Fábrica 1 — não existe atalho OVERDUE/EXP no modelo de
@@ -43,7 +52,7 @@ export function Fabrica1Summary({
   total,
   qtyTotal,
   weightTotal,
-  delivery,
+  kitOverdue,
   expedition,
 }: Fabrica1SummaryProps) {
   const cards: Card[] = [
@@ -58,14 +67,17 @@ export function Fabrica1Summary({
       ],
     },
     {
+      // Atraso pela coluna KIT (início previsto da janela < hoje, KIT
+      // não concluído) sobre o CONJUNTO FILTRADO inteiro — não é mais o KPI
+      // global de item raiz baseado na entrega da OF.
       key: "overdue",
       label: "Atrasados",
       icon: <AlertTriangle className="h-4 w-4" aria-hidden />,
       tone: "danger",
       details: [
-        { label: "Registros", value: formatQuantity(delivery.overdue) },
-        { label: "Qtd. total", value: formatQuantity(delivery.overdueQty) },
-        { label: "Peso total", value: `${formatWeight(delivery.overdueWeight)} kg` },
+        { label: "Registros", value: formatQuantity(kitOverdue.records) },
+        { label: "Qtd. total", value: formatQuantity(kitOverdue.qty) },
+        { label: "Peso total", value: `${formatWeight(kitOverdue.weight)} kg` },
       ],
     },
     {
