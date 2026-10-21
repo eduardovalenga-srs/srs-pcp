@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { createElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-// A data PREVISTA (janela contada da entrega) só aparece na gestão de OF:
-// nas telas da Fábrica 1 e da Fábrica 2 as células/chips/tooltips ficam sem
-// ela e as folhas de detalhes escondem o rótulo "Previsão de execução" e a
-// janela "De X a Y" — mantendo a data EFETIVA do recebimento da MP (031) e
-// a edição da entrega. Este arquivo cobre esse escopo.
+// A coluna DP (data de proposta) ficou oculta nas telas da Fábrica 1 e da
+// Fábrica 2 — desktop e card mobile. A data PREVISTA (janela contada da
+// entrega) continua aparecendo nelas: dd/MM na célula, vermelho de início
+// vencido, "previsto de" nos tooltips/chips e as folhas de detalhes com o
+// rótulo "Previsão de execução" e a janela "De X a Y" — mantendo a data
+// EFETIVA do recebimento da MP (031) e a edição da entrega. Este arquivo
+// cobre esse escopo.
 
 // O código de servidor usa `server-only` (que lança fora do RSC).
 vi.mock("server-only", () => ({}));
@@ -30,22 +32,6 @@ vi.mock("@/components/ui/sheet", () => ({
   SheetDescription: ({ children }: { children?: ReactNode }) => children ?? null,
   SheetFooter: ({ children }: { children?: ReactNode }) => children ?? null,
 }));
-
-// Spy de fiação: registra a `showPlan` que a Fábrica 1 passa à folha
-// compartilhada (a mesma que o detalhe do pedido usa com o default true).
-const captured = vi.hoisted(() => ({ showPlan: undefined as boolean | undefined }));
-
-vi.mock("@/components/producao/ProcessDetailsSheet", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/components/producao/ProcessDetailsSheet")>();
-  return {
-    ...actual,
-    ProcessDetailsSheet: (props: Parameters<typeof actual.ProcessDetailsSheet>[0]) => {
-      captured.showPlan = props.showPlan;
-      return actual.ProcessDetailsSheet(props);
-    },
-  };
-});
 
 import { Fabrica1Table } from "@/components/fabrica1/Fabrica1Table";
 import { Fabrica2Table } from "@/components/fabrica2/Fabrica2Table";
@@ -75,8 +61,9 @@ const f1Catalog: ProcessDefinition[] = [
 
 /**
  * Mesma fixture do teste de cabeçalhos: entrega 10/10 (sáb) e pai 15/10
- * (qui). Com a prevista AINDA desenhada, a célula LASER mostraria 06/10 e a
- * KIT 07/10 (janelas contadas de trás para frente) — hoje elas somem.
+ * (qui). Com a prevista desenhada, a célula LASER mostra 06/10 e a KIT
+ * 07/10 (janelas contadas de trás para frente) — ambas vencidas diante da
+ * referência 12/10, então saem em vermelho.
  */
 function f1Item(overrides: Partial<ChildItemGroup> = {}): ChildItemGroup {
   return {
@@ -130,38 +117,47 @@ function f1Table(items: ChildItemGroup[]): ReactElement {
     processes: f1Catalog,
     filters: parseChildItemFilters({}),
     capabilities: f1Capabilities,
-    today: "2026-10-09",
+    // Referência 12/10: LASER (06/10) e KIT (07/10) já começaram → vermelho.
+    today: "2026-10-12",
   });
 }
 
-describe("Fábrica 1 — sem data prevista nas células (prevista só na gestão de OF)", () => {
-  it("não desenha a janela prevista nem o texto \"previsto de\" nos tooltips", () => {
+describe("Fábrica 1 — data prevista nas células e sem coluna DP", () => {
+  it("desenha a janela prevista, o texto \"previsto de\" e o vermelho de início vencido", () => {
     const markup = html(f1Table([f1Item()]));
 
-    // Janelas que a célula exibiria se a prevista ainda existisse:
-    // LASER 06/10 e KIT 07/10 (entrega 10/10, contadas em dias úteis).
-    expect(markup).not.toContain("06/10");
-    expect(markup).not.toContain("07/10");
-    expect(markup).not.toContain("previsto de");
+    // Janelas que a célula desenha: LASER 06/10 e KIT 07/10
+    // (entrega 10/10, contadas em dias úteis de trás para frente).
+    expect(markup).toContain("06/10");
+    expect(markup).toContain("07/10");
+    expect(markup).toContain("previsto de");
+    // Início vencido (anterior à referência) → a data prevista sai em vermelho.
+    expect(markup).toContain("text-status-late");
   });
 
-  it("mantém a data EFETIVA do recebimento da MP no desktop e no chip mobile", () => {
+  it("mantém a data EFETIVA do recebimento da MP (031) ao lado da prevista no desktop e no chip mobile", () => {
     const markup = html(f1Table([f1Item()]));
 
-    // desktop: célula herdada do pai — sem o trecho da prevista no título.
+    // desktop: célula herdada do pai — prevista (entrega do pai 15/10 →
+    // MP 08/10) seguida da data efetiva do recebimento.
     expect(markup).toContain(
-      "Matéria-prima — status do item pai (editado na Gestão de OF): Concluído · recebida em 08/10/2026",
+      "Matéria-prima — status do item pai (editado na Gestão de OF): Concluído · previsto de 08/10/2026 a 08/10/2026 · recebida em 08/10/2026",
     );
-    // mobile: chip MP do card — idem, só a data efetiva.
-    expect(markup).toContain("Matéria-prima — status do item pai: Concluído · recebida em 08/10/2026");
+    // mobile: chip MP do card — idem, com a prevista e a efetiva empilhadas.
+    expect(markup).toContain(
+      "Matéria-prima — status do item pai: Concluído · previsto de 08/10/2026 a 08/10/2026 · recebida em 08/10/2026",
+    );
     // Visível na célula/chip (dd/MM no fuso do negócio).
     expect(markup).toContain("08/10");
   });
 
-  it("passa showPlan={false} para a folha de detalhes (prevista só na gestão de OF)", () => {
-    captured.showPlan = undefined;
-    html(f1Table([f1Item()]));
-    expect(captured.showPlan).toBe(false);
+  it("não exibe a coluna DP (data de proposta) nem no desktop nem no card mobile", () => {
+    const markup = html(f1Table([f1Item()]));
+
+    // Cabeçalho da coluna (label + rótulo completo) e a linha do card mobile.
+    expect(markup).not.toContain(">DP<");
+    expect(markup).not.toContain("Data de proposta");
+    expect(markup).not.toContain("Proposta:");
   });
 });
 
@@ -187,7 +183,7 @@ function baseCell(overrides: Partial<ProcessCell> = {}): ProcessCell {
 }
 
 /**
- * Entrega 20/10 (ter) — com prevista, a célula MP mostraria 14/10, KIT
+ * Entrega 20/10 (ter) — com prevista, a célula MP mostra 14/10, KIT
  * 15/10, PRÉ-MTG 16/10 e EXP 19/10 (janelas em dias úteis).
  */
 function f2Row(processes: Record<string, ProcessCell>): ProductionRow {
@@ -226,7 +222,8 @@ function f2Table(rows: ProductionRow[]): ReactElement {
     processes: f2Catalog,
     filters: parseProductionFilters({}),
     capabilities: f2Capabilities,
-    today: "2026-10-15",
+    // Referência 16/10: KIT (15/10, não concluído) já começou → vermelho.
+    today: "2026-10-16",
   });
 }
 
@@ -239,24 +236,34 @@ function f2RowWithMpCompleted(): ProductionRow {
   });
 }
 
-describe("Fábrica 2 — sem data prevista nas células (prevista só na gestão de OF)", () => {
-  it("não desenha a janela prevista nem o texto \"previsto de\" nos tooltips", () => {
+describe("Fábrica 2 — data prevista nas células e sem coluna DP", () => {
+  it("desenha a janela prevista, o texto \"previsto de\" e o vermelho de início vencido", () => {
     const markup = html(f2Table([f2RowWithMpCompleted()]));
 
-    // Janelas que existiriam com a prevista: MP 14/10, KIT 15/10,
-    // PRÉ-MTG 16/10 e EXP 19/10.
-    expect(markup).not.toContain("14/10");
-    expect(markup).not.toContain("15/10");
-    expect(markup).not.toContain("16/10");
-    expect(markup).not.toContain("19/10");
-    expect(markup).not.toContain("previsto de");
+    // Janelas (entrega 20/10): MP 14/10, KIT 15/10, PRÉ-MTG 16/10 e EXP 19/10.
+    expect(markup).toContain("14/10");
+    expect(markup).toContain("15/10");
+    expect(markup).toContain("16/10");
+    expect(markup).toContain("19/10");
+    expect(markup).toContain("previsto de");
+    // Início vencido (anterior à referência) → a data prevista sai em vermelho.
+    expect(markup).toContain("text-status-late");
   });
 
-  it("mantém a data EFETIVA do recebimento da MP (031)", () => {
+  it("mantém a data EFETIVA do recebimento da MP (031) ao lado da prevista", () => {
     const markup = html(f2Table([f2RowWithMpCompleted()]));
 
+    expect(markup).toContain("previsto de 14/10/2026 a 14/10/2026");
     expect(markup).toContain("recebida em 10/10/2026");
     expect(markup).toContain("10/10");
+  });
+
+  it("não exibe a coluna DP (data de proposta) nem no desktop nem no card mobile", () => {
+    const markup = html(f2Table([f2RowWithMpCompleted()]));
+
+    expect(markup).not.toContain(">DP<");
+    expect(markup).not.toContain("Data de proposta");
+    expect(markup).not.toContain("Proposta:");
   });
 });
 
@@ -288,28 +295,8 @@ function processSelection() {
   };
 }
 
-describe("ProcessDetailsSheet — showPlan (prevista só na gestão de OF)", () => {
-  it("com showPlan=false esconde o rótulo e a janela, mantendo a edição de entrega", () => {
-    const markup = html(
-      createElement(ProcessDetailsSheet, {
-        selection: processSelection(),
-        processes: f1Catalog,
-        capabilities: sheetCapabilities,
-        showPlan: false,
-        onOpenChange: () => {},
-      }),
-    );
-
-    expect(markup).not.toContain("Previsão de execução");
-    // Janela da entrega 30/10: LASER cairia em 26/10 (1 dia útil).
-    expect(markup).not.toContain("26/10/2026");
-    expect(markup).not.toContain("dia útil");
-    // A edição da entrega continua (seção "Entrega: ...").
-    expect(markup).toContain("Entrega (edição manual)");
-    expect(markup).toContain("30/10/2026");
-  });
-
-  it("sem a prop (detalhe do pedido) a previsão continua aparecendo", () => {
+describe("ProcessDetailsSheet — previsão de execução", () => {
+  it("mostra o rótulo e a janela, mantendo a edição de entrega", () => {
     const markup = html(
       createElement(ProcessDetailsSheet, {
         selection: processSelection(),
@@ -320,14 +307,16 @@ describe("ProcessDetailsSheet — showPlan (prevista só na gestão de OF)", () 
     );
 
     expect(markup).toContain("Previsão de execução");
+    // Janela da entrega 30/10: LASER cai em 26/10 (1 dia útil).
     expect(markup).toContain("26/10/2026");
     expect(markup).toContain("dia útil");
     expect(markup).toContain("Entrega (edição manual)");
+    expect(markup).toContain("30/10/2026");
   });
 });
 
-describe("Fabrica2DetailsSheet — sem previsão (prevista só na gestão de OF)", () => {
-  it("esconde o rótulo e a janela, mantendo a edição de entrega", () => {
+describe("Fabrica2DetailsSheet — previsão de execução", () => {
+  it("mostra o rótulo e a janela, mantendo a edição de entrega", () => {
     const markup = html(
       createElement(Fabrica2DetailsSheet, {
         selection: {
@@ -349,9 +338,10 @@ describe("Fabrica2DetailsSheet — sem previsão (prevista só na gestão de OF)
       }),
     );
 
-    expect(markup).not.toContain("Previsão de execução");
-    expect(markup).not.toContain("26/10/2026");
-    expect(markup).not.toContain("dia útil");
+    expect(markup).toContain("Previsão de execução");
+    // Janela da entrega 30/10: KIT cai em 27/10 (1 dia útil).
+    expect(markup).toContain("27/10/2026");
+    expect(markup).toContain("dia útil");
     expect(markup).toContain("Entrega (edição manual)");
     expect(markup).toContain("30/10/2026");
   });

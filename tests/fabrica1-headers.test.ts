@@ -258,7 +258,7 @@ describe("tabela da Fábrica 1", () => {
         processes: catalog,
         filters: noFilters,
         capabilities,
-        today: "2026-10-09",
+        today: "2026-10-05",
       }),
     );
     expect(markup).toContain("DADOS DOS PEDIDOS");
@@ -279,7 +279,7 @@ describe("tabela da Fábrica 1", () => {
         processes: catalog,
         filters: noFilters,
         capabilities,
-        today: "2026-10-09",
+        today: "2026-10-05",
       }),
     );
     expect(markup).toContain("MP");
@@ -297,7 +297,7 @@ describe("tabela da Fábrica 1", () => {
         processes: catalog,
         filters: noFilters,
         capabilities,
-        today: "2026-10-09",
+        today: "2026-10-05",
       }),
     );
     expect(markup).toContain("status do item pai (editado na Gestão de OF)");
@@ -314,7 +314,7 @@ describe("tabela da Fábrica 1", () => {
         processes: catalog,
         filters: noFilters,
         capabilities: { ...capabilities, canUpdateStatus: false },
-        today: "2026-10-09",
+        today: "2026-10-05",
       }),
     );
     expect(markup).toContain("disabled");
@@ -327,7 +327,7 @@ describe("tabela da Fábrica 1", () => {
         processes: catalog,
         filters: noFilters,
         capabilities,
-        today: "2026-10-09",
+        today: "2026-10-05",
       }),
     );
     expect(markup).toContain("Nenhum item filho encontrado");
@@ -348,7 +348,7 @@ describe("tabela da Fábrica 1", () => {
         processes: catalog,
         filters: noFilters,
         capabilities,
-        today: "2026-10-09",
+        today: "2026-10-05",
       }),
     );
     // As asserções valem sobre a tabela do desktop (o card mobile do mesmo
@@ -371,7 +371,7 @@ describe("tabela da Fábrica 1", () => {
         processes: catalog,
         filters: noFilters,
         capabilities,
-        today: "2026-10-09",
+        today: "2026-10-05",
       }),
     );
     const table = markup.slice(markup.indexOf("<table"), markup.indexOf("</table>"));
@@ -404,7 +404,7 @@ describe("tabela da Fábrica 1", () => {
         processes: catalog,
         filters: noFilters,
         capabilities,
-        today: "2026-10-09",
+        today: "2026-10-05",
       }),
     );
     const table = markup.slice(markup.indexOf("<table"), markup.indexOf("</table>"));

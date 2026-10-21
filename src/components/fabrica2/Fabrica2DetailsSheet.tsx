@@ -16,6 +16,7 @@ import type { ProcessDefinition, ProductionEvent } from "@/lib/types/production"
 import { formatDate, formatDateTime } from "@/lib/utils/dates";
 import { formatQuantity } from "@/lib/utils/formatting";
 import { allowedProcessStatuses } from "@/lib/utils/production";
+import { getProcessWindow } from "@/lib/utils/process-schedule";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -113,11 +114,12 @@ function ProcessForm({
 }) {
   const router = useRouter();
 
-  // Datas deste processo: só o catálogo (local/duração) é exibido — a
-  // prevista não aparece nesta tela (fica para a gestão de OF).
+  // Datas prévias deste processo: janela contada de trás para frente da entrega.
   const catalogEntry = processes.find((item) => item.code === selection.processCode);
+  const duration = catalogEntry?.durationDays ?? 1;
 
-  // Entrega editável na própria folha: a gravação persiste o campo — depois
+  // Entrega editável na própria folha: a prévia usa o estado local (a
+  // janela recalcula ao digitar) e a gravação persiste o campo — depois
   // disso o refresh recalcula as previsões de todos os processos. O valor
   // gravado fica em estado próprio porque a seleção (props) não muda com
   // a folha aberta.
@@ -125,6 +127,7 @@ function ProcessForm({
   const [savedDeliveryDate, setSavedDeliveryDate] = useState(selection.deliveryDate);
   const [savingDelivery, setSavingDelivery] = useState(false);
 
+  const plannedWindow = getProcessWindow(deliveryDate, processes, selection.processCode);
   const deliveryDirty = deliveryDate !== savedDeliveryDate;
 
   const [status, setStatus] = useState<ProcessStatus>(selection.status);
@@ -233,8 +236,11 @@ function ProcessForm({
       </SheetHeader>
 
       <div className="space-y-4 px-4 pb-4">
-        <section aria-label="Entrega" className="rounded border bg-muted/40 px-3 py-2 text-sm">
+        <section aria-label="Previsão de execução" className="rounded border bg-muted/40 px-3 py-2 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Previsão de execução
+            </span>
             <span className="text-xs text-muted-foreground">
               Entrega:{" "}
               <span className="tabular-nums">
@@ -242,6 +248,22 @@ function ProcessForm({
               </span>
             </span>
           </div>
+          <p className="mt-1">
+            {plannedWindow ? (
+              <>
+                De <span className="font-medium tabular-nums">{formatDate(plannedWindow.start)}</span> a{" "}
+                <span className="font-medium tabular-nums">{formatDate(plannedWindow.end)}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  ({duration} {duration === 1 ? "dia útil" : "dias úteis"})
+                </span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">
+                Sem data de entrega — não há como calcular as datas.
+              </span>
+            )}
+          </p>
           {catalogEntry?.location ? (
             <p className="mt-0.5 text-xs text-muted-foreground">Local: {catalogEntry.location}</p>
           ) : null}
@@ -278,7 +300,7 @@ function ProcessForm({
               </div>
               {deliveryDirty ? (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  A entrega exibida acima já usa a nova data — salve para aplicar a todos os processos.
+                  A prévia acima já usa a nova data — salve para aplicar a todos os processos.
                 </p>
               ) : null}
             </>

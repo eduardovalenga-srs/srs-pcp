@@ -188,10 +188,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   concluído, a célula/linha mostra a data em que a MP foi efetivamente recebida
   (`production_processes.completed_at`, formatada no fuso do negócio), sem os
   rótulos no visível (o `title`/hover traz os nomes com ano) — em todas as listas
-  (gestão de OF, Fábrica 2 e Fábrica 1, desktop e mobile). Sem recebimento
-  sinalizado, a célula exibe **só a prevista na gestão de OF** e apenas o símbolo
-  nas Fábricas 1 e 2 (a prevista sumiu dessas duas telas — ver **Datas
-  previstas**). Na Fábrica 1 o valor herdado vem do **item pai**
+  (gestão de OF, Fábrica 2 e Fábrica 1, desktop e mobile), **em cima da data
+  prevista**. Na Fábrica 1 o valor herdado vem do **item pai**
   (entrega + status do pai), já que a coluna MP é herdada dele — na linha agrupada
   (033) os **pais do grupo** agregam: pior situação, menor entrega e a data efetiva
   mais recente entre os concluídos. No detalhe da OF a
@@ -210,37 +208,38 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   Nada é gravado: as janelas são calculadas na leitura, então valem igual para pedido
   manual e para OF importada (a importação grava entrega em todo registro; o formulário
   grava no item a data do pedido quando ele vem em branco).
-  Aparece como **dd/MM na célula SOMENTE da gestão de OF** — a Fábrica 1 e a
-  Fábrica 2 **não desenham a prevista** (células, chips mobile e tooltips ficam sem
-  ela; as folhas de detalhes dessas duas telas escondem o rótulo "Previsão de
-  execução" e a janela "De X a Y", mantendo o campo de entrega) — com a janela
-  completa no tooltip e a data completa na folha de detalhes (gestão e detalhe do
-  pedido). Onde a prevista aparece, datas já vencidas ficam em **vermelho**: a
+  Aparece como **dd/MM na célula** — com a janela completa no tooltip (células,
+  chips mobile e tooltips das Fábricas 1 e 2, da gestão de OF e do detalhe do
+  pedido) e a data completa na folha de detalhes (rótulo "Previsão de execução"
+  e janela "De X a Y", junto do campo de entrega). Datas já vencidas ficam em
+  **vermelho**: a
   **entrega** apenas quando a expedição ainda não concluiu (a mesma regra de
   atraso) e as datas de **processo** (MP e células), exceto o processo já concluído.
-- **Data de proposta (DP)**: coluna **DP**, ao lado da Ent. nas quatro telas
-  grandes (gestão de OF, Fábrica 2, Fábrica 1 e Pedidos) e nas planilhas do
-  botão **Exportar Excel** — responde "se a matéria-prima chegar **hoje**, para
-  quando podemos entregar?". Enquanto o **MP do item/OF não está concluído**, a
+- **Data de proposta (DP)**: nas telas **Gestão de OF** e **Pedidos** (coluna **DP**,
+  ao lado da Ent.) e **nas planilhas do botão Exportar Excel** — responde "se a
+  matéria-prima chegar **hoje**, para quando podemos entregar?". **As telas da
+  Fábrica 1 e da Fábrica 2 não têm a coluna DP** (nem no desktop nem no card
+  mobile) — lá o cenário com a MP pendente não é repassado ao chão de fábrica.
+  Enquanto o **MP do item/OF não está concluído**, a
   DP é **hoje + a soma das `duration_days` dos processos APLICÁVEIS, exceto o
   próprio MP** (quem chega hoje não ocupa tempo; processos já concluídos
   continuam contando), contada **em dias úteis** com a mesma convenção das
   janelas (seg–sex, feriados não considerados; partida em fim de semana rola
   para a segunda). Com MP concluído, sem MP aplicável ou sem registro de MP, a
   célula é **"—"** — não há cenário a propor. O escopo da soma espelha cada
-  tela: na **gestão de OF** e em **Pedidos** vale o da RPC
+  fonte: na **gestão de OF** e em **Pedidos** vale o da RPC
   `get_production_rows_by_order` (039 — cadeia F1+KIT vêm dos filhos, MP e
   pós-KIT dos itens raiz; Pedidos agrega as células crus com o mesmo filtro e
-  entrega o mapa por pedido em `getOrdersProposal`); na **Fábrica 2** somam as
-  células do próprio item; na **Fábrica 1** soma a cadeia do filho (o MP
+  entrega o mapa por pedido em `getOrdersProposal`); nas **planilhas da
+  Fábrica 2** somam as
+  células do próprio item; na da **Fábrica 1** soma a cadeia do filho (o MP
   herdado do pai abre o cenário e o KIT encerra). Cálculo puro em
   `lib/utils/proposal-date.ts` (avanço em `addBusinessDays`,
   `lib/utils/dates.ts`), testado em `tests/proposal-date.test.ts` e nas
   colunas das planilhas (`tests/export-columns.test.ts`).
 - **Edição manual da entrega**: a data de entrega de um item pode ser alterada na
   própria coluna **Ent.** da gestão de OF (popover com data + Salvar) e na
-  folha do processo (campo **Entrega**; a prévia recalcula ao digitar no detalhe do
-  pedido — nas Fábricas 1 e 2 só o campo, sem a janela exibida) — sempre
+  folha do processo (campo **Entrega**, com a prévia recalculando ao digitar) — sempre
   por perfil com `orders.edit` (ADMIN/GESTOR). As janelas previstas são **derivadas
   da data em toda leitura**, então gravar a nova data recalcula as previsões de
   todos os processos e a regra de atraso sem nenhuma gravação extra (a ação chama
@@ -397,7 +396,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   filtrado inteiro (varredura `collectAllPages` de `lib/utils/collect-pages.ts`, com os
   mesmos filtros da tela e da exportação), o card **Atrasados** (regra do KIT): os grupos cuja
   **janela da coluna KIT** — o INÍCIO previsto (`plan.start`, calculado no servidor;
-  a célula KIT da tela não exibe mais essa data) — é **anterior à data de
+  o mesmo valor que a célula exibe em vermelho) — é **anterior à data de
   referência** e cujo KIT ainda
   **não concluiu**. A regra mora em `isChildItemKitOverdue`
   (`lib/utils/child-item-groups.ts`) e roda no servidor dentro de `getChildItemsPage`;

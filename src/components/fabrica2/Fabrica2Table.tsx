@@ -8,14 +8,18 @@ import { coreFeatures, createColumnHelper, flexRender, useTable, type CoreFeatur
 import type { ProcessDefinition, ProductionFilters, ProductionRow, ProcessCell } from "@/lib/types/production";
 import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
 import { F1_PROCESS_CODES, MP_PROCESS_CODE } from "@/lib/constants/processes";
-import { formatBusinessDate, formatBusinessDayMonth, formatDate } from "@/lib/utils/dates";
+import { formatBusinessDate, formatBusinessDayMonth, formatDate, formatDayMonth } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight, truncate } from "@/lib/utils/formatting";
-import { itemProposalDate } from "@/lib/utils/proposal-date";
+import {
+  computeProcessSchedule,
+  scheduleProcessesForItem,
+  type ProcessWindow,
+} from "@/lib/utils/process-schedule";
+import { isProcessStartOverdue } from "@/lib/utils/production";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
 import { EmptyState } from "@/components/shared/EmptyState";
-import { ProposalDateCell } from "@/components/shared/ProposalDateCell";
 import { SeqCell } from "@/components/shared/SeqCell";
 import { updateItemsSeqAction } from "@/lib/actions/orders.actions";
 import {
@@ -40,7 +44,7 @@ interface Fabrica2TableProps {
   processes: ProcessDefinition[];
   filters: ProductionFilters;
   capabilities: Fabrica2Capabilities;
-  /** Data de referência (AAAA-MM-DD) — datas anteriores a ela ficam em vermelho. */
+  /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
   today: string;
 }
 
@@ -76,6 +80,10 @@ interface ProcessCellButtonProps {
   processName: string;
   disabled: boolean;
   onSelect: (selection: Fabrica2ProcessSelection) => void;
+  /** Janela prevista de execução (dias úteis contados de trás para frente da entrega). */
+  plan: ProcessWindow | null;
+  /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
+  today: string;
   context: {
     orderItemId: string;
     orderCode: string;
@@ -85,7 +93,7 @@ interface ProcessCellButtonProps {
   };
 }
 
-function ProcessCellButton({ cell, processName, disabled, onSelect, context }: ProcessCellButtonProps) {
+function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today, context }: ProcessCellButtonProps) {
   if (!cell) {
     return (
       <span
@@ -103,8 +111,12 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, context }: P
     cell.quantityPlanned !== null || cell.quantityCompleted !== null
       ? `${formatQuantity(cell.quantityCompleted ?? 0)}/${formatQuantity(cell.quantityPlanned ?? 0)}`
       : null;
-  // 031: MP concluído — a data efetiva do recebimento (a prevista só
-  // aparece na gestão de OF).
+  // Início previsto em dd/MM — otimiza a largura da coluna (sem scroll lateral).
+  const plannedDay = plan ? formatDayMonth(plan.start) : null;
+  // Início vencido (anterior à data de referência) → fonte vermelha;
+  // processo CONCLUIDO nunca fica vermelho (regra em utils/production).
+  const plannedDayPast = isProcessStartOverdue(plan?.start ?? null, cell.status, today);
+  // 031: MP concluído — a data efetiva do recebimento, exibida ACIMA da prevista.
   const receivedDay =
     context.processCode === MP_PROCESS_CODE && cell.status === "CONCLUIDO" && cell.completedAt
       ? formatBusinessDayMonth(cell.completedAt)
@@ -119,17 +131,23 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, context }: P
         {quantity ? <span className="tabular-nums">{quantity}</span> : null}
       </span>
       {receivedDay ? <span className="tabular-nums text-[10px]">{receivedDay}</span> : null}
+      {plannedDay ? (
+        <span className={cn("tabular-nums text-[10px]", plannedDayPast && "text-status-late")}>
+          {plannedDay}
+        </span>
+      ) : null}
       <span className="sr-only">{label}</span>
     </>
   );
-  const tooltip = `${processName} — ${context.itemDescription}: ${label}${quantity ? ` (${quantity})` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`;
-  const aria = `${processName} de ${context.itemDescription}: ${label}${quantity ? `, produzido ${quantity}` : ""}${receivedDay ? `, recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`;
+  const tooltip = `${processName} — ${context.itemDescription}: ${label}${quantity ? ` (${quantity})` : ""}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`;
+  const aria = `${processName} de ${context.itemDescription}: ${label}${quantity ? `, produzido ${quantity}` : ""}${plan ? `, previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? `, recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`;
 
   if (cell.aggregated) {
     return (
       <span
         className={cn(
-          "inline-flex h-8 w-full cursor-default flex-col items-center justify-center gap-0.5 rounded border px-1 text-[10px] font-semibold leading-none",
+          "inline-flex h-8 w-full cursor-default flex-col items-center justify-center rounded border px-1 text-[10px] font-semibold leading-none",
+          receivedDay && plannedDay ? "gap-0" : "gap-0.5",
           statusClass(cell.status),
         )}
         title={`${tooltip} — agregado dos itens filhos (marque na Fábrica 1)`}
@@ -161,6 +179,8 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, context }: P
       }
       className={cn(
         "inline-flex h-8 w-full flex-col items-center justify-center gap-0.5 rounded border px-1 text-[10px] font-semibold leading-none transition-colors",
+        // 3 linhas (símbolo + recebida + prevista) cabem no h-8 sem folga.
+        receivedDay && plannedDay ? "gap-0" : "gap-0.5",
         "hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70",
         statusClass(cell.status),
       )}
@@ -186,6 +206,28 @@ function statusClass(status: ProcessStatus): string {
 /** Tabela da Fábrica 2 (desktop) + cards (mobile) com folha de detalhes. */
 export function Fabrica2Table({ rows, processes, filters, capabilities, today }: Fabrica2TableProps) {
   const [selection, setSelection] = useState<Fabrica2ProcessSelection | null>(null);
+
+  // Datas previstas por item: janela de cada processo contada da entrega.
+  // O status do processo NO ITEM entra no cálculo: desmarcado (NAO_APLICAVEL)
+  // não ocupa dias nem ganha janela (senão empurrava as datas anteriores).
+  const scheduleByItem = useMemo(
+    () =>
+      new Map(
+        rows.map((row) => {
+          const byCode = new Map(
+            Object.entries(row.processes).map(([code, cell]) => [code, cell.status] as const),
+          );
+          return [
+            row.orderItemId,
+            computeProcessSchedule(
+              row.deliveryDate,
+              scheduleProcessesForItem(processes, (code) => byCode.get(code)),
+            ),
+          ] as const;
+        }),
+      ),
+    [rows, processes],
+  );
 
   // Largura da coluna "Item pai": cabe o código mais longo da página atual.
   // Piso = cabeçalho "Item pai"; teto = um código maluco não desloca as
@@ -362,14 +404,6 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
         ),
         cell: (info) => <DeliveryCell row={info.row.original} canEdit={capabilities.canEditDelivery} />,
       }),
-      // DP (data de proposta): ao lado da entrega — quando a MP do item
-      // ainda não foi entregue, é a data até a qual podemos entregar se
-      // ela chegar hoje (hoje + Σ dos processos aplicáveis, em dias úteis).
-      helper.accessor((row) => itemProposalDate(row, processes, today), {
-        id: "proposalDate",
-        header: () => <Fabrica2ColumnHeader label="DP" fullLabel="Data de proposta" filters={filters} />,
-        cell: (info) => <ProposalDateCell value={info.getValue()} />,
-      }),
       helper.accessor("op", {
         id: "op",
         header: () => (
@@ -412,6 +446,8 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
                 processName={process.name}
                 disabled={!capabilities.canUpdateStatus}
                 onSelect={setSelection}
+                plan={scheduleByItem.get(row.orderItemId)?.get(process.code) ?? null}
+                today={today}
                 context={{
                   orderItemId: row.orderItemId,
                   orderCode: row.orderCode,
@@ -442,7 +478,7 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
         columns: helper.columns(processColumns),
       }),
     ]);
-  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, capabilities.canEditSeq, today, parentItemWidthCh]);
+  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, capabilities.canEditSeq, scheduleByItem, today, parentItemWidthCh]);
 
   const table = useTable({
     features: coreFeatures,
@@ -576,12 +612,6 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
                 </dd>
               </div>
               <div>
-                <dt className="inline">Proposta: </dt>
-                <dd className="inline text-foreground">
-                  <ProposalDateCell value={itemProposalDate(row, processes, today)} />
-                </dd>
-              </div>
-              <div>
                 <dt className="inline">Tipo: </dt>
                 <dd className="inline text-foreground">{row.family || "—"}</dd>
               </div>
@@ -629,6 +659,8 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
                   processName={process.name}
                   disabled={!capabilities.canUpdateStatus}
                   onSelect={setSelection}
+                  plan={scheduleByItem.get(row.orderItemId)?.get(process.code) ?? null}
+                  today={today}
                   context={{
                     orderItemId: row.orderItemId,
                     orderCode: row.orderCode,

@@ -78,7 +78,7 @@ function tableMarkup(rows: ProductionRow[]): string {
       processes: catalog,
       filters: noFilters,
       capabilities,
-      today: "2026-10-15",
+      today: "2026-10-01",
     }),
   );
   return markup.slice(markup.indexOf("<table"), markup.indexOf("</table>"));

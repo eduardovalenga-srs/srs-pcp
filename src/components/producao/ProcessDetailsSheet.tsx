@@ -82,12 +82,6 @@ interface ProcessDetailsSheetProps {
   processes: ProcessDefinition[];
   onOpenChange: (open: boolean) => void;
   capabilities: ProductionCapabilities;
-  /**
-   * Mostra o rótulo "Previsão de execução" e a janela "De X a Y".
-   * A Fábrica 1 passa `false` — a prevista só aparece na gestão de OF e no
-   * detalhe do pedido. A edição de entrega fica em ambos; default `true`.
-   */
-  showPlan?: boolean;
 }
 
 type HistoryState =
@@ -105,7 +99,6 @@ export function ProcessDetailsSheet({
   processes,
   onOpenChange,
   capabilities,
-  showPlan = true,
 }: ProcessDetailsSheetProps) {
   return (
     <Sheet open={!!selection} onOpenChange={onOpenChange}>
@@ -116,7 +109,6 @@ export function ProcessDetailsSheet({
             selection={selection}
             processes={processes}
             capabilities={capabilities}
-            showPlan={showPlan}
             onClose={() => onOpenChange(false)}
           />
         ) : null}
@@ -129,13 +121,11 @@ function ProcessForm({
   selection,
   processes,
   capabilities,
-  showPlan,
   onClose,
 }: {
   selection: ProcessSelection;
   processes: ProcessDefinition[];
   capabilities: ProductionCapabilities;
-  showPlan: boolean;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -278,16 +268,11 @@ function ProcessForm({
       </SheetHeader>
 
       <div className="space-y-4 px-4 pb-4">
-        <section
-          aria-label={showPlan ? "Previsão de execução" : "Entrega"}
-          className="rounded border bg-muted/40 px-3 py-2 text-sm"
-        >
+        <section aria-label="Previsão de execução" className="rounded border bg-muted/40 px-3 py-2 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-1">
-            {showPlan ? (
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Previsão de execução
-              </span>
-            ) : null}
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Previsão de execução
+            </span>
             <span className="text-xs text-muted-foreground">
               Entrega:{" "}
               <span className="tabular-nums">
@@ -295,24 +280,22 @@ function ProcessForm({
               </span>
             </span>
           </div>
-          {showPlan ? (
-            <p className="mt-1">
-              {plannedWindow ? (
-                <>
-                  De <span className="font-medium tabular-nums">{formatDate(plannedWindow.start)}</span> a{" "}
-                  <span className="font-medium tabular-nums">{formatDate(plannedWindow.end)}</span>
-                  <span className="text-muted-foreground">
-                    {" "}
-                    ({duration} {duration === 1 ? "dia útil" : "dias úteis"})
-                  </span>
-                </>
-              ) : (
+          <p className="mt-1">
+            {plannedWindow ? (
+              <>
+                De <span className="font-medium tabular-nums">{formatDate(plannedWindow.start)}</span> a{" "}
+                <span className="font-medium tabular-nums">{formatDate(plannedWindow.end)}</span>
                 <span className="text-muted-foreground">
-                  Sem data de entrega — não há como calcular as datas.
+                  {" "}
+                  ({duration} {duration === 1 ? "dia útil" : "dias úteis"})
                 </span>
-              )}
-            </p>
-          ) : null}
+              </>
+            ) : (
+              <span className="text-muted-foreground">
+                Sem data de entrega — não há como calcular as datas.
+              </span>
+            )}
+          </p>
           {selection.processCode === MP_PROCESS_CODE &&
             status === "CONCLUIDO" &&
             selection.completedAt ? (
@@ -360,9 +343,7 @@ function ProcessForm({
               </div>
               {deliveryDirty ? (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {showPlan
-                    ? "A prévia acima já usa a nova data — salve para aplicar a todos os processos."
-                    : "A entrega exibida acima já usa a nova data — salve para aplicar a todos os processos."}
+                  A prévia acima já usa a nova data — salve para aplicar a todos os processos.
                 </p>
               ) : null}
             </>

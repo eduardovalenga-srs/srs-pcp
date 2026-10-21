@@ -81,7 +81,7 @@ function table(rows: ProductionRow[]): ReactElement {
     processes: catalog,
     filters: noFilters,
     capabilities,
-    today: "2026-10-15",
+    today: "2026-10-01",
   });
 }
 
