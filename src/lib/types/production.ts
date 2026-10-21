@@ -124,6 +124,19 @@ export interface ProductionFilters {
   pageSize: number;
 }
 
+/**
+ * Totais de um recorte do conjunto filtrado (janela inteira, todas as
+ * páginas) — 041: cards "Atrasados" e "Expedição" das telas de produção.
+ */
+export interface FilteredKpiTotals {
+  /** Nº de ITENS (raiz) do recorte. */
+  records: number;
+  /** Soma da coluna "Qtd." dos itens do recorte. */
+  qty: number;
+  /** Soma da coluna "Peso" (kg) dos itens do recorte. */
+  weight: number;
+}
+
 /** Resultado da listagem da Fábrica 2 (uma linha por item raiz). */
 export interface ProductionResult {
   rows: ProductionRow[];
@@ -132,6 +145,13 @@ export interface ProductionResult {
   weightTotal: number;
   /** Soma da coluna "Qtd." da lista filtrada inteira — de todas as páginas. */
   qtyTotal: number;
+  /**
+   * 041: itens atrasados (entrega vencida + EXPEDIÇÃO pendente) do
+   * conjunto FILTRADO — o card "Atrasados" deixou de ser global.
+   */
+  overdue: FilteredKpiTotals;
+  /** 041: itens com EXPEDIÇÃO concluída do conjunto filtrado (card "Expedição"). */
+  expedition: FilteredKpiTotals;
 }
 
 /** Resultado da listagem consolidada por OF (025). */
@@ -142,6 +162,13 @@ export interface ProductionOrderResult {
   weightTotal: number;
   /** Soma das quantidades da lista filtrada inteira — de todas as páginas. */
   qtyTotal: number;
+  /**
+   * 041: ITENS atrasados dentro das OFs que passam nos filtros — o card
+   * "Atrasados" conta itens (como antes), mas só do recorte filtrado.
+   */
+  overdue: FilteredKpiTotals;
+  /** 041: ITENS com EXPEDIÇÃO concluída dentro das OFs filtradas (card "Expedição"). */
+  expedition: FilteredKpiTotals;
 }
 
 /** Processo do catálogo (ordem de exibição). */

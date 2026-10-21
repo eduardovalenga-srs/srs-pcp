@@ -5,7 +5,7 @@ import { FileSpreadsheet, Plus } from "lucide-react";
 import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { getDashboardData, getProductionOrdersPage } from "@/lib/services/production.service";
+import { getProductionOrdersPage } from "@/lib/services/production.service";
 import { parseProductionFilters } from "@/lib/utils/filters";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -36,10 +36,11 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
   const filters = parseProductionFilters(await searchParams);
 
   let data: Awaited<ReturnType<typeof getProductionOrdersPage>>;
-  let stats: Awaited<ReturnType<typeof getDashboardData>>;
   try {
     const client = await createClient();
-    [data, stats] = await Promise.all([getProductionOrdersPage(client, filters), getDashboardData(client)]);
+    // 041: os cards "Atrasados"/"Expedição" vêm da MESMA RPC da lista
+    // (com os filtros ativos) — não precisa mais do get_production_stats.
+    data = await getProductionOrdersPage(client, filters);
   } catch (error) {
     return (
       <>
@@ -101,8 +102,8 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
           qtyTotal={data.qtyTotal}
           weightTotal={data.weightTotal}
           filters={filters}
-          delivery={stats.delivery}
-          expedition={stats.expedition}
+          overdue={data.overdue}
+          expedition={data.expedition}
         />
 
         {/* Chips de filtros ativos (todas as telas): removem um a um ou limpam tudo. */}

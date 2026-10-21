@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { AlertTriangle, Inbox, Truck } from "lucide-react";
 
-import type { ProductionFilters } from "@/lib/types/production";
+import type { FilteredKpiTotals, ProductionFilters } from "@/lib/types/production";
 import { productionQueryString } from "@/lib/utils/filters";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { cn } from "@/lib/utils";
@@ -15,18 +15,13 @@ interface Fabrica2SummaryProps {
   /** Peso total (kg) da lista filtrada inteira — soma da coluna "Peso". */
   weightTotal: number;
   filters: ProductionFilters;
-  /** KPIs globais de entrega (019 soma peças e peso do MESMO conjunto de atraso). */
-  delivery: {
-    overdue: number;
-    overdueQty: number;
-    overdueWeight: number;
-  };
-  /** Itens com EXPEDIÇÃO concluída (020). Opcional: sem a migração o card mostra "—". */
-  expedition?: {
-    count: number;
-    qty: number;
-    weight: number;
-  };
+  /**
+   * 041: itens atrasados (entrega vencida + EXPEDIÇÃO pendente) do
+   * conjunto FILTRADO — o card deixou de ser global (get_production_stats).
+   */
+  overdue: FilteredKpiTotals;
+  /** 041: itens com EXPEDIÇÃO concluída do conjunto filtrado — também filtrado. */
+  expedition: FilteredKpiTotals;
 }
 
 interface Chip {
@@ -49,7 +44,7 @@ export function Fabrica2Summary({
   qtyTotal,
   weightTotal,
   filters,
-  delivery,
+  overdue,
   expedition,
 }: Fabrica2SummaryProps) {
   const chips: Chip[] = [
@@ -65,31 +60,34 @@ export function Fabrica2Summary({
       ],
     },
     {
+      // 041: itens atrasados do conjunto FILTRADO (a linha da tabela é o
+      // item, então "Registros" bate com a contagem por item).
       key: "overdue",
       label: "Atrasados",
-      value: delivery.overdue,
+      value: overdue.records,
       icon: <AlertTriangle className="h-4 w-4" aria-hidden />,
       tone: "danger",
       filter: { delivery: "OVERDUE" },
       active: filters.delivery === "OVERDUE",
       details: [
-        { label: "Registros", value: formatQuantity(delivery.overdue) },
-        { label: "Qtd. total", value: formatQuantity(delivery.overdueQty) },
-        { label: "Peso total", value: `${formatWeight(delivery.overdueWeight)} kg` },
+        { label: "Registros", value: formatQuantity(overdue.records) },
+        { label: "Qtd. total", value: formatQuantity(overdue.qty) },
+        { label: "Peso total", value: `${formatWeight(overdue.weight)} kg` },
       ],
     },
     {
+      // 041: itens com EXPEDIÇÃO concluída do conjunto filtrado.
       key: "expedition",
       label: "Expedição",
-      value: formatQuantity(expedition?.count),
+      value: formatQuantity(expedition.records),
       icon: <Truck className="h-4 w-4" aria-hidden />,
       tone: "success",
       filter: { processCode: "EXP", processStatus: "CONCLUIDO" },
       active: filters.processCode === "EXP" && filters.processStatus === "CONCLUIDO",
       details: [
-        { label: "Registros", value: formatQuantity(expedition?.count) },
-        { label: "Qtd. total", value: formatQuantity(expedition?.qty) },
-        { label: "Peso total", value: `${formatWeight(expedition?.weight)} kg` },
+        { label: "Registros", value: formatQuantity(expedition.records) },
+        { label: "Qtd. total", value: formatQuantity(expedition.qty) },
+        { label: "Peso total", value: `${formatWeight(expedition.weight)} kg` },
       ],
     },
   ];

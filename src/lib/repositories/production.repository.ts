@@ -100,10 +100,27 @@ export async function getProductionRows(
   const total = rawRows.length > 0 ? Number(rawRows[0].total_count ?? 0) : 0;
   const weightTotal = rawRows.length > 0 ? Number(rawRows[0].weight_total ?? 0) : 0;
   const qtyTotal = rawRows.length > 0 ? Number(rawRows[0].qty_total ?? 0) : 0;
+  // 041: cards "Atrasados"/"Expedição" vêm do MESMO registro da primeira
+  // linha (janela sobre o conjunto filtrado inteiro). Sem a migration o
+  // campo vem undefined e o card degrada para 0.
+  const overdue = rawRows.length > 0
+    ? {
+        records: Number(rawRows[0].overdue_count ?? 0),
+        qty: Number(rawRows[0].overdue_qty ?? 0),
+        weight: Number(rawRows[0].overdue_weight ?? 0),
+      }
+    : { records: 0, qty: 0, weight: 0 };
+  const expedition = rawRows.length > 0
+    ? {
+        records: Number(rawRows[0].expedition_count ?? 0),
+        qty: Number(rawRows[0].expedition_qty ?? 0),
+        weight: Number(rawRows[0].expedition_weight ?? 0),
+      }
+    : { records: 0, qty: 0, weight: 0 };
   const rows = rawRows.map((row) => mapProductionRow(row));
   // A RPC ainda devolve `family_totals` (035/037) no registro da primeira
   // linha — a quebra por família não é mais exibida (somente os totais).
-  return { rows, total, weightTotal, qtyTotal };
+  return { rows, total, weightTotal, qtyTotal, overdue, expedition };
 }
 
 function mapProductionOrderRow(raw: ProductionOrderRowRecord): ProductionOrderRow {
@@ -179,10 +196,27 @@ export async function getProductionOrderRows(
   const total = rawRows.length > 0 ? Number(rawRows[0].total_count ?? 0) : 0;
   const weightTotal = rawRows.length > 0 ? Number(rawRows[0].weight_total ?? 0) : 0;
   const qtyTotal = rawRows.length > 0 ? Number(rawRows[0].qty_total ?? 0) : 0;
+  // 041: cards "Atrasados"/"Expedição" — contam ITENS das OFs que passam
+  // nos filtros (vêm agregados no registro da primeira linha). Sem a
+  // migration o campo vem undefined e o card degrada para 0.
+  const overdue = rawRows.length > 0
+    ? {
+        records: Number(rawRows[0].overdue_count ?? 0),
+        qty: Number(rawRows[0].overdue_qty ?? 0),
+        weight: Number(rawRows[0].overdue_weight ?? 0),
+      }
+    : { records: 0, qty: 0, weight: 0 };
+  const expedition = rawRows.length > 0
+    ? {
+        records: Number(rawRows[0].expedition_count ?? 0),
+        qty: Number(rawRows[0].expedition_qty ?? 0),
+        weight: Number(rawRows[0].expedition_weight ?? 0),
+      }
+    : { records: 0, qty: 0, weight: 0 };
   const rows = rawRows.map((row) => mapProductionOrderRow(row));
   // A RPC ainda devolve `family_totals` (037) no registro da primeira
   // linha — a quebra por família não é mais exibida (somente os totais).
-  return { rows, total, weightTotal, qtyTotal };
+  return { rows, total, weightTotal, qtyTotal, overdue, expedition };
 }
 
 export interface OrderProcessTarget {

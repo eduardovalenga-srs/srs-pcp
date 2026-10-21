@@ -1721,6 +1721,191 @@ describe("migrations", () => {
     ]);
     await db.query(`delete from public.orders where id = $1`, [orderId]);
   });
+
+  it("041: cards Atrasados/Expedição contam o conjunto FILTRADO (itens)", async () => {
+    await asSuperUser(db);
+
+    // DROP + recriação (mudou o tipo de retorno): continua UMA função por
+    // nome e com a mesma aridade (23 params na F2, 19 na gestão).
+    const { rows: fns } = await db.query<{
+      rows_23: string;
+      by_order_19: string;
+      rows_all: string;
+      by_order_all: string;
+    }>(
+      `select (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows'
+                  and p.pronargs = 23) as rows_23,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows_by_order'
+                  and p.pronargs = 19) as by_order_19,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows') as rows_all,
+              (select count(*)::text
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'get_production_rows_by_order') as by_order_all`,
+    );
+    expect(fns[0]?.rows_23).toBe("1");
+    expect(fns[0]?.by_order_19).toBe("1");
+    expect(fns[0]?.rows_all).toBe("1");
+    expect(fns[0]?.by_order_all).toBe("1");
+
+    // --- Duas OFs: A com item atrasado + item expedido; B futura ---
+    const { rows: orders } = await db.query<{ id: string; code: string }>(
+      `insert into public.orders (code, type, customer_name, delivery_date)
+       values ('OF-041-A', 'OF', 'Cliente 041', current_date - 2),
+              ('OF-041-B', 'OF', 'Cliente 041', current_date + 10)
+       returning id, code`,
+    );
+    const orderA = orders.find((o) => o.code === "OF-041-A")?.id as string;
+    const orderB = orders.find((o) => o.code === "OF-041-B")?.id as string;
+
+    // Itens raiz: A1 atrasado (sem linha de EXP), A2 expedido, B1 futuro.
+    const { rows: items } = await db.query<{ id: string; parent_item: string }>(
+      `insert into public.order_items (order_id, parent_item, description, quantity, unit_weight_kg)
+       values ($1, 'A1-041', 'Atrasado 041', 2, 3),
+              ($1, 'A2-041', 'Expedido 041', 4, 5),
+              ($2, 'B1-041', 'Futuro 041', 1, 1)
+       returning id, parent_item`,
+      [orderA, orderB],
+    );
+    const itemA2 = items.find((i) => i.parent_item === "A2-041")?.id as string;
+
+    const { rows: expRows } = await db.query<{ id: string }>(
+      `select id from public.processes where code = 'EXP'`,
+    );
+    const expId = expRows[0]?.id as string;
+    await db.query(
+      `insert into public.production_processes (order_item_id, process_id, status)
+       values ($1, $2, 'CONCLUIDO')`,
+      [itemA2, expId],
+    );
+
+    type Totals = {
+      total_count: number | string;
+      overdue_count: number | string;
+      overdue_qty: number | string;
+      overdue_weight: number | string;
+      expedition_count: number | string;
+      expedition_qty: number | string;
+      expedition_weight: number | string;
+    };
+    const totals = (row: Totals | undefined) => ({
+      total: Number(row?.total_count ?? 0),
+      overdueCount: Number(row?.overdue_count ?? 0),
+      overdueQty: Number(row?.overdue_qty ?? 0),
+      overdueWeight: Number(row?.overdue_weight ?? 0),
+      expeditionCount: Number(row?.expedition_count ?? 0),
+      expeditionQty: Number(row?.expedition_qty ?? 0),
+      expeditionWeight: Number(row?.expedition_weight ?? 0),
+    });
+
+    // --- Fábrica 2 (linha = item): 3 itens, 1 atrasado, 1 expedido ---
+    const { rows: f2All } = await db.query<Totals>(
+      `select total_count, overdue_count, overdue_qty, overdue_weight,
+              expedition_count, expedition_qty, expedition_weight
+         from public.get_production_rows(p_search => 'OF-041')`,
+    );
+    expect(totals(f2All[0])).toEqual({
+      total: 3,
+      overdueCount: 1,
+      overdueQty: 2,
+      overdueWeight: 6,
+      expeditionCount: 1,
+      expeditionQty: 4,
+      expeditionWeight: 20,
+    });
+
+    // Filtro reduz o recorte => os cards acompanham (eram globais antes).
+    const { rows: f2B } = await db.query<Totals>(
+      `select total_count, overdue_count, overdue_qty, overdue_weight,
+              expedition_count, expedition_qty, expedition_weight
+         from public.get_production_rows(p_search => 'OF-041-B')`,
+    );
+    expect(totals(f2B[0])).toEqual({
+      total: 1,
+      overdueCount: 0,
+      overdueQty: 0,
+      overdueWeight: 0,
+      expeditionCount: 0,
+      expeditionQty: 0,
+      expeditionWeight: 0,
+    });
+
+    // Janela OVERDUE: lista = só o item atrasado (o expedido fica de fora).
+    const { rows: f2Overdue } = await db.query<Totals>(
+      `select total_count, overdue_count, overdue_qty, overdue_weight,
+              expedition_count, expedition_qty, expedition_weight
+         from public.get_production_rows(p_search => 'OF-041', p_delivery_filter => 'OVERDUE')`,
+    );
+    expect(totals(f2Overdue[0])).toEqual({
+      total: 1,
+      overdueCount: 1,
+      overdueQty: 2,
+      overdueWeight: 6,
+      expeditionCount: 0,
+      expeditionQty: 0,
+      expeditionWeight: 0,
+    });
+
+    // --- Gestão (linha = OF, cards contam ITENS das OFs filtradas) ---
+    const { rows: gAll } = await db.query<Totals>(
+      `select total_count, overdue_count, overdue_qty, overdue_weight,
+              expedition_count, expedition_qty, expedition_weight
+         from public.get_production_rows_by_order(p_search => 'OF-041')`,
+    );
+    expect(totals(gAll[0])).toEqual({
+      total: 2, // duas OFs na lista…
+      overdueCount: 1, // …mas os cards contam ITENS (A1 atrasado).
+      overdueQty: 2,
+      overdueWeight: 6,
+      expeditionCount: 1, // A2 expedido.
+      expeditionQty: 4,
+      expeditionWeight: 20,
+    });
+
+    // Filtro pela OF-041-B: lista = 1 OF e os cards zeram junto.
+    const { rows: gB } = await db.query<Totals>(
+      `select total_count, overdue_count, overdue_qty, overdue_weight,
+              expedition_count, expedition_qty, expedition_weight
+         from public.get_production_rows_by_order(p_search => 'OF-041-B')`,
+    );
+    expect(totals(gB[0])).toEqual({
+      total: 1,
+      overdueCount: 0,
+      overdueQty: 0,
+      overdueWeight: 0,
+      expeditionCount: 0,
+      expeditionQty: 0,
+      expeditionWeight: 0,
+    });
+
+    // Janela OVERDUE na gestão: só a OF-041-A passa (B é futura) — e o
+    // card de Expedição continua contando o ITEM expedido de dentro dela.
+    const { rows: gOverdue } = await db.query<Totals>(
+      `select total_count, overdue_count, overdue_qty, overdue_weight,
+              expedition_count, expedition_qty, expedition_weight
+         from public.get_production_rows_by_order(p_search => 'OF-041', p_delivery_filter => 'OVERDUE')`,
+    );
+    expect(totals(gOverdue[0])).toEqual({
+      total: 1,
+      overdueCount: 1,
+      overdueQty: 2,
+      overdueWeight: 6,
+      expeditionCount: 1,
+      expeditionQty: 4,
+      expeditionWeight: 20,
+    });
+
+    await db.query(
+      `delete from public.production_processes where order_item_id = any($1::uuid[])`,
+      [items.map((i) => i.id)],
+    );
+    await db.query(`delete from public.orders where code in ('OF-041-A', 'OF-041-B')`);
+  });
 });
 
 describe("RLS", () => {

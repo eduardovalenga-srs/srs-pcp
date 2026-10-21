@@ -74,6 +74,7 @@ cp .env.example .env.local
 #    supabase/migrations/038_column_filters_and_seq.sql
 #    supabase/migrations/039_kit_aggregation.sql
 #    supabase/migrations/040_import_material_prefix_serra_laser.sql
+#    supabase/migrations/041_filtered_overdue_expedition_totals.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -272,7 +273,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   ("hoje" calculado no fuso do negócio, `America/Sao_Paulo`). É a regra das
   telas de produção (gestão, Fábrica 2, dashboard); o card **Atrasados da
   Fábrica 1** tem regra própria — a data da coluna **KIT** do conjunto
-  filtrado (ver a tela).
+  filtrado (ver a tela). **Desde a 041** os cards **Atrasados** e
+  **Expedição** da gestão e da Fábrica 2 são calculados sobre o **conjunto
+  filtrado** (na gestão: contam **itens** das OFs que passam no filtro) —
+  só o dashboard continua global.
 - **Importação (layout novo — estrutura OF)**: o arquivo da fábrica **substitui** a
   planilha antiga de 22 colunas. Ele traz a árvore completa — **OF → itens pai
   (`ps_idPos`) → itens filhos (`cp_comp`) → matéria-prima por item** — reconhecida
@@ -442,7 +446,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   e acesso restrito a **ADMIN/GESTOR** (`menu.fabrica2` no item de menu, `fabrica2.view`
   no guard da página — VISUALIZADOR e OPERADOR caem em "Acesso negado" mesmo por URL).
   Os três cards (038) são só números — a lista **Famílias** saiu dos cards das
-  três telas; os chips clicáveis continuam aplicando os mesmos filtros. As colunas
+  três telas; os chips clicáveis continuam aplicando os mesmos filtros. **Desde a 041**
+  os cards **Atrasados** e **Expedição** são calculados sobre o **conjunto filtrado**
+  (as colunas `overdue_*`/`expedition_*` vêm da própria `get_production_rows`), e não
+  mais do KPI global. As colunas
   ganharam filtros de cabeçalho (038 — mesmos da gestão): Seq., TP ("contém"), OP
   ("contém"), Qtd./Peso/Peso un. (faixas) e situação por coluna de processo.
 - **Gestão como hub**: o código da OF/OS na tabela de entregas (desktop e mobile) abre a
@@ -542,13 +549,19 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   - **OFs** — nº de pedidos da lista filtrada inteira, em qualquer página (janelas da
     RPC `get_production_rows_by_order`, migração 025), com a soma das quantidades e
     dos pesos das OFs;
-  - **Atrasados** — entrega vencida + expedição pendente (objeto `delivery` da
-    RPC `get_production_stats`, migração 019);
-  - **Expedição** — itens cuja etapa EXPEDIÇÃO está **concluída** (objeto
-    `expedition` da mesma RPC, migração 020).
+  - **Atrasados** (041 — antes era o KPI global do `get_production_stats`, migração 019)
+    — **itens** das OFs filtradas com entrega vencida + expedição pendente: a MESMA
+    RPC da lista devolve os totais sobre o conjunto filtrado inteiro (colunas
+    `overdue_count`/`overdue_qty`/`overdue_weight`, janela antes da paginação);
+  - **Expedição** (041 — antes o objeto `expedition` da mesma RPC global, migração 020)
+    — **itens** das OFs filtradas com EXPEDIÇÃO **concluída** (colunas
+    `expedition_count`/`expedition_qty`/`expedition_weight`).
   sem a lista Famílias (a quebra por TP saiu dos cards na 038).
-  Atenção às unidades: o card **OFs conta PEDIDOS** (a lista é por OF) e Atrasados /
-  Expedição são KPIs globais que contam **ITENS** (escopo dos antigos chips de entrega,
+  Os três números vêm da MESMA consulta da lista (migração 041), então
+  **acompanham qualquer filtro** — a Fábrica 2 faz o mesmo com
+  `get_production_rows` (colunas iguais, contadas sobre os próprios itens
+  filtrados). Atenção às unidades: o card **OFs conta PEDIDOS** (a lista é por OF) e
+  Atrasados / Expedição contam **ITENS** (escopo dos antigos chips de entrega,
   que saíram junto com "Em produção" e "Concluídos"); os dois são clicáveis e aplicam
   o filtro correspondente na lista. Itens sem peso ou sem quantidade entram
   como 0.

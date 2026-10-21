@@ -159,6 +159,18 @@ export type ProductionRowRecord = {
   weight_total: number | string;
   /** Soma da quantidade de TODAS as linhas filtradas (018) — antes da paginação. */
   qty_total: number | string;
+  /** 041: nº de ITENS RAIZ atrasados do conjunto FILTRADO (cards "Atrasados"). */
+  overdue_count: number | string;
+  /** Soma da quantidade dos itens atrasados do conjunto filtrado. */
+  overdue_qty: number | string;
+  /** Soma do peso dos itens atrasados do conjunto filtrado. */
+  overdue_weight: number | string;
+  /** 041: nº de ITENS RAIZ com EXPEDIÇÃO concluída do conjunto FILTRADO (card "Expedição"). */
+  expedition_count: number | string;
+  /** Soma da quantidade dos itens expedidos do conjunto filtrado. */
+  expedition_qty: number | string;
+  /** Soma do peso dos itens expedidos do conjunto filtrado. */
+  expedition_weight: number | string;
   order_item_id: string;
   order_id: string;
   order_code: string;
@@ -203,6 +215,18 @@ export type ProductionOrderRowRecord = {
   weight_total: number | string;
   /** Soma das quantidades das OFs filtradas — antes da paginação. */
   qty_total: number | string;
+  /** 041: nº de ITENS RAIZ atrasados dentro das OFs FILTRADAS (card "Atrasados" conta itens, não OFs). */
+  overdue_count: number | string;
+  /** Soma da quantidade dos itens atrasados das OFs filtradas. */
+  overdue_qty: number | string;
+  /** Soma do peso dos itens atrasados das OFs filtradas. */
+  overdue_weight: number | string;
+  /** 041: nº de ITENS RAIZ com EXPEDIÇÃO concluída dentro das OFs FILTRADAS. */
+  expedition_count: number | string;
+  /** Soma da quantidade dos itens expedidos das OFs filtradas. */
+  expedition_qty: number | string;
+  /** Soma do peso dos itens expedidos das OFs filtradas. */
+  expedition_weight: number | string;
   order_id: string;
   order_code: string;
   order_type: string;
