@@ -186,10 +186,12 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   desabilitada), o `saveOrder` o força como selecionado e o "Nec." da folha do processo
   fica travado (migração 022). **Data efetiva de recebimento** (031): com o MP
   concluído, a célula/linha mostra a data em que a MP foi efetivamente recebida
-  (`production_processes.completed_at`, formatada no fuso do negócio) **em cima da
-  data prevista**, sem os rótulos no visível (o `title`/hover traz os nomes com ano) —
-  em todas as listas (gestão de OF, Fábrica 2 e Fábrica 1, desktop e mobile);
-  sem recebimento sinalizado, só a prevista. Na Fábrica 1 a janela vem do **item pai**
+  (`production_processes.completed_at`, formatada no fuso do negócio), sem os
+  rótulos no visível (o `title`/hover traz os nomes com ano) — em todas as listas
+  (gestão de OF, Fábrica 2 e Fábrica 1, desktop e mobile). Sem recebimento
+  sinalizado, a célula exibe **só a prevista na gestão de OF** e apenas o símbolo
+  nas Fábricas 1 e 2 (a prevista sumiu dessas duas telas — ver **Datas
+  previstas**). Na Fábrica 1 o valor herdado vem do **item pai**
   (entrega + status do pai), já que a coluna MP é herdada dele — na linha agrupada
   (033) os **pais do grupo** agregam: pior situação, menor entrega e a data efetiva
   mais recente entre os concluídos. No detalhe da OF a
@@ -208,10 +210,14 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   Nada é gravado: as janelas são calculadas na leitura, então valem igual para pedido
   manual e para OF importada (a importação grava entrega em todo registro; o formulário
   grava no item a data do pedido quando ele vem em branco).
-  Aparece como **dd/MM na célula** da gestão de OF, janela completa no tooltip e
-  data completa na folha de detalhes. Datas já vencidas aparecem em **vermelho**: a
-  **entrega** apenas quando a expedição ainda não concluiu (a mesma regra de atraso) e
-  as datas de **processo** (MP e células), exceto o processo já concluído.
+  Aparece como **dd/MM na célula SOMENTE da gestão de OF** — a Fábrica 1 e a
+  Fábrica 2 **não desenham a prevista** (células, chips mobile e tooltips ficam sem
+  ela; as folhas de detalhes dessas duas telas escondem o rótulo "Previsão de
+  execução" e a janela "De X a Y", mantendo o campo de entrega) — com a janela
+  completa no tooltip e a data completa na folha de detalhes (gestão e detalhe do
+  pedido). Onde a prevista aparece, datas já vencidas ficam em **vermelho**: a
+  **entrega** apenas quando a expedição ainda não concluiu (a mesma regra de
+  atraso) e as datas de **processo** (MP e células), exceto o processo já concluído.
 - **Data de proposta (DP)**: coluna **DP**, ao lado da Ent. nas quatro telas
   grandes (gestão de OF, Fábrica 2, Fábrica 1 e Pedidos) e nas planilhas do
   botão **Exportar Excel** — responde "se a matéria-prima chegar **hoje**, para
@@ -233,7 +239,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   colunas das planilhas (`tests/export-columns.test.ts`).
 - **Edição manual da entrega**: a data de entrega de um item pode ser alterada na
   própria coluna **Ent.** da gestão de OF (popover com data + Salvar) e na
-  folha do processo (campo **Entrega**, com prévia recalculando ao digitar) — sempre
+  folha do processo (campo **Entrega**; a prévia recalcula ao digitar no detalhe do
+  pedido — nas Fábricas 1 e 2 só o campo, sem a janela exibida) — sempre
   por perfil com `orders.edit` (ADMIN/GESTOR). As janelas previstas são **derivadas
   da data em toda leitura**, então gravar a nova data recalcula as previsões de
   todos os processos e a regra de atraso sem nenhuma gravação extra (a ação chama
@@ -389,8 +396,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   redefinida pela **035** e pelos filtros de grupo da **038**) e, pelo MESMO conjunto
   filtrado inteiro (varredura `collectAllPages` de `lib/utils/collect-pages.ts`, com os
   mesmos filtros da tela e da exportação), o card **Atrasados** (regra do KIT): os grupos cuja
-  **data da coluna KIT** — o INÍCIO previsto da janela (`plan.start`, o mesmo valor que
-  a célula exibe em vermelho) — é **anterior à data de referência** e cujo KIT ainda
+  **janela da coluna KIT** — o INÍCIO previsto (`plan.start`, calculado no servidor;
+  a célula KIT da tela não exibe mais essa data) — é **anterior à data de
+  referência** e cujo KIT ainda
   **não concluiu**. A regra mora em `isChildItemKitOverdue`
   (`lib/utils/child-item-groups.ts`) e roda no servidor dentro de `getChildItemsPage`;
   Registros/Qtd./Peso somam só esses grupos, e linha **sem janela de KIT** (sem entrega,

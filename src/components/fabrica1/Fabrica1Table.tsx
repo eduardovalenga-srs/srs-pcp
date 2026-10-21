@@ -8,14 +8,9 @@ import { FABRICA1_EDITABLE_PROCESS_CODES, MP_PROCESS_CODE } from "@/lib/constant
 import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
 import type { ChildItemFilters, ChildItemGroup, ChildItemProcess, OrderItemMaterial } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
-import { formatBusinessDate, formatBusinessDayMonth, formatDate, formatDayMonth } from "@/lib/utils/dates";
+import { formatBusinessDate, formatBusinessDayMonth, formatDate } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
-import {
-  computeProcessSchedule,
-  scheduleProcessesForItem,
-  type ProcessWindow,
-} from "@/lib/utils/process-schedule";
-import { fabrica1ItemProcesses, fabrica1ProcessColumns, isProcessStartOverdue } from "@/lib/utils/production";
+import { fabrica1ItemProcesses, fabrica1ProcessColumns } from "@/lib/utils/production";
 import { childItemProposalDate } from "@/lib/utils/proposal-date";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -42,11 +37,11 @@ import {
 interface Fabrica1TableProps {
   /** Linhas agrupadas por código do filho dentro da OF (033). */
   items: ChildItemGroup[];
-  /** Catálogo ativo — colunas do grupo PROCESSOS e datas previstas. */
+  /** Catálogo ativo — colunas do grupo PROCESSOS. */
   processes: ProcessDefinition[];
   filters: ChildItemFilters;
   capabilities: ProductionCapabilities;
-  /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
+  /** Data de referência (AAAA-MM-DD) — base do cálculo da data de proposta (DP). */
   today: string;
 }
 
@@ -78,10 +73,6 @@ interface ProcessCellButtonProps {
    * situação; 1 membro mantém a edição completa). Null → sem registro.
    */
   selection: ProcessSelection | null;
-  /** Janela prevista de execução (dias úteis contados de trás para frente da entrega). */
-  plan: ProcessWindow | null;
-  /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
-  today: string;
   /** Descrição exibida nos textos da célula (a do grupo quando agrupada). */
   itemLabel: string;
 }
@@ -92,8 +83,6 @@ function ProcessCellButton({
   disabled,
   onSelect,
   selection,
-  plan,
-  today,
   itemLabel,
 }: ProcessCellButtonProps) {
   if (!cell || !selection) {
@@ -112,10 +101,6 @@ function ProcessCellButton({
     cell.quantityPlanned !== null || cell.quantityCompleted !== null
       ? `${formatQuantity(cell.quantityCompleted ?? 0)}/${formatQuantity(cell.quantityPlanned ?? 0)}`
       : null;
-  const plannedDay = plan ? formatDayMonth(plan.start) : null;
-  // Início vencido (anterior à data de referência) → fonte vermelha;
-  // processo CONCLUIDO nunca fica vermelho (regra em utils/production).
-  const plannedDayPast = isProcessStartOverdue(plan?.start ?? null, cell.status, today);
 
   return (
     <button
@@ -127,18 +112,13 @@ function ProcessCellButton({
         "hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70",
         statusClass(cell.status),
       )}
-      title={`${processName} — ${itemLabel}: ${label}${quantity ? ` (${quantity})` : ""}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}`}
-      aria-label={`${processName} de ${itemLabel}: ${label}${quantity ? `, produzido ${quantity}` : ""}${plan ? `, previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}`}
+      title={`${processName} — ${itemLabel}: ${label}${quantity ? ` (${quantity})` : ""}`}
+      aria-label={`${processName} de ${itemLabel}: ${label}${quantity ? `, produzido ${quantity}` : ""}`}
     >
       <span className="inline-flex items-center gap-1">
         <span aria-hidden>{PROCESS_STATUS_SYMBOLS[cell.status]}</span>
         {quantity ? <span className="tabular-nums">{quantity}</span> : null}
       </span>
-      {plannedDay ? (
-        <span className={cn("tabular-nums text-[10px]", plannedDayPast && "text-status-late")}>
-          {plannedDay}
-        </span>
-      ) : null}
       <span className="sr-only">{label}</span>
     </button>
   );
@@ -146,23 +126,16 @@ function ProcessCellButton({
 
 /**
  * Célula do MP: somente leitura, com o status do ITEM PAI — o valor é o
- * mesmo editado na gestão de entregas, então não se edita aqui. A janela
- * prevista vem do PAI (entrega + status do pai, memo `parentMpPlanByItem`)
- * e, concluído (031), a data efetiva do recebimento aparece ACIMA da
- * prevista — mesmo desenho das demais células de processo.
+ * mesmo editado na gestão de entregas, então não se edita aqui. Concluído
+ * (031), a data efetiva do recebimento aparece na célula — a prevista só
+ * aparece na gestão de OF.
  */
 function InheritedProcessCell({
   status,
   completedAt,
-  plan,
-  today,
 }: {
   status: ProcessStatus | undefined;
   completedAt: string | null;
-  /** Janela prevista do MP, contada da entrega do PAI. */
-  plan: ProcessWindow | null;
-  /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
-  today: string;
 }) {
   if (!status) {
     return (
@@ -177,29 +150,18 @@ function InheritedProcessCell({
 
   const receivedDay =
     status === "CONCLUIDO" && completedAt ? formatBusinessDayMonth(completedAt) : null;
-  const plannedDay = plan ? formatDayMonth(plan.start) : null;
-  // Início vencido (anterior à data de referência) → fonte vermelha;
-  // MP CONCLUIDO nunca fica vermelho (regra em utils/production).
-  const plannedDayPast = isProcessStartOverdue(plan?.start ?? null, status, today);
 
   return (
     <span
       className={cn(
-        "inline-flex h-8 w-full flex-col items-center justify-center rounded border px-1 text-[10px] font-semibold leading-none",
-        // 3 linhas (símbolo + recebida + prevista) cabem no h-8 sem folga.
-        receivedDay && plannedDay ? "gap-0" : "gap-0.5",
+        "inline-flex h-8 w-full flex-col items-center justify-center rounded border px-1 text-[10px] font-semibold leading-none gap-0.5",
         statusClass(status),
       )}
-      title={`Matéria-prima — status do item pai (editado na Gestão de OF): ${PROCESS_STATUS_LABELS[status]}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(completedAt)}` : ""}`}
+      title={`Matéria-prima — status do item pai (editado na Gestão de OF): ${PROCESS_STATUS_LABELS[status]}${receivedDay ? ` · recebida em ${formatBusinessDate(completedAt)}` : ""}`}
     >
       <span aria-hidden>{PROCESS_STATUS_SYMBOLS[status]}</span>
-      {/* 031: recebimento efetivo em CIMA da prevista (mesmo formato das listas). */}
+      {/* 031: recebimento efetivo — a data real do recebimento da MP. */}
       {receivedDay ? <span className="tabular-nums text-[10px]">{receivedDay}</span> : null}
-      {plannedDay ? (
-        <span className={cn("tabular-nums text-[10px]", plannedDayPast && "text-status-late")}>
-          {plannedDay}
-        </span>
-      ) : null}
       <span className="sr-only">
         Matéria-prima: {PROCESS_STATUS_LABELS[status]} — status do item pai
       </span>
@@ -208,19 +170,10 @@ function InheritedProcessCell({
 }
 
 /**
- * Chip do MP no card (mobile): rótulo `MP` + datas empilhadas à direita —
- * o recebimento efetivo (031) em cima da prevista, sem as palavras.
+ * Chip do MP no card (mobile): rótulo `MP` + a data efetiva do
+ * recebimento (031) à direita, sem as palavras — sem a prevista.
  */
-function InheritedMpChip({
-  item,
-  plan,
-  today,
-}: {
-  /** Linha agrupada (033) — a coluna MP agrega os pais do grupo. */
-  item: ChildItemGroup;
-  plan: ProcessWindow | null;
-  today: string;
-}) {
+function InheritedMpChip({ item }: { item: ChildItemGroup }) {
   const status = item.parentProcessStatuses[MP_PROCESS_CODE];
   if (!status) return null;
 
@@ -228,25 +181,18 @@ function InheritedMpChip({
     status === "CONCLUIDO" && item.parentMpCompletedAt
       ? formatBusinessDayMonth(item.parentMpCompletedAt)
       : null;
-  const plannedDay = plan ? formatDayMonth(plan.start) : null;
-  const plannedDayPast = isProcessStartOverdue(plan?.start ?? null, status, today);
 
   return (
     <li>
       <span
         className="inline-flex items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-[11px] tabular-nums"
-        title={`Matéria-prima — status do item pai: ${PROCESS_STATUS_LABELS[status]}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(item.parentMpCompletedAt)}` : ""}`}
+        title={`Matéria-prima — status do item pai: ${PROCESS_STATUS_LABELS[status]}${receivedDay ? ` · recebida em ${formatBusinessDate(item.parentMpCompletedAt)}` : ""}`}
       >
         <span aria-hidden>{PROCESS_STATUS_SYMBOLS[status]}</span>
         MP
-        {receivedDay || plannedDay ? (
+        {receivedDay ? (
           <span className="flex flex-col items-end leading-none text-[10px]">
-            {receivedDay ? <span className="tabular-nums">{receivedDay}</span> : null}
-            {plannedDay ? (
-              <span className={cn("tabular-nums", plannedDayPast && "text-status-late")}>
-                {plannedDay}
-              </span>
-            ) : null}
+            <span className="tabular-nums">{receivedDay}</span>
           </span>
         ) : null}
         <span className="sr-only">
@@ -311,47 +257,6 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
   // Colunas de processo da cadeia F1: MP primeiro, depois as etapas de
   // sub-item e o KIT. O que vem depois do KIT continua na gestão de entregas.
   const processColumns = useMemo(() => fabrica1ProcessColumns(processes), [processes]);
-
-  // Datas previstas por item: janela de cada processo contada da entrega.
-  // O status do processo NO ITEM entra no cálculo: desmarcado (NAO_APLICAVEL)
-  // não ocupa dias nem ganha janela (senão empurrava as datas anteriores).
-  const scheduleByItem = useMemo(
-    () =>
-      new Map(
-        items.map((item) => {
-          const byCode = new Map(item.processes.map((p) => [p.code, p.status] as const));
-          return [
-            item.id,
-            computeProcessSchedule(
-              item.deliveryDate,
-              scheduleProcessesForItem(processes, (code) => byCode.get(code)),
-            ),
-          ] as const;
-        }),
-      ),
-    [items, processes],
-  );
-
-  // Janela prevista do MP no ITEM PAI (a coluna MP é herdada do pai):
-  // contada da entrega do pai com os status do pai — a mesma regra das
-  // janelas por item da Fábrica 2, aplicada ao pai desta linha.
-  const parentMpPlanByItem = useMemo(
-    () =>
-      new Map<string, ProcessWindow | null>(
-        items.map(
-          (item): [string, ProcessWindow | null] => [
-            item.id,
-            item.parentDeliveryDate
-              ? computeProcessSchedule(
-                  item.parentDeliveryDate,
-                  scheduleProcessesForItem(processes, (code) => item.parentProcessStatuses[code]),
-                ).get(MP_PROCESS_CODE) ?? null
-              : null,
-          ],
-        ),
-      ),
-    [items, processes],
-  );
 
   const columns = useMemo(() => {
     const orderColumns = [
@@ -555,8 +460,6 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
                 <InheritedProcessCell
                   status={row.parentProcessStatuses[process.code]}
                   completedAt={row.parentMpCompletedAt}
-                  plan={parentMpPlanByItem.get(row.id) ?? null}
-                  today={today}
                 />
               );
             }
@@ -568,8 +471,6 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
                 disabled={!capabilities.canUpdateStatus}
                 onSelect={setSelection}
                 selection={cell ? cellSelection(row, cell) : null}
-                plan={scheduleByItem.get(row.id)?.get(process.code) ?? null}
-                today={today}
                 itemLabel={row.description}
               />
             );
@@ -595,7 +496,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         columns: helper.columns(processGroupColumns),
       }),
     ]);
-  }, [filters, processes, processColumns, capabilities.canUpdateStatus, capabilities.canEditSeq, scheduleByItem, parentMpPlanByItem, today]);
+  }, [filters, processes, processColumns, capabilities.canUpdateStatus, capabilities.canEditSeq, today]);
 
   const table = useTable({
     features: coreFeatures,
@@ -788,11 +689,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
                     </span>
                   </li>
                 ))}
-                <InheritedMpChip
-                  item={item}
-                  plan={parentMpPlanByItem.get(item.id) ?? null}
-                  today={today}
-                />
+                <InheritedMpChip item={item} />
               </ul>
             </div>
           </article>
@@ -803,6 +700,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         selection={selection}
         processes={processes}
         capabilities={capabilities}
+        showPlan={false}
         onOpenChange={(open) => {
           if (!open) setSelection(null);
         }}
