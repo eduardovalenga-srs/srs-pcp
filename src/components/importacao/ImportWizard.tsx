@@ -10,7 +10,7 @@ import { IMPORT_DECISION_LABELS, IMPORT_DECISIONS, type ImportDecision } from "@
 import { undecidedOrders } from "@/lib/import/of-plan";
 import type { AnalyzeOutput, ExecuteImportOutput } from "@/lib/services/import.service";
 import type { ImportPreview, OfDecisionMap } from "@/lib/types/import";
-import { orderCodeFromDeliveryDate } from "@/lib/utils/order-code";
+import { fileKeyFromBytes, orderCodeFromDateAndFileKey } from "@/lib/utils/order-code";
 import { FileDrop } from "@/components/importacao/FileDrop";
 import { OfPreviewList } from "@/components/importacao/OfPreviewList";
 import { Button } from "@/components/ui/button";
@@ -91,6 +91,9 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
   const router = useRouter();
   const [step, setStep] = useState<WizardStep>(1);
   const [file, setFile] = useState<File | null>(null);
+  // Chave do arquivo (hash dos bytes) — mesma regra do servidor para o
+  // sufixo do código da OF gerado pelas listas de peças.
+  const [fileKey, setFileKey] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeOutput | null>(null);
   const [sheetName, setSheetName] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -105,11 +108,12 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
   const activeSheet = sheetName || analysis?.defaultSheet || "";
   const activeFormat = analysis?.sheets.find((sheet) => sheet.name === activeSheet)?.format ?? null;
   const isPartsList = activeFormat === "lista-pecas";
-  // Código que a lista de peças vai gerar — mesma regra do servidor
-  // (dia e mês da entrega viram o número da OF).
+  const isProjectList = activeFormat === "lista-projeto";
+  // Código que as listas de peças vão gerar — mesma regra do servidor
+  // (dia e mês da entrega + sufixo derivado dos bytes do arquivo).
   const generatedOrderCode =
-    isPartsList && /^\d{4}-\d{2}-\d{2}$/.test(deliveryDate)
-      ? orderCodeFromDeliveryDate(deliveryDate).code
+    (isPartsList || isProjectList) && fileKey && /^\d{4}-\d{2}-\d{2}$/.test(deliveryDate)
+      ? orderCodeFromDateAndFileKey(deliveryDate, fileKey).code
       : null;
   const undecided = preview ? undecidedOrders(preview, decisions) : [];
   const canContinue = preview !== null && preview.totals.importable > 0 && undecided.length === 0;
@@ -144,12 +148,21 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
     setFile(next);
     setAnalysis(null);
     setSheetName("");
+    setFileKey(null);
     invalidatePreview();
     setError(null);
 
     if (!next) {
       setStatus("");
       return;
+    }
+
+    // Mesma chave que o servidor deriva dos bytes — habilita a dica do
+    // código da OF que as listas de peças vão gerar.
+    try {
+      setFileKey(fileKeyFromBytes(new Uint8Array(await next.arrayBuffer())));
+    } catch {
+      setFileKey(null);
     }
 
     setStatus("Analisando o arquivo…");
@@ -378,7 +391,7 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
                 />
                 <p className="text-xs text-muted-foreground">
                   {generatedOrderCode
-                    ? `Vinculada a todos os registros. Nesta lista o código da OF é gerado da data: ${generatedOrderCode}.`
+                    ? `Vinculada a todos os registros. Nesta lista o código da OF é gerado da entrega + sufixo do arquivo: ${generatedOrderCode}.`
                     : "Vinculada a todos os registros: OF, itens pai e filhos."}
                 </p>
               </div>
@@ -414,7 +427,11 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
                   : `${activeSheet} · ${
                       analysis.sheets.find((sheet) => sheet.name === activeSheet)?.columnCount ?? 0
                     } coluna(s) · ${
-                      isPartsList ? "lista de peças e conjuntos" : "layout técnico da fábrica"
+                      isPartsList
+                        ? "lista de peças e conjuntos"
+                        : isProjectList
+                          ? "lista de peças do projeto"
+                          : "layout técnico da fábrica"
                     } · cabeçalho detectado automaticamente`}
               </p>
             ) : null}
@@ -423,7 +440,14 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
               <li>Planilha (.xlsx): o modelo traz o cabeçalho técnico e linhas de exemplo da hierarquia.</li>
               <li>
                 Lista de peças e conjuntos (.xlsx): colunas CONJUNTO, PEÇA, QTDE, PERFIL, MATERIAL e MASSA(Kg) —
-                conjuntos viram itens pai, peças viram filhos; o código da OF é gerado da data de entrega (dia e mês).
+                conjuntos viram itens pai, peças viram filhos; o código da OF é gerado da data de entrega + sufixo
+                derivado do arquivo.
+              </li>
+              <li>
+                Lista de peças do projeto (.xlsx): colunas GT/MD, PEÇA, CÓDIGO DA PEÇA, PEÇA PRINCIPAL, QUANTIDADE
+                EM PROJETO e MASSA TOTAL DO PROJETO (KG) — cada grupo GT/MD (escada/torre) vira item pai, cada
+                peça vira filho com a PEÇA PRINCIPAL como matéria-prima; o código da OF segue a mesma regra da
+                lista de peças (entrega + sufixo do arquivo).
               </li>
               <li>
                 PDF (.pdf): a seção <strong>COMPOSIÇÃO DOS CONJUNTOS</strong> da Ordem de Fabricação da A1 vira a

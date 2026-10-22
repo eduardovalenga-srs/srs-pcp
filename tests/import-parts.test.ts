@@ -8,14 +8,19 @@ import {
 } from "@/lib/import/excel-parser";
 import { familyFromDescription, orderStatusOf } from "@/lib/import/of-structure";
 import { buildPartsOfStructure } from "@/lib/import/of-structure-parts";
-import { orderCodeFromDeliveryDate } from "@/lib/utils/order-code";
+import {
+  fileKeyFromBytes,
+  normalizeOrderCode,
+  orderCodeFromDateAndFileKey,
+  orderCodeFromDeliveryDate,
+} from "@/lib/utils/order-code";
 import { assertSheetStructure } from "@/lib/validators/import.schema";
 import type { ParsedSheet } from "@/lib/types/import";
 
 /**
- * Testes do TERCEIRO formato de importação: a lista de peças e conjuntos
- * de cliente (038) — 7 colunas, conjuntos como itens pai, peças como
- * filhos e código de OF gerado da data de entrega.
+ * Testes da lista de peças e conjuntos de cliente (038) — 7 colunas,
+ * conjuntos como itens pai, peças como filhos e código de OF gerado da
+ * data de entrega + sufixo derivado dos bytes do arquivo.
  */
 
 const PARTS_HEADERS = [
@@ -29,6 +34,9 @@ const PARTS_HEADERS = [
 ];
 
 const FORM = { customerName: "VIA RONDON", deliveryDate: "2026-11-05" };
+
+/** Chave de arquivo fixa nos testes — o sufixo do código vira "3K7Q". */
+const FILE_KEY = "3k7q";
 
 /** Monta uma linha alinhada aos cabeçalhos informados (por nome). */
 function makeRow(values: Record<string, unknown>): unknown[] {
@@ -46,7 +54,7 @@ function sheetFrom(rows: unknown[][]): ParsedSheet {
 }
 
 function buildRows(rows: unknown[][]) {
-  return buildPartsOfStructure(sheetFrom(rows), FORM);
+  return buildPartsOfStructure(sheetFrom(rows), FORM, FILE_KEY);
 }
 
 /**
@@ -154,24 +162,45 @@ describe("detecção da lista de peças e conjuntos", () => {
 });
 
 // -------------------------------------------------------------
-// Código da OF gerado da data de entrega
+// Código da OF gerado da data de entrega + sufixo do arquivo
 // -------------------------------------------------------------
 
 describe("código da OF gerado da entrega (038)", () => {
-  it("vira dia+mês no padrão <TIPO> <número>", () => {
+  it("a base vira dia+mês no padrão <TIPO> <número>", () => {
     expect(orderCodeFromDeliveryDate("2026-11-05")).toEqual({ code: "OF 0511", type: "OF" });
     expect(orderCodeFromDeliveryDate("2026-12-31")).toEqual({ code: "OF 3112", type: "OF" });
+  });
+
+  it("compõe entrega + sufixo do arquivo e faz round-trip na normalização", () => {
+    const generated = orderCodeFromDateAndFileKey(FORM.deliveryDate, FILE_KEY);
+    expect(generated).toEqual({ code: "OF 0511-3K7Q", type: "OF" });
+    expect(normalizeOrderCode(generated.code, generated.type)).toEqual(generated);
+  });
+
+  it("arquivos diferentes com a mesma entrega geram códigos diferentes", () => {
+    const first = orderCodeFromDateAndFileKey(FORM.deliveryDate, "aaaa");
+    const second = orderCodeFromDateAndFileKey(FORM.deliveryDate, "zzzz");
+    expect(first.code).not.toBe(second.code);
+  });
+
+  it("mesmo arquivo + mesma entrega geram sempre o mesmo código (reimportação deduplica)", () => {
+    const first = orderCodeFromDateAndFileKey(FORM.deliveryDate, FILE_KEY);
+    const second = orderCodeFromDateAndFileKey(FORM.deliveryDate, FILE_KEY);
+    expect(second).toEqual(first);
+  });
+
+  it("chave derivada dos bytes é estável e muda com o conteúdo", () => {
+    const bytes = new TextEncoder().encode("planilha de teste");
+    const other = new TextEncoder().encode("planilha de teste!");
+    expect(fileKeyFromBytes(bytes)).toBe(fileKeyFromBytes(bytes));
+    expect(fileKeyFromBytes(bytes)).not.toBe(fileKeyFromBytes(other));
+    expect(fileKeyFromBytes(bytes)).toMatch(/^[0-9a-z]{4}$/);
   });
 
   it("data inválida lança erro", () => {
     expect(() => orderCodeFromDeliveryDate("05/11/2026")).toThrow(/Data de entrega inválida/);
     expect(() => orderCodeFromDeliveryDate("")).toThrow(/Data de entrega inválida/);
-  });
-
-  it("a mesma entrega gera sempre o mesmo código (reimportação deduplica)", () => {
-    const first = orderCodeFromDeliveryDate(FORM.deliveryDate);
-    const second = orderCodeFromDeliveryDate(FORM.deliveryDate);
-    expect(second).toEqual(first);
+    expect(() => orderCodeFromDateAndFileKey("", FILE_KEY)).toThrow(/Data de entrega inválida/);
   });
 });
 
@@ -187,7 +216,7 @@ describe("buildPartsOfStructure", () => {
     expect(orders).toHaveLength(1);
     const order = orders[0]!;
 
-    expect(order.code).toBe("OF 0511");
+    expect(order.code).toBe("OF 0511-3K7Q");
     expect(order.type).toBe("OF");
     expect(order.customerName).toBe(FORM.customerName);
     expect(order.deliveryDate).toBe(FORM.deliveryDate);
@@ -367,7 +396,7 @@ describe("buildPartsOfStructure", () => {
       headerRowIndex: 0,
       rows: [["ACME", "05/11"]],
     };
-    expect(() => buildPartsOfStructure(sheet, FORM)).toThrow(
+    expect(() => buildPartsOfStructure(sheet, FORM, FILE_KEY)).toThrow(
       /Colunas obrigatórias ausentes na lista: CONJUNTO, PEÇA, QTDE/,
     );
   });

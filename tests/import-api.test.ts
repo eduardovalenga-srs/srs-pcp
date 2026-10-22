@@ -7,6 +7,7 @@ import * as XLSX from "xlsx";
 import { POST } from "@/app/api/importacao/route";
 import { GET as getModelo } from "@/app/api/importacao/modelo/route";
 import { detectHeaderRow } from "@/lib/import/excel-parser";
+import { fileKeyFromBytes, orderCodeFromDateAndFileKey } from "@/lib/utils/order-code";
 import type { ExistingOfStructure } from "@/lib/types/import";
 
 /**
@@ -289,7 +290,7 @@ describe("POST /api/importacao — etapa preview", () => {
     expect(body.totals.existing).toBe(1);
   });
 
-  it("monta a prévia da lista de peças com OF gerada da data de entrega", async () => {
+  it("monta a prévia da lista de peças com OF gerada da entrega + sufixo do arquivo", async () => {
     const bytes = workbookBytes({
       Planilha1: [
         PARTS_HEADERS,
@@ -319,7 +320,10 @@ describe("POST /api/importacao — etapa preview", () => {
     const entry = body.orders[0];
     expect(entry.status).toBe("VALID");
     expect(entry.exists).toBe(false);
-    expect(entry.order.code).toBe("OF 0511");
+    // Mesma regra do servidor: entrega + sufixo derivado dos bytes do arquivo.
+    const fileKey = fileKeyFromBytes(new Uint8Array(bytes));
+    expect(entry.order.code).toBe(orderCodeFromDateAndFileKey("2026-11-05", fileKey).code);
+    expect(entry.order.code).toMatch(/^OF 0511-[0-9A-Z]{4}$/);
     expect(entry.order.type).toBe("OF");
     expect(entry.order.customerName).toBe("VIA RONDON");
     expect(entry.order.description).toBe("GUARDA-CORPO");

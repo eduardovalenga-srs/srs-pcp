@@ -62,6 +62,35 @@ export function findMissingPartsColumns(headers: string[]): string[] {
   return REQUIRED_PARTS_COLUMNS.filter((column) => !present.has(normalizeHeader(column)));
 }
 
+/**
+ * Colunas da LISTA DE PEÇAS DO PROJETO (arquivos TUCUMANN GC GERAL) —
+ * normalizadas. Cabeçalho de 1 linha: GT/MD, PEÇA, CÓDIGO DA PEÇA, PEÇA
+ * PRINCIPAL, QUANTIDADE EM PROJETO e MASSA TOTAL DO PROJETO (KG).
+ * Reconhecimento pelo NOME, como nos demais formatos.
+ */
+const PROJECT_HEADER_TOKENS = [
+  "GTMD",
+  "PECA",
+  "CODIGODAPECA",
+  "PECAPRINCIPAL",
+  "QUANTIDADEEMPROJETO",
+  "MASSATOTALDOPROJETOKG",
+];
+
+/** Colunas da lista de peças do projeto que PRECISAM existir (nomes de exibição; a comparação normaliza acento). */
+export const REQUIRED_PROJECT_COLUMNS = [
+  "GT/MD",
+  "PEÇA",
+  "CÓDIGO DA PEÇA",
+  "QUANTIDADE EM PROJETO",
+] as const;
+
+/** Colunas da lista de peças do projeto ausentes (vazio = ok). */
+export function findMissingProjectColumns(headers: string[]): string[] {
+  const present = new Set(headers.map(normalizeHeader));
+  return REQUIRED_PROJECT_COLUMNS.filter((column) => !present.has(normalizeHeader(column)));
+}
+
 /** Normaliza texto de cabeçalho: sem acento, sem espaço, maiúsculo. */
 export function normalizeHeader(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -131,12 +160,14 @@ export function parseExcelFile(data: ArrayBuffer, fileName: string, fileSize: nu
 
 /**
  * Detecta a linha de cabeçalho pontuando as primeiras linhas por
- * coincidência com os nomes de coluna dos DOIS formatos reconhecidos:
+ * coincidência com os nomes de coluna dos TRÊS formatos reconhecidos:
  *
  *  - layout da fábrica: válida com ao menos `of_idOF` e `ps_idPos`
  *    (o núcleo da estrutura OF -> pais -> filhos);
  *  - lista de peças e conjuntos: válida com ao menos `CONJUNTO`,
- *    `PEÇA` e `QTDE` (conjunto -> peça e quantidade).
+ *    `PEÇA` e `QTDE` (conjunto -> peça e quantidade);
+ *  - lista de peças do projeto: válida com ao menos `GT/MD` e
+ *    `CÓDIGO DA PEÇA` (grupo -> peça do projeto).
  *
  * O formato vencedor fica em `format`; sem reconhecimento, `detected`
  * false e a primeira linha é sugerida como está.
@@ -156,14 +187,21 @@ export function detectHeaderRow(matrix: SheetMatrix): HeaderDetection {
       (total, cell) => total + (cell && PARTS_HEADER_TOKENS.includes(cell) ? 1 : 0),
       0,
     );
+    const projectScore = normalized.reduce(
+      (total, cell) => total + (cell && PROJECT_HEADER_TOKENS.includes(cell) ? 1 : 0),
+      0,
+    );
     const hasTechnicalCore = normalized.includes("OFIDOF") && normalized.includes("PSIDPOS");
     const hasPartsCore =
       normalized.includes("CONJUNTO") && normalized.includes("PECA") && normalized.includes("QTDE");
+    const hasProjectCore = normalized.includes("GTMD") && normalized.includes("CODIGODAPECA");
 
     if (hasTechnicalCore && technicalScore > best.score) {
       best = { headerRowIndex: index, headers: row.map(cellToString), score: technicalScore, detected: true, format: "layout-of" };
     } else if (hasPartsCore && partsScore > best.score) {
       best = { headerRowIndex: index, headers: row.map(cellToString), score: partsScore, detected: true, format: "lista-pecas" };
+    } else if (hasProjectCore && projectScore > best.score) {
+      best = { headerRowIndex: index, headers: row.map(cellToString), score: projectScore, detected: true, format: "lista-projeto" };
     }
   }
 

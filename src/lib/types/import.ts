@@ -17,9 +17,11 @@ export interface ParsedWorkbook {
 /**
  * Formatos de planilha reconhecidos pela importação:
  * - `layout-of`: planilha da fábrica (colunas técnicas of_idOF, ps_idPos, ...);
- * - `lista-pecas`: lista de peças e conjuntos de cliente (CONJUNTO, PEÇA, ...).
+ * - `lista-pecas`: lista de peças e conjuntos de cliente (CONJUNTO, PEÇA, ...);
+ * - `lista-projeto`: lista de peças do projeto (GT/MD, PEÇA, CÓDIGO DA
+ *   PEÇA, ... — arquivos TUCUMANN GC GERAL, sem número de OF).
  */
-export type ImportSheetFormat = "layout-of" | "lista-pecas";
+export type ImportSheetFormat = "layout-of" | "lista-pecas" | "lista-projeto";
 
 /** Status de uma OF na prévia. */
 export type RowStatus = "VALID" | "WARNING" | "ERROR";

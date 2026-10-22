@@ -126,7 +126,7 @@ src/
         [id]/               detalhes da OF (itens pai + filhos aninhados, processos e MP)
         [id]/editar/        formulário de edição
       dashboard/            KPIs, janelas de entrega, carga por processo
-      importacao/           assistente de importação (Excel, lista de peças ou PDF da A1)
+      importacao/           assistente de importação (Excel, listas de peças ou PDF da A1)
       processos/            catálogo de processos (fluxo fabril)
       configuracoes/        usuários e permissões
     api/importacao/         análise / prévia / execução + modelo .xlsx (aceita .pdf)
@@ -138,8 +138,8 @@ src/
     repositories/           acesso a dados (Supabase)
     validators/             schemas zod
     import/                 parser/estrutura/diferenças/plano da importação
-                            excel-parser (SheetJS, layout OF e lista de peças),
-                            of-structure/of-structure-parts + of-pdf/pdf-text (PDF da A1)
+                            excel-parser (SheetJS; layout OF, lista de peças e lista do projeto),
+                            of-structure/of-structure-parts/of-structure-project + of-pdf/pdf-text
     export/                 colunas/workbook das planilhas de exportação (SheetJS)
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
@@ -349,16 +349,38 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   `MATERIAL` a qualidade do aço e `MASSA` o peso unitário, com `COMPR.(mm)` entrando na
   observação da MP (`DIN 2440 · 995 mm`); filho sem PERFIL cai para o código como descrição
   e avisa "sem matéria-prima". O **código da OF não vem do arquivo**: é **gerado da data de
-  entrega** (`orderCodeFromDeliveryDate` — `2026-11-05` → `OF 0511`), determinístico de
-  propósito (reimportar a mesma entrega gera o mesmo código e cai na decisão
-  Atualizar/Mantir/Ignorar em vez de criar OF nova) e o wizard mostra o código que será
-  gerado. Pesos derivam igual ao layout da fábrica (unitário do pai = Σ peça unit × qtd;
+  entrega + sufixo derivado dos bytes do arquivo** (`orderCodeFromDateAndFileKey` —
+  `2026-11-05` → `OF 0511-XXXX`), determinístico de propósito (reimportar o MESMO arquivo com
+  a MESMA entrega gera o mesmo código e cai na decisão Atualizar/Mantir/Ignorar em vez de
+  criar OF nova) e distinto entre arquivos diferentes com a mesma entrega (dois projetos
+  nunca colidem); o wizard mostra o código que será gerado (mesmo hash no client). Pesos
+  derivam igual ao layout da fábrica (unitário do pai = Σ peça unit × qtd;
   total = qtd × unit, 023) e a `MASSA` da linha-mãe só **avisa** quando diverge da fórmula
   (tolerância 0,5% — a lista arredonda a massa para 1 casa). Avisos e erros: conjunto sem
   peças (aviso), peça/conjunto repetido (aviso, 1ª ocorrência mantida), linha órfã ou sem
   identificação (erro), quantidade ≤ 0 (erro) e números inválidos (aviso); nada muda na
   prévia, diffs, decisões, lote e RPC `apply_of_import` — testes sintéticos em
   `tests/import-parts.test.ts` (a planilha-exemplo do cliente fica fora do repositório).
+- **Importação da lista de peças do projeto (4ª fonte)**: o assistente aceita também a
+  **lista de peças do projeto** de cliente (arquivos TUCUMANN GC GERAL) — 6 colunas
+  `GT/MD | PEÇA | CÓDIGO DA PEÇA | PEÇA PRINCIPAL | QUANTIDADE EM PROJETO | MASSA TOTAL DO
+  PROJETO (KG)` com **uma linha por peça**, detectadas pelo cabeçalho (`detectHeaderRow`
+  devolve `format: "lista-projeto"`; núcleo `GT/MD` + `CÓDIGO DA PEÇA`). Cada **valor
+  distinto de GT/MD** (escada/torre) vira **item pai** com quantidade 1 — `PEÇA` é o tipo do
+  produto (GUARDA CORPO → família GC) e o peso unitário do pai deriva dos filhos (Σ filho
+  unit × qtd; total = qtd × unit, 023); cada **linha** vira **filho** — `CÓDIGO DA PEÇA` o
+  código, `QUANTIDADE EM PROJETO` a quantidade e a `MASSA TOTAL ÷ QUANTIDADE` o peso
+  unitário (total recalculado pela fórmula); `PEÇA PRINCIPAL` é a **matéria-prima** do filho
+  (papel do `cp_DesMaterial`, ex.: `TB.RED.DN32_DIN`) com a quantidade do filho e unidade
+  `UN`, e linha sem PEÇA PRINCIPAL avisa "sem matéria-prima". O **código da OF segue a
+  MESMA estratégia centralizada da lista de peças** (`orderCodeFromDateAndFileKey` em
+  `lib/utils/order-code.ts` — entrega + sufixo do arquivo, determinístico e sem colisão
+  entre projetos; único ponto de geração de código do sistema). Avisos e erros: peça
+  repetida no grupo (aviso, 1ª mantida), linha sem grupo ou sem código (erro), quantidade
+  ausente/≤ 0 (erro), números inválidos (aviso) e grupo sem tipo do produto (aviso); nada
+  muda na prévia, diffs, decisões, lote e RPC `apply_of_import` — testes em
+  `tests/import-project.test.ts`, incluindo ponta a ponta com o arquivo real em
+  `tests/fixtures/tucumann-gc-geral.xlsx` (6 conjuntos, 172 peças).
 - **Matérias-primas** (`order_item_materials`, migração 011): insumo do **sub-item**
   (descrição, quantidade, unidade e observação) — sem processos próprios e fora da grade
   de produção. Sempre gravadas em lote pela RPC `replace_item_materials` (troca a lista

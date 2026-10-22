@@ -42,3 +42,5 @@ yarn-error.log*
 next-env.d.ts
 next.config.ts
 tests/fixtures/of-2615-aa-4.pdf
+tests/fixtures/tucumann-gc-geral.xlsx
+public/TT4 GC (5) (1).xlsx

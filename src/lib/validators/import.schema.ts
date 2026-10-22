@@ -1,7 +1,11 @@
 import { z } from "zod";
 
 import { ALLOWED_IMPORT_EXTENSIONS, IMPORT_DECISIONS, MAX_IMPORT_ROWS } from "@/lib/constants/import";
-import { findMissingPartsColumns, findMissingTechnicalColumns } from "@/lib/import/excel-parser";
+import {
+  findMissingPartsColumns,
+  findMissingProjectColumns,
+  findMissingTechnicalColumns,
+} from "@/lib/import/excel-parser";
 import type { ImportSheetFormat } from "@/lib/types/import";
 import { isValidISODate } from "@/lib/utils/dates";
 
@@ -27,8 +31,9 @@ export function validateImportFile(file: File): { ok: true } | { ok: false; erro
 
 /**
  * Limites defensivos da estrutura do arquivo: linhas/colunas e colunas
- * obrigatórias do FORMATO detectado — técnicas do layout da fábrica ou da
- * lista de peças e conjuntos (sem elas, o arquivo não é reconhecível).
+ * obrigatórias do FORMATO detectado — técnicas do layout da fábrica, da
+ * lista de peças e conjuntos ou da lista de peças do projeto (sem elas,
+ * o arquivo não é reconhecível).
  */
 export function assertSheetStructure(
   headers: string[],
@@ -45,12 +50,19 @@ export function assertSheetStructure(
     throw new Error(`A planilha possui muitas linhas (máximo ${MAX_IMPORT_ROWS}).`);
   }
 
-  const missing = format === "lista-pecas" ? findMissingPartsColumns(headers) : findMissingTechnicalColumns(headers);
+  const missing =
+    format === "lista-pecas"
+      ? findMissingPartsColumns(headers)
+      : format === "lista-projeto"
+        ? findMissingProjectColumns(headers)
+        : findMissingTechnicalColumns(headers);
   if (missing.length > 0) {
     const hint =
       format === "lista-pecas"
         ? "A lista de peças precisa das colunas CONJUNTO, PEÇA, QTDE, PERFIL, MATERIAL e MASSA(Kg)."
-        : "O arquivo não está no formato esperado — use o modelo oficial.";
+        : format === "lista-projeto"
+          ? "A lista de peças do projeto precisa das colunas GT/MD, PEÇA, CÓDIGO DA PEÇA, QUANTIDADE EM PROJETO e MASSA TOTAL DO PROJETO (KG)."
+          : "O arquivo não está no formato esperado — use o modelo oficial.";
     throw new Error(`Colunas obrigatórias ausentes na planilha: ${missing.join(", ")}. ${hint}`);
   }
 }

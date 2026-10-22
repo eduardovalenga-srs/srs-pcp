@@ -21,6 +21,7 @@ import {
 import { parseExcelFile } from "@/lib/import/excel-parser";
 import { buildOfStructure, orderStatusOf } from "@/lib/import/of-structure";
 import { buildPartsOfStructure } from "@/lib/import/of-structure-parts";
+import { buildProjectOfStructure } from "@/lib/import/of-structure-project";
 import { buildOfFromPdfRows, PDF_COMPOSITION_SHEET_NAME } from "@/lib/import/of-pdf";
 import { extractPdfRows } from "@/lib/import/pdf-text";
 import { buildOfImportPlan, computeOfDifferences } from "@/lib/import/of-plan";
@@ -29,6 +30,7 @@ import { getImportMaxFileSize } from "@/lib/env";
 import { ALLOWED_IMPORT_EXTENSIONS, PDF_IMPORT_EXTENSION } from "@/lib/constants/import";
 import { assertSheetStructure, validateImportFile } from "@/lib/validators/import.schema";
 import type { Json } from "@/lib/types/database";
+import { fileKeyFromBytes } from "@/lib/utils/order-code";
 import { errorMessage } from "@/lib/utils/supabase-result";
 
 /**
@@ -52,11 +54,14 @@ export class ImportInputError extends Error {
  * pelo NOME técnico e os processos são criados pelo catálogo (o arquivo
  * não traz status de processo nem OP).
  *
- * Três fontes, o MESMO downstream: planilha da fábrica (.xlsx/.xls,
+ * Quatro fontes, o MESMO downstream: planilha da fábrica (.xlsx/.xls,
  * colunas técnicas), lista de peças e conjuntos de cliente (038, colunas
- * CONJUNTO/PEÇA/...) e PDF da A1 (.pdf, seção "COMPOSIÇÃO DOS
- * CONJUNTOS"). Todas produzem `BuiltOf` — prévia, diffs, decisões,
- * plano e RPC não mudam conforme a origem.
+ * CONJUNTO/PEÇA/...), lista de peças do projeto (GT/MD, CÓDIGO DA
+ * PEÇA/... — arquivos TUCUMANN) e PDF da A1 (.pdf, seção "COMPOSIÇÃO
+ * DOS CONJUNTOS"). Todas produzem `BuiltOf` — prévia, diffs, decisões,
+ * plano e RPC não mudam conforme a origem. As duas listas de peças não
+ * trazem código de OF: ele é gerado da entrega + sufixo do arquivo
+ * (`orderCodeFromDateAndFileKey`), em um único ponto (`order-code.ts`).
  */
 
 export interface AnalyzeOutput {
@@ -103,7 +108,7 @@ export function analyzeWorkbook(buffer: ArrayBuffer, fileName: string, fileSize:
 
   if (importable.length === 0) {
     throw new Error(
-      'O arquivo não contém nenhuma aba no formato reconhecido — planilha da fábrica (colunas técnicas "of_idOF" e "ps_idPos") ou lista de peças e conjuntos (colunas "CONJUNTO", "PEÇA" e "QTDE").',
+      'O arquivo não contém nenhuma aba no formato reconhecido — planilha da fábrica (colunas técnicas "of_idOF" e "ps_idPos"), lista de peças e conjuntos (colunas "CONJUNTO", "PEÇA" e "QTDE") ou lista de peças do projeto (colunas "GT/MD", "PEÇA" e "CÓDIGO DA PEÇA").',
     );
   }
 
@@ -199,21 +204,37 @@ export async function buildPreview(client: SupabaseServer, input: PreviewInput):
       const detection = workbook.headerBySheet[sheet.name];
       if (!detection?.detected || !detection.format) {
         throw new Error(
-          `A aba "${input.sheetName}" não tem o cabeçalho reconhecido (layout da fábrica ou lista de peças e conjuntos).`,
+          `A aba "${input.sheetName}" não tem o cabeçalho reconhecido (layout da fábrica, lista de peças e conjuntos ou lista de peças do projeto).`,
         );
       }
       assertSheetStructure(sheet.headers, sheet.rows.length, detection.format);
 
+      // Mesma chave do arquivo em prévia e execução: os formatos que
+      // GERAM o código da OF derivam o sufixo dela (ver order-code.ts).
+      const fileKey = fileKeyFromBytes(new Uint8Array(input.buffer));
       const built =
         detection.format === "lista-pecas"
-          ? buildPartsOfStructure(sheet, {
-              customerName: input.customerName,
-              deliveryDate: input.deliveryDate,
-            })
-          : buildOfStructure(sheet, {
-              customerName: input.customerName,
-              deliveryDate: input.deliveryDate,
-            });
+          ? buildPartsOfStructure(
+              sheet,
+              {
+                customerName: input.customerName,
+                deliveryDate: input.deliveryDate,
+              },
+              fileKey,
+            )
+          : detection.format === "lista-projeto"
+            ? buildProjectOfStructure(
+                sheet,
+                {
+                  customerName: input.customerName,
+                  deliveryDate: input.deliveryDate,
+                },
+                fileKey,
+              )
+            : buildOfStructure(sheet, {
+                customerName: input.customerName,
+                deliveryDate: input.deliveryDate,
+              });
       orders = built.orders;
       ignoredColumns = built.ignoredColumns;
     }
