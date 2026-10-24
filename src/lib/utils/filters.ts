@@ -1,8 +1,10 @@
-import { DELIVERY_FILTERS, DELIVERY_LABELS, PRODUCTION_PAGE_SIZE, PRODUCTION_PAGE_SIZE_OPTIONS, MAX_PAGE_SIZE, ORDERS_PAGE_SIZE, CHILD_ITEMS_PAGE_SIZE, type DeliveryFilter } from "@/lib/constants/pagination";
+import { DELIVERY_FILTERS, DELIVERY_LABELS, PRODUCTION_PAGE_SIZE, PRODUCTION_PAGE_SIZE_OPTIONS, MAX_PAGE_SIZE, ORDERS_PAGE_SIZE, CHILD_ITEMS_PAGE_SIZE, ROMANEIO_PAGE_SIZE, type DeliveryFilter } from "@/lib/constants/pagination";
 import { ORDER_STATUSES, ORDER_STATUS_LABELS, type OrderStatus } from "@/lib/constants/orders";
 import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, type ProcessStatus } from "@/lib/constants/production";
+import { ROMANEIO_STATUSES, type RomaneioStatus } from "@/lib/constants/romaneio";
 import type { ChildItemFilters, OrderFilters } from "@/lib/types/order";
 import type { ProductionFilters } from "@/lib/types/production";
+import type { RomaneioCandidateFilters, RomaneioFilters } from "@/lib/types/romaneio";
 import { formatDate, isValidISODate } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight, toNumber } from "@/lib/utils/formatting";
 
@@ -297,6 +299,84 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
     page,
     pageSize,
   };
+}
+
+/**
+ * Lê os filtros da listagem de romaneios de expedição a partir da URL.
+ * `q` busca genérica (nº do romaneio, OF/OS ou cliente); `saida*` filtra
+ * o período da data de saída (mesmas convenções das telas de entrega).
+ */
+export function parseRomaneioFilters(params: SearchParamsRecord): RomaneioFilters {
+  const search = firstValue(params.q).trim();
+  const statusRaw = firstValue(params.status).toUpperCase();
+  const status = (ROMANEIO_STATUSES as readonly string[]).includes(statusRaw)
+    ? (statusRaw as RomaneioStatus)
+    : "ALL";
+
+  const pageRaw = Number.parseInt(firstValue(params.pagina), 10);
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+
+  const pageSizeRaw = Number.parseInt(firstValue(params.porpagina), 10);
+  const pageSize = clampPageSize(pageSizeRaw, ROMANEIO_PAGE_SIZE);
+
+  return {
+    search,
+    status,
+    orderCode: textParam(params, "of"),
+    customer: textParam(params, "cliente"),
+    shipmentFrom: dateParam(params, "saidade"),
+    shipmentTo: dateParam(params, "saidaate"),
+    page,
+    pageSize,
+  };
+}
+
+/** Monta a query string da listagem de romaneios (defaults omitidos). */
+export function romaneioQueryString(
+  filters: RomaneioFilters,
+  overrides: Partial<RomaneioFilters> = {},
+): string {
+  const next = { ...filters, ...overrides };
+  return toSearchParams({
+    q: next.search || undefined,
+    status: next.status === "ALL" ? undefined : next.status,
+    of: next.orderCode || undefined,
+    cliente: next.customer || undefined,
+    saidade: next.shipmentFrom || undefined,
+    saidaate: next.shipmentTo || undefined,
+    pagina: next.page === 1 ? undefined : next.page,
+    porpagina: next.pageSize === ROMANEIO_PAGE_SIZE ? undefined : next.pageSize,
+  });
+}
+
+/** Lê os filtros do seletor de OFs em /romaneio/novo a partir da URL. */
+export function parseRomaneioCandidateFilters(
+  params: SearchParamsRecord,
+): RomaneioCandidateFilters {
+  const pageRaw = Number.parseInt(firstValue(params.pagina), 10);
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+
+  const pageSizeRaw = Number.parseInt(firstValue(params.porpagina), 10);
+  const pageSize = clampPageSize(pageSizeRaw, ROMANEIO_PAGE_SIZE);
+
+  return {
+    search: firstValue(params.q).trim().slice(0, MAX_COLUMN_FILTER_LENGTH),
+    page,
+    pageSize,
+  };
+}
+
+/** Monta a query string do seletor de OFs (defaults omitidos). */
+export function romaneioCandidateQueryString(
+  filters: RomaneioCandidateFilters,
+  overrides: Partial<RomaneioCandidateFilters> = {},
+): string {
+  const next = { ...filters, ...overrides };
+  return toSearchParams({
+    q: next.search || undefined,
+    pagina: next.page === 1 ? undefined : next.page,
+    porpagina: next.pageSize === ROMANEIO_PAGE_SIZE ? undefined : next.pageSize,
+  });
 }
 
 type PartialParams = Record<string, string | number | undefined>;

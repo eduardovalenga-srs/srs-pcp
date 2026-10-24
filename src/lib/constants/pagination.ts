@@ -13,6 +13,11 @@ export const ORDERS_PAGE_SIZE = 200;
 /** Opções do seletor "Por página" da listagem de pedidos. */
 export const ORDERS_PAGE_SIZE_OPTIONS = [200, 500, 1000] as const;
 
+/** Tela de Romaneio de Expedição (lista de romaneios e seletor de OFs). */
+export const ROMANEIO_PAGE_SIZE = 200;
+/** Opções do seletor "Por página" do romaneio (mesmas das demais listas). */
+export const ROMANEIO_PAGE_SIZE_OPTIONS = [200, 500, 1000] as const;
+
 export const IMPORT_HISTORY_PAGE_SIZE = 20;
 /** Tela Fábrica 1 (itens filhos + materiais). */
 export const CHILD_ITEMS_PAGE_SIZE = 200;

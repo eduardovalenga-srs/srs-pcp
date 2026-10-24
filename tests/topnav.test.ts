@@ -59,6 +59,9 @@ describe("TopNav (menu no topo)", () => {
     // Fábrica 2 entra logo após a Fábrica 1 (ADMIN/GESTOR).
     expect(markup).toContain('href="/fabrica-2"');
     expect(markup).toContain('aria-label="Fábrica 2"');
+    // Romaneio (expedição) fica depois da produção e antes do Dashboard.
+    expect(markup).toContain('href="/romaneio"');
+    expect(markup).toContain('aria-label="Romaneio"');
     expect(markup).toContain('href="/dashboard"');
     // Importação saiu da barra — o acesso é pelo botão da gestão de entregas.
     expect(markup).not.toContain('href="/importacao"');
@@ -101,6 +104,8 @@ describe("TopNav (menu no topo)", () => {
     // Gestão de Entregas saiu da barra dele (capability menu.gestao).
     expect(markup).not.toContain('href="/gestao-entregas"');
     expect(markup).not.toContain('href="/fabrica-2"');
+    // Romaneio: consulta pela URL, mas o menu é de quem monta a carga.
+    expect(markup).not.toContain('href="/romaneio"');
     expect(markup).not.toContain('href="/dashboard"');
     expect(markup).not.toContain('href="/importacao"');
     expect(markup).not.toContain('href="/processos"');
@@ -115,6 +120,8 @@ describe("TopNav (menu no topo)", () => {
     expect(markup).toContain('href="/gestao-entregas"');
     // Fábrica 1 é leitura de materiais — disponível para todos os perfis.
     expect(markup).toContain('href="/fabrica-1"');
+    // Romaneio é leitura para VISUALIZADOR (montagem é de ADMIN/GESTOR).
+    expect(markup).toContain('href="/romaneio"');
     // Fábrica 2 é restrita a ADMIN/GESTOR.
     expect(markup).not.toContain('href="/fabrica-2"');
     expect(markup).not.toContain('href="/dashboard"');
@@ -131,6 +138,7 @@ describe("TopNav (menu no topo)", () => {
     expect(markup).toContain('href="/gestao-entregas"');
     expect(markup).toContain('href="/fabrica-1"');
     expect(markup).toContain('href="/fabrica-2"');
+    expect(markup).toContain('href="/romaneio"');
     expect(markup).toContain('href="/dashboard"');
     expect(markup).not.toContain('href="/importacao"');
     expect(markup).toContain('href="/processos"');

@@ -75,6 +75,7 @@ cp .env.example .env.local
 #    supabase/migrations/039_kit_aggregation.sql
 #    supabase/migrations/040_import_material_prefix_serra_laser.sql
 #    supabase/migrations/041_filtered_overdue_expedition_totals.sql
+#    supabase/migrations/042_romaneio.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -125,13 +126,16 @@ src/
       pedidos/              CRUD de pedidos
         [id]/               detalhes da OF (itens pai + filhos aninhados, processos e MP)
         [id]/editar/        formulário de edição
+      romaneio/             romaneio de expedição (SIMULACAO → EMITIDO → CANCELADO)
+        novo/               seletor de OFs candidatas (uma simulação aberta por OF)
+        [id]/               detalhe: itens da carga, devolução de MP, conferência, NFs
       dashboard/            KPIs, janelas de entrega, carga por processo
       importacao/           assistente de importação (Excel, listas de peças ou PDF da A1)
       processos/            catálogo de processos (fluxo fabril)
       configuracoes/        usuários e permissões
     api/importacao/         análise / prévia / execução + modelo .xlsx (aceita .pdf)
-    api/export/             .xlsx da lista filtrada INTEIRA (4 rotas GET: gestão, F2, F1, pedidos)
-  components/               ui (shadcn) + producao/fabrica1/fabrica2/pedidos/dashboard/…
+    api/export/             .xlsx da lista filtrada INTEIRA (5 rotas GET: gestão, F2, F1, pedidos, romaneio — a de romaneio aceita ?id= para o documento único)
+  components/               ui (shadcn) + producao/fabrica1/fabrica2/pedidos/romaneio/dashboard/…
   lib/
     actions/                Server Actions (única porta de escrita)
     services/               regras de negócio (server-only)
@@ -144,7 +148,7 @@ src/
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..040 (ordem obrigatória)
+  migrations/               001..042 (ordem obrigatória)
   seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
@@ -597,13 +601,54 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
 - **Histórico**: toda mutação de produção gera linha em `production_events`;
   o histórico é somente inserção (nunca é apagado).
 
+## Romaneio de expedição (migração 042)
+
+- **O que é**: a tela `/romaneio` organiza a expedição **por OF** — monta a carga (itens +
+  quantidades), auxilia a emissão da NF (registro dos números, a nota sai no emissor
+  externo) e registra a **devolução de matéria-prima não utilizada**. Fluxo por romaneio:
+  `SIMULACAO → EMITIDO → CANCELADO`.
+- **Simulação livre, uma por OF**: em `/romaneio/novo` o seletor lista OFs não canceladas
+  com itens raiz e mostra a expedição já emitida; cada OF tem **no máximo UM rascunho
+  aberto** (índice único parcial `(order_id) WHERE status = 'SIMULACAO'`, migração 042) e
+  **múltiplos romaneios emitidos** (expedição parcial em cargas sucessivas). Em simulação
+  dá para montar a carga mesmo com itens não concluídos — é rascunho.
+- **Emissão** (RPC `emit_romaneio`, validada NO BANCO): exige (1) romaneio em simulação,
+  (2) OF não cancelada, (3) **aceite de conferência sinalizado na própria tela do romaneio**
+  (quem/quando/observação — painel dentro de `/romaneio/[id]`, sem processo novo no
+  catálogo), (4) ao menos um item incluído, (5) **EXP = CONCLUIDO em TODOS os itens raiz
+  aplicáveis da OF** (inclusive os fora da carga) e (6) **Σ (este + já emitidos) ≤
+  quantidade do item**. Emitido trava cabeçalho/itens/materiais — só os números de NF
+  continuam editáveis. Os gates aparecem como checklist na tela (`checkRomaneioEmission`,
+  espelho puro da RPC, em `lib/utils/romaneio.ts`).
+- **Devolução de MP**: saldo = **recebida do cliente − utilizada na produção**, por material
+  (descrição + unidade). A alocação do "previsto" a cada carga é **proporcional**
+  (`ratio = qtd nesta carga ÷ qtd total do item raiz`, materiais do raiz e de todos os
+  seus filhos × ratio — `allocateRomaneioMaterials`). Em simulação a lista mostra o merge
+  do alocado fresco com o já informado; ao emitir/cancelar o registro **congela** (só o
+  gravado). O rodapé soma a OF inteira (Σ de todos os romaneios não cancelados). A **NF de
+  devolução** só entra com a NF de saída e todas as linhas com recebida/utilizada preenchidas.
+- **Cancelamento**: bloqueado quando há **NF de saída registrada**; ao cancelar, as
+  quantidades voltam para a pendência de expedição da OF (o histórico é mantido).
+- **Escrita**: sempre pelas Server Actions de `lib/actions/romaneio.actions.ts` →
+  serviço → RPCs transacionais `save_romaneio` / `sign_romaneio_conference` /
+  `emit_romaneio` / `cancel_romaneio` (plpgsql `security invoker`, mesmas portas de
+  escrita do padrão `replace_item_materials`/`apply_of_import`); gravação direta de NF por
+  UPDATE no repositório. RLS ADMIN/GESTOR para escrita (OPERADOR só lê).
+- **Exportação**: `GET /api/export/romaneio` devolve a **lista filtrada inteira** (mesmas
+  colunas da tela) e, com `?id=<uuid>`, o **documento do romaneio** (cabeçalho da carga,
+  itens e devolução com o Σ da OF inteira) — botões em `/romaneio` e em `/romaneio/[id]`.
+- **Conhecidos/v1 aceitos**: reimportar a OF (cascade) apaga as linhas do romaneio;
+  emissão simultânea de dois usuários na mesma OF não tem trava além do índice único de
+  simulação; materiais congelam ao emitir (edição posterior exige cancelar/reemitir); não
+  há controle de estoque — é um documento de expedição, não inventário.
+
 ## Gestão de usuários
 
 - **Perfis** (4, inalterados): `ADMIN`, `GESTOR`, `OPERADOR`, `VISUALIZADOR` — o que cada
   um vê/edita está em `lib/auth/permissions.ts`; `users.manage` (criar, ativar/desativar,
   trocar perfil, gerar link) é exclusivo de `ADMIN`. **Menus por perfil** (capacidades
   `menu.*`): ADMIN vê tudo; GESTOR vê tudo **menos Configurações**; VISUALIZADOR vê
-  **Gestão de OF e Fábrica 1**; OPERADOR vê **apenas a Fábrica 1** (`menu.gestao`
+  **Gestão de OF, Fábrica 1 e Romaneio**; OPERADOR vê **apenas a Fábrica 1** (`menu.gestao`
   fica com ADMIN/GESTOR/VISUALIZADOR — o OPERADOR não vê o menu **nem entra por URL** na
   gestão, que segue guardada por `production.view`; a atualização de status dele acontece
   pela folha do processo em `/pedidos/[id]`, alcançável pelo link da OF na Fábrica 1).
@@ -613,6 +658,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   item de menu** — o acesso ao assistente `/importacao` é pelo botão "Importar Excel" do
   cabeçalho da gestão de OF (guardado por `import.access`). O menu do usuário (nome
   na barra) reúne perfil, alterar senha, configurações (só ADMIN) e sair.
+  **Romaneio** (`/romaneio`, capacidades `romaneio.view`/`romaneio.edit`/`menu.romaneio`):
+  ADMIN e GESTOR montam, conferem e emitem; VISUALIZADOR entra pelo menu em modo leitura;
+  OPERADOR só consulta pela URL (sem item de menu).
 - **Criação com senha temporária** (Configurações > Novo usuário): a conta nasce
   confirmada no Auth com senha temporária de 12 caracteres (sem ambíguos, gerada por
   CSPRNG), exibida **uma única vez** com botão de copiar — o ADMIN entrega fora do app.

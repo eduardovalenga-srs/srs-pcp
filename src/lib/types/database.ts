@@ -257,6 +257,51 @@ export type ProductionOrderRowRecord = {
   >;
 };
 
+export type RomaneioStatusValue = "SIMULACAO" | "EMITIDO" | "CANCELADO";
+
+export type RomaneioRow = {
+  id: string;
+  number: number;
+  order_id: string;
+  status: RomaneioStatusValue;
+  shipment_date: string | null;
+  carrier: string | null;
+  vehicle: string | null;
+  notes: string | null;
+  conference_accepted_at: string | null;
+  conference_accepted_by: string | null;
+  conference_notes: string | null;
+  emitted_at: string | null;
+  emitted_by: string | null;
+  nf_number: string | null;
+  return_nf_number: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+export type RomaneioItemRow = {
+  id: string;
+  romaneio_id: string;
+  order_item_id: string;
+  quantity: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RomaneioMaterialRow = {
+  id: string;
+  romaneio_id: string;
+  description: string;
+  unit: string;
+  quantity_planned: number;
+  quantity_received: number | null;
+  quantity_used: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -537,6 +582,112 @@ export type Database = {
           },
         ];
       };
+      romaneios: {
+        Row: RomaneioRow;
+        Insert: {
+          id?: string;
+          order_id: string;
+          status?: RomaneioStatusValue;
+          shipment_date?: string | null;
+          carrier?: string | null;
+          vehicle?: string | null;
+          notes?: string | null;
+          conference_accepted_at?: string | null;
+          conference_accepted_by?: string | null;
+          conference_notes?: string | null;
+          emitted_at?: string | null;
+          emitted_by?: string | null;
+          nf_number?: string | null;
+          return_nf_number?: string | null;
+          created_by?: string | null;
+          updated_by?: string | null;
+        };
+        Update: Partial<{
+          status: RomaneioStatusValue;
+          shipment_date: string | null;
+          carrier: string | null;
+          vehicle: string | null;
+          notes: string | null;
+          conference_accepted_at: string | null;
+          conference_accepted_by: string | null;
+          conference_notes: string | null;
+          emitted_at: string | null;
+          emitted_by: string | null;
+          nf_number: string | null;
+          return_nf_number: string | null;
+          updated_by: string | null;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "fk_romaneios_created_user";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "romaneios_order_id_fkey";
+            columns: ["order_id"];
+            isOneToOne: false;
+            referencedRelation: "orders";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      romaneio_items: {
+        Row: RomaneioItemRow;
+        Insert: {
+          id?: string;
+          romaneio_id: string;
+          order_item_id: string;
+          quantity: number;
+        };
+        Update: Partial<{ quantity: number }>;
+        Relationships: [
+          {
+            foreignKeyName: "romaneio_items_order_item_id_fkey";
+            columns: ["order_item_id"];
+            isOneToOne: false;
+            referencedRelation: "order_items";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "romaneio_items_romaneio_id_fkey";
+            columns: ["romaneio_id"];
+            isOneToOne: false;
+            referencedRelation: "romaneios";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      romaneio_materials: {
+        Row: RomaneioMaterialRow;
+        Insert: {
+          id?: string;
+          romaneio_id: string;
+          description: string;
+          unit?: string;
+          quantity_planned?: number;
+          quantity_received?: number | null;
+          quantity_used?: number | null;
+        };
+        Update: Partial<{
+          description: string;
+          unit: string;
+          quantity_planned: number;
+          quantity_received: number | null;
+          quantity_used: number | null;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "romaneio_materials_romaneio_id_fkey";
+            columns: ["romaneio_id"];
+            isOneToOne: false;
+            referencedRelation: "romaneios";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -656,6 +807,35 @@ export type Database = {
         // troca a lista de materiais de um sub-item em uma transação (011)
         Args: { p_item_id: string; p_materials: Json };
         Returns: number;
+      };
+      save_romaneio: {
+        // cria/atualiza romaneio em SIMULAÇÃO (cabeçalho+itens+materiais numa transação — 042)
+        Args: {
+          p_romaneio_id: string | null;
+          p_order_id: string;
+          p_shipment_date: string | null;
+          p_carrier: string | null;
+          p_vehicle: string | null;
+          p_notes: string | null;
+          p_items: Json;
+          p_materials: Json;
+        };
+        Returns: { id: string; number: number };
+      };
+      sign_romaneio_conference: {
+        // sinaliza o aceite da conferência (quem/quando/obs) — 042
+        Args: { p_romaneio_id: string; p_notes: string | null };
+        Returns: undefined;
+      };
+      emit_romaneio: {
+        // valida os gates de emissão e trava o romaneio (EMITIDO) — 042
+        Args: { p_romaneio_id: string };
+        Returns: undefined;
+      };
+      cancel_romaneio: {
+        // cancela (bloqueia com NF de saída registrada) — 042
+        Args: { p_romaneio_id: string };
+        Returns: undefined;
       };
       refresh_order_statuses: {
         // grava o status derivado do item e re-deriva o status da OF (013)

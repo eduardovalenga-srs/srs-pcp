@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Truck,
   Warehouse,
   Workflow,
   X,
@@ -54,6 +55,8 @@ const NAV_ITEMS: NavItem[] = [
   },
   { href: "/fabrica-2", label: "Fábrica 2", icon: Warehouse, capability: "menu.fabrica2" },
   { href: "/fabrica-1", label: "Fábrica 1", icon: Boxes, capability: "menu.fabrica1" },
+  // Expedição: montagem do romaneio por OF (simulação → emissão → NF).
+  { href: "/romaneio", label: "Romaneio", icon: Truck, capability: "menu.romaneio" },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, capability: "menu.dashboard" },
   { href: "/processos", label: "Processos", icon: Workflow, capability: "menu.processes" },
 ];

@@ -16,13 +16,16 @@ export type Capability =
   | "processes.manage"
   | "settings.manage"
   | "users.manage"
+  | "romaneio.view"
+  | "romaneio.edit"
   | "menu.gestao"
   | "menu.dashboard"
   | "menu.processes"
   | "menu.fabrica1"
   | "fabrica2.view"
   | "menu.fabrica2"
-  | "menu.settings";
+  | "menu.settings"
+  | "menu.romaneio";
 
 const CAPABILITIES: Record<Role, readonly Capability[]> = {
   ADMIN: [
@@ -40,6 +43,8 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "processes.manage",
     "settings.manage",
     "users.manage",
+    "romaneio.view",
+    "romaneio.edit",
     "menu.gestao",
     "menu.dashboard",
     "menu.processes",
@@ -47,6 +52,7 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "fabrica2.view",
     "menu.fabrica2",
     "menu.settings",
+    "menu.romaneio",
   ],
   GESTOR: [
     "production.view",
@@ -66,11 +72,22 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "menu.fabrica1",
     "fabrica2.view",
     "menu.fabrica2",
+    "romaneio.view",
+    "romaneio.edit",
+    "menu.romaneio",
   ],
   // OPERADOR não vê a gestão de entregas (menu nem página): o trabalho dele
   // entra pela Fábrica 1 → link da OF → folha do processo em /pedidos/[id].
-  OPERADOR: ["production.update_status", "orders.view", "menu.fabrica1"],
-  VISUALIZADOR: ["production.view", "orders.view", "menu.gestao", "menu.fabrica1"],
+  // Romaneio: view sem menu (acesso pela URL, ex.: consulta na expedição).
+  OPERADOR: ["production.update_status", "orders.view", "menu.fabrica1", "romaneio.view"],
+  VISUALIZADOR: [
+    "production.view",
+    "orders.view",
+    "menu.gestao",
+    "menu.fabrica1",
+    "romaneio.view",
+    "menu.romaneio",
+  ],
 };
 
 export function can(role: Role | null | undefined, capability: Capability): boolean {

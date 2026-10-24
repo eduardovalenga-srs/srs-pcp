@@ -18,6 +18,8 @@ const ALL_CAPABILITIES: Capability[] = [
   "processes.manage",
   "settings.manage",
   "users.manage",
+  "romaneio.view",
+  "romaneio.edit",
   "menu.gestao",
   "menu.dashboard",
   "menu.processes",
@@ -25,6 +27,7 @@ const ALL_CAPABILITIES: Capability[] = [
   "fabrica2.view",
   "menu.fabrica2",
   "menu.settings",
+  "menu.romaneio",
 ];
 
 describe("página inicial por papel (homePathFor)", () => {
@@ -70,6 +73,9 @@ describe("matriz de permissões (item 40)", () => {
       "menu.fabrica1",
       "fabrica2.view",
       "menu.fabrica2",
+      "romaneio.view",
+      "romaneio.edit",
+      "menu.romaneio",
     ];
     const denied: Capability[] = [
       "processes.manage",
@@ -83,7 +89,13 @@ describe("matriz de permissões (item 40)", () => {
   });
 
   it("OPERADOR atualiza status pela Fábrica 1, sem gestão de entregas nem edições", () => {
-    const allowed: Capability[] = ["production.update_status", "orders.view", "menu.fabrica1"];
+    const allowed: Capability[] = [
+      "production.update_status",
+      "orders.view",
+      "menu.fabrica1",
+      // Romaneio: consulta pela URL (sem menu) — a montagem é de ADMIN/GESTOR.
+      "romaneio.view",
+    ];
     const denied: Capability[] = [
       "production.view",
       "production.edit",
@@ -100,6 +112,8 @@ describe("matriz de permissões (item 40)", () => {
       "menu.gestao",
       "fabrica2.view",
       "menu.fabrica2",
+      "romaneio.edit",
+      "menu.romaneio",
     ];
 
     for (const capability of allowed) expect(can("OPERADOR", capability), capability).toBe(true);
@@ -112,6 +126,8 @@ describe("matriz de permissões (item 40)", () => {
       "orders.view",
       "menu.gestao",
       "menu.fabrica1",
+      "romaneio.view",
+      "menu.romaneio",
     ];
     const denied: Capability[] = [
       "production.edit",
@@ -128,6 +144,7 @@ describe("matriz de permissões (item 40)", () => {
       "processes.view",
       "fabrica2.view",
       "menu.fabrica2",
+      "romaneio.edit",
     ];
 
     for (const capability of allowed) expect(can("VISUALIZADOR", capability), capability).toBe(true);
@@ -168,6 +185,17 @@ describe("matriz de permissões (item 40)", () => {
     expect(can("GESTOR", "fabrica2.view")).toBe(true);
     expect(can("OPERADOR", "fabrica2.view")).toBe(false);
     expect(can("VISUALIZADOR", "fabrica2.view")).toBe(false);
+
+    // Romaneio (expedição): ADMIN/GESTOR montam e emitem; VISUALIZADOR
+    // consulta pelo menu; OPERADOR só pela URL (view sem menu).
+    expect(can("ADMIN", "menu.romaneio")).toBe(true);
+    expect(can("GESTOR", "menu.romaneio")).toBe(true);
+    expect(can("VISUALIZADOR", "menu.romaneio")).toBe(true);
+    expect(can("OPERADOR", "menu.romaneio")).toBe(false);
+    expect(can("ADMIN", "romaneio.edit")).toBe(true);
+    expect(can("GESTOR", "romaneio.edit")).toBe(true);
+    expect(can("VISUALIZADOR", "romaneio.edit")).toBe(false);
+    expect(can("OPERADOR", "romaneio.edit")).toBe(false);
   });
 
   it("perfil desconhecido/nulo não tem acesso a nada", () => {

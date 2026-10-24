@@ -29,6 +29,9 @@ const EXPECTED_TITLES: Record<string, string> = {
   "(dashboard)/pedidos/[id]/editar": "Editar pedido",
   "(dashboard)/pedidos/novo": "Novo pedido",
   "(dashboard)/processos": "Processos",
+  "(dashboard)/romaneio": "Romaneio",
+  "(dashboard)/romaneio/[id]": "Romaneio",
+  "(dashboard)/romaneio/novo": "Novo romaneio",
 };
 
 const APP_DIR = join(process.cwd(), "src", "app");

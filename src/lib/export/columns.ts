@@ -1,13 +1,16 @@
 import { ORDER_STATUS_LABELS } from "@/lib/constants/orders";
+import { ROMANEIO_STATUS_LABELS } from "@/lib/constants/romaneio";
 import { F1_PROCESS_CODES, FABRICA1_EDITABLE_PROCESS_CODES } from "@/lib/constants/processes";
-import { PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
+import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
 import type { ChildItemGroup, OrderSummary } from "@/lib/types/order";
+import type { RomaneioSummary, RomaneioView } from "@/lib/types/romaneio";
 import type {
   OrderProcessCell,
   ProcessDefinition,
   ProductionOrderRow,
   ProductionRow,
 } from "@/lib/types/production";
+import { formatDateTime } from "@/lib/utils/dates";
 import { formatQuantity } from "@/lib/utils/formatting";
 import { fabrica1ProcessColumns } from "@/lib/utils/production";
 import { childItemProposalDate, itemProposalDate, orderProposalDate } from "@/lib/utils/proposal-date";
@@ -226,4 +229,150 @@ export function pedidosSheet(
     order.itemCount,
   ]);
   return { headers, rows: body, dateColumns: [2, 3] };
+}
+
+/**
+ * Romaneio — listagem (RomaneioList): Nº, OF/OS, Cliente, Situação,
+ * Saída, Itens, Qtd, Peso, NF saída, NF devolução e o marcador de saldo
+ * a devolver (mesmas colunas da tela, mesma ordem do servidor).
+ */
+export function romaneiosListSheet(
+  romaneios: readonly RomaneioSummary[],
+): ExportSheet {
+  const headers = [
+    "Nº",
+    "OF/OS",
+    "Cliente",
+    "Situação",
+    "Saída",
+    "Itens",
+    "Qtd",
+    "Peso (kg)",
+    "NF saída",
+    "NF devolução",
+    "Saldo a devolver",
+  ];
+  const body: ExportCell[][] = romaneios.map((romaneio) => [
+    romaneio.number,
+    text(romaneio.orderCode),
+    text(romaneio.customerName),
+    ROMANEIO_STATUS_LABELS[romaneio.status],
+    dateCell(romaneio.shipmentDate),
+    romaneio.itemCount,
+    number(romaneio.quantityTotal),
+    number(romaneio.weightTotal),
+    text(romaneio.nfNumber),
+    text(romaneio.returnNfNumber),
+    romaneio.pendingReturn && !romaneio.returnNfNumber ? "Sim" : "Não",
+  ]);
+  return { headers, rows: body, dateColumns: [4] };
+}
+
+/**
+ * Romaneio — documento de UM romaneio (/romaneio/[id]): cabeçalho da
+ * carga, bloco de itens da carga e bloco de devolução de matéria-prima
+ * com o Σ da OF inteira. Os blocos entram como linhas de seção na mesma
+ * aba (uma folha por romaneio, pronta para anexar à NF).
+ */
+export function romaneioDocumentSheet(view: RomaneioView): ExportSheet {
+  const headers = [
+    "Romaneio",
+    "Situação",
+    "OF/OS",
+    "Cliente",
+    "Saída",
+    "Transportadora",
+    "Veículo",
+    "NF saída",
+    "NF devolução",
+    "Conferência",
+    "Emitido em",
+  ];
+
+  const rows: ExportCell[][] = [];
+  rows.push([
+    view.number,
+    ROMANEIO_STATUS_LABELS[view.status],
+    `${view.orderType} ${view.orderCode}`,
+    text(view.customerName),
+    dateCell(view.shipmentDate),
+    text(view.carrier),
+    text(view.vehicle),
+    text(view.nfNumber),
+    text(view.returnNfNumber),
+    view.conferenceAcceptedAt
+      ? formatDateTime(view.conferenceAcceptedAt) +
+        (view.conferenceAcceptedByName ? ` (${view.conferenceAcceptedByName})` : "")
+      : "—",
+    view.emittedAt ? formatDateTime(view.emittedAt) : "—",
+  ]);
+
+  // ---- Blocos: itens da carga e devolução de matéria-prima ----
+  rows.push([]);
+  rows.push(["ITENS DA CARGA"]);
+  rows.push([
+    "Item pai",
+    "Família",
+    "Descrição",
+    "EXP",
+    "Qtd OF",
+    "Já expedida",
+    "Nesta carga",
+    "Peso un. (kg)",
+    "Peso carga (kg)",
+  ]);
+  for (const item of view.items) {
+    rows.push([
+      text(item.parentItem),
+      text(item.family),
+      text(item.description),
+      item.expStatus ? PROCESS_STATUS_LABELS[item.expStatus] : "—",
+      number(item.itemQuantity),
+      number(item.shippedQuantity),
+      number(item.quantity),
+      number(item.unitWeightKg),
+      number(item.unitWeightKg === null ? null : item.unitWeightKg * item.quantity),
+    ]);
+  }
+
+  rows.push([]);
+  rows.push(["DEVOLUÇÃO DE MATÉRIA-PRIMA"]);
+  rows.push([
+    "Material",
+    "Unidade",
+    "Previsto (carga)",
+    "Recebida",
+    "Utilizada",
+    "Saldo a devolver",
+  ]);
+  for (const material of view.materials) {
+    rows.push([
+      text(material.description),
+      text(material.unit),
+      number(material.quantityPlanned),
+      number(material.quantityReceived),
+      number(material.quantityUsed),
+      number(material.quantityReturned),
+    ]);
+  }
+
+  rows.push([]);
+  rows.push([
+    "OF INTEIRA (TODOS OS ROMANEIOS)",
+    "",
+    "",
+    "Recebida",
+    "Utilizada",
+    "Saldo a devolver",
+  ]);
+  rows.push([
+    null,
+    null,
+    null,
+    number(view.ofMaterialTotals.received),
+    number(view.ofMaterialTotals.used),
+    number(view.ofMaterialTotals.returned),
+  ]);
+
+  return { headers, rows, dateColumns: [4] };
 }
