@@ -276,8 +276,8 @@ export interface UpdateProcessBatchResult {
  * processo na OF inteira.
  *
  * Regras:
- *  - o escopo espelha a coluna exibida: cadeia F1 (LASER…FICEP) grava nos
- *    itens FILHOS; MP e os demais (KIT, PRÉ-MTG…EXP) grava nos RAIZ;
+ *  - o escopo espelha a coluna exibida: cadeia F1 (LASER…FICEP) e KIT (039)
+ *    grava nos itens FILHOS; MP e os demais (PRÉ-MTG…EXP) grava nos RAIZ;
  *  - `orderItemIds` (033) restringe o escopo a itens explícitos — é o que
  *    a célula AGRUPADA da Fábrica 1 usa (linhas repetidas do mesmo
  *    componente viram um lote naqueles itens, nunca na OF inteira);

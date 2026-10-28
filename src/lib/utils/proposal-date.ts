@@ -1,4 +1,4 @@
-import { F1_PROCESS_CODES, KIT_PROCESS_CODE, MP_PROCESS_CODE } from "@/lib/constants/processes";
+import { CHILD_SCOPED_PROCESS_CODES, MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { ProcessStatus } from "@/lib/constants/production";
 import type { ChildItemGroup } from "@/lib/types/order";
 import type { OrderProcessCell, ProcessCell, ProcessDefinition } from "@/lib/types/production";
@@ -122,7 +122,7 @@ export interface OrderProcessRow {
  * filtro do `scoped_rows` do banco, para a DP de Pedidos bater com a da
  * gestão de entregas.
  */
-const CHILD_SCOPED_CODES: ReadonlySet<string> = new Set<string>([...F1_PROCESS_CODES, KIT_PROCESS_CODE]);
+const CHILD_SCOPED_CODES: ReadonlySet<string> = new Set<string>(CHILD_SCOPED_PROCESS_CODES);
 
 /**
  * DP das OFs de PEDIDOS, agregando as células crus por pedido — escopo

@@ -87,6 +87,20 @@ export const KIT_PROCESS_CODE: ProcessCode = "KIT";
 export const MP_PROCESS_CODE = "MP";
 
 /**
+ * Processos rastreados nos ITENS FILHOS — a cadeia da Fábrica 1 (LASER…FICEP)
+ * e o KIT (039), que encerra a cadeia do filho.
+ *
+ * Espelha o `scoped_rows` da RPC `get_production_rows_by_order` (migration
+ * 039): a leitura da gestão de OF agrega esses códigos dos filhos, então a
+ * edição em LOTE precisa gravar no mesmo escopo — nos filhos. Os demais
+ * processos (MP, PRÉ-MTG…EXP) vêm dos itens RAIZ.
+ */
+export const CHILD_SCOPED_PROCESS_CODES: readonly string[] = [
+  ...F1_PROCESS_CODES,
+  KIT_PROCESS_CODE,
+];
+
+/**
  * Colunas de processos da tela Fábrica 1: a cadeia da Fábrica 1 — MP primeiro,
  * depois as etapas de sub-item (LASER…FICEP) e o KIT, que encerra a cadeia.
  * O que vem depois do KIT (PRÉ-MTG, SOLDA, ACAB, QUALITY, EXP) acontece no

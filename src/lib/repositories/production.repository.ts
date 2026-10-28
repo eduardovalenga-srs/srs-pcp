@@ -1,5 +1,5 @@
 import type { ProcessStatus } from "@/lib/constants/production";
-import { F1_PROCESS_CODES } from "@/lib/constants/processes";
+import { CHILD_SCOPED_PROCESS_CODES } from "@/lib/constants/processes";
 import type { ProductionOrderRowRecord, ProductionRowRecord, ProcessStatusValue } from "@/lib/types/database";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type {
@@ -232,9 +232,10 @@ export interface OrderProcessTarget {
  * Registros de UM processo em todos os itens de uma OF — o alvo da edição
  * em lote da gestão de entregas (025).
  *
- * O escopo espelha a coluna exibida: a cadeia da Fábrica 1 (LASER…FICEP)
- * é rastreada nos ITENS FILHOS (é lá que a Fábrica 1 grava); MP e os
- * demais processos (KIT, PRÉ-MTG…EXPEDIÇÃO) vêm dos itens RAIZ.
+ * O escopo espelha a coluna exibida: a cadeia da Fábrica 1 (LASER…FICEP) e
+ * o KIT (039) são rastreados nos ITENS FILHOS (é lá que a Fábrica 1 grava e
+ * é de onde a gestão de OF lê); MP e os demais processos (PRÉ-MTG…EXPEDIÇÃO)
+ * vêm dos itens RAIZ.
  */
 export async function getOrderProcessTargets(
   client: SupabaseServer,
@@ -265,7 +266,7 @@ export async function getOrderProcessTargets(
       .eq("order_id", orderId);
     assertOk(itemsError, "Não foi possível carregar os itens da OF");
 
-    const isChildScope = (F1_PROCESS_CODES as readonly string[]).includes(processCode);
+    const isChildScope = CHILD_SCOPED_PROCESS_CODES.includes(processCode);
     itemIds = (items ?? [])
       .filter((item) =>
         isChildScope ? item.parent_order_item_id !== null : item.parent_order_item_id === null,
