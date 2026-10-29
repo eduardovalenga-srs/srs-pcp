@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { Fabrica1Summary } from "@/components/fabrica1/Fabrica1Summary";
+import { parseChildItemFilters } from "@/lib/utils/filters";
 
 /** Fatia do HTML entre dois rótulos de card (os cards saem na ordem do array). */
 function cardSection(html: string, label: string, endLabel?: string): string {
@@ -22,6 +23,8 @@ describe("Fabrica1Summary — card Atrasados pela regra do KIT", () => {
       kitOverdue: { records: 3, qty: 12, weight: 7.5 },
       // Card KIT continua com o KPI global de item raiz.
       expedition: { count: 1, qty: 2, weight: 1 },
+      // Cards clicáveis: os filtros ativos da tela alimentam os links.
+      filters: parseChildItemFilters({}),
     }),
   );
 
@@ -44,5 +47,9 @@ describe("Fabrica1Summary — card Atrasados pela regra do KIT", () => {
     expect(eventos).toContain(">40<");
     expect(eventos).toContain(">400<");
     expect(eventos).toContain("900 kg");
+  });
+
+  it("o card KIT aplica o filtro de expedição concluída", () => {
+    expect(html).toContain('href="/fabrica-1?processo=EXP&amp;situacao=CONCLUIDO"');
   });
 });
