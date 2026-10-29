@@ -113,6 +113,14 @@ export interface ChildItemFilters {
   /** Situação do processo (combinável com o código ou sozinha). */
   processStatus: ProcessStatus | "ALL";
   /**
+   * Card "Atrasados": mantém só os grupos com o KIT vencido (início previsto
+   * da coluna KIT anterior a hoje e KIT ainda não concluído) — a mesma regra
+   * dos números do card. A janela do KIT é calculada em memória (dias úteis +
+   * status agregados do grupo), então este recorte é aplicado no serviço,
+   * sobre o conjunto já filtrado pelas demais colunas.
+   */
+  overdue: boolean;
+  /**
    * 038: Seq. do grupo por IGUALDADE (menor seq dos membros = N) — o
    * número é exclusivo por OF (trigger da 038).
    */

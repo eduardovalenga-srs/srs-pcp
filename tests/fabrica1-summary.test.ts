@@ -52,4 +52,25 @@ describe("Fabrica1Summary — card Atrasados pela regra do KIT", () => {
   it("o card KIT aplica o filtro de expedição concluída", () => {
     expect(html).toContain('href="/fabrica-1?processo=EXP&amp;situacao=CONCLUIDO"');
   });
+
+  it("o card Atrasados aplica o recorte do KIT vencido", () => {
+    expect(html).toContain('href="/fabrica-1?atrasados=1"');
+  });
+
+  it("marca o card Atrasados como ativo quando o recorte já está ligado", () => {
+    const ativo = renderToStaticMarkup(
+      createElement(Fabrica1Summary, {
+        total: 3,
+        qtyTotal: 12,
+        weightTotal: 7.5,
+        kitOverdue: { records: 3, qty: 12, weight: 7.5 },
+        expedition: { count: 1, qty: 2, weight: 1 },
+        filters: parseChildItemFilters({ atrasados: "1" }),
+      }),
+    );
+
+    const atrasados = cardSection(ativo, "Atrasados", "KIT");
+    expect(atrasados).toContain("aria-current");
+    expect(atrasados).toContain('href="/fabrica-1?atrasados=1"');
+  });
 });

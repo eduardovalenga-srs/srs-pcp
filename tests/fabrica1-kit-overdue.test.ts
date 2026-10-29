@@ -5,6 +5,7 @@ import type { ChildItemGroup, ChildItemGroupMember, ChildItemProcess } from "@/l
 import {
   buildChildItemGroup,
   isChildItemKitOverdue,
+  kitOverdueGroups,
   kitWindowForGroup,
   summarizeKitOverdue,
 } from "@/lib/utils/child-item-groups";
@@ -159,5 +160,22 @@ describe("summarizeKitOverdue — os três números do card", () => {
 
   it("lista vazia devolve zeros", () => {
     expect(summarizeKitOverdue([], CATALOG, TODAY)).toEqual({ records: 0, qty: 0, weight: 0 });
+  });
+});
+
+describe("kitOverdueGroups — recorte aplicado ao clicar no card", () => {
+  it("mantém só os grupos com o KIT vencido, na ordem original", () => {
+    const futuro = group({ deliveryDate: "2026-11-20" }); // KIT ainda no prazo
+    const atrasado = group({ quantity: 4 });
+    const concluido = group({ processes: [process(KIT_PROCESS_CODE, "CONCLUIDO")] });
+
+    expect(kitOverdueGroups([futuro, atrasado, concluido], CATALOG, TODAY)).toEqual([atrasado]);
+  });
+
+  it("a lista filtrada bate com os números do card", () => {
+    const items = [group({ quantity: 4, unitWeightKg: 1.5 }), group({ deliveryDate: "2026-11-20" })];
+    const groups = kitOverdueGroups(items, CATALOG, TODAY);
+
+    expect(groups).toHaveLength(summarizeKitOverdue(items, CATALOG, TODAY).records);
   });
 });

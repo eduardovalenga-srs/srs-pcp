@@ -247,6 +247,19 @@ export interface KitOverdueTotals {
 }
 
 /**
+ * Recorte do card "Atrasados" (regra do KIT): os grupos com o início previsto
+ * da coluna KIT anterior à data de referência, na ordem em que vieram.
+ * É o filtro que o clique no card aplica à lista da Fábrica 1.
+ */
+export function kitOverdueGroups(
+  items: readonly ChildItemGroup[],
+  catalog: readonly KitCatalogProcess[],
+  today: string,
+): ChildItemGroup[] {
+  return items.filter((item) => isChildItemKitOverdue(item, catalog, today));
+}
+
+/**
  * Totais do card "Atrasados" (regra do KIT) para um CONJUNTO de linhas da Fábrica 1:
  * soma quantidade e peso total dos grupos com o início do KIT vencido.
  * Contagem em GRUPOS (linhas), como o card "Eventos"; grupo sem peso entra
@@ -258,8 +271,7 @@ export function summarizeKitOverdue(
   today: string,
 ): KitOverdueTotals {
   const totals: KitOverdueTotals = { records: 0, qty: 0, weight: 0 };
-  for (const item of items) {
-    if (!isChildItemKitOverdue(item, catalog, today)) continue;
+  for (const item of kitOverdueGroups(items, catalog, today)) {
     totals.records += 1;
     totals.qty += item.quantity;
     totals.weight += item.weightTotal ?? 0;

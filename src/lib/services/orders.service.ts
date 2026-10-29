@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseServer } from "@/lib/supabase/types";
-import type { ChildItemFilters, ChildItemGroupsResult, OrderFilters, OrderListResult, OrderDetails, OrderItemPayload } from "@/lib/types/order";
+import type { ChildItemFilters, ChildItemGroupsResult, ChildItemGroup, OrderFilters, OrderListResult, OrderDetails, OrderItemPayload } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
 import type { Json } from "@/lib/types/database";
 import type { ProcessStatus } from "@/lib/constants/production";
@@ -17,7 +17,7 @@ import {
 import { replaceItemMaterials } from "@/lib/repositories/materials.repository";
 import { getOrderItemWithProcesses, listChildItemGroups } from "@/lib/repositories/order-items.repository";
 import { collectAllPages, EXPORT_PAGE_SIZE } from "@/lib/utils/collect-pages";
-import { summarizeKitOverdue, type KitOverdueTotals } from "@/lib/utils/child-item-groups";
+import { kitOverdueGroups, type KitOverdueTotals } from "@/lib/utils/child-item-groups";
 import { applyPlan } from "@/lib/repositories/import.repository";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { orderWithItemsSchema, type OrderWithItemsOutput } from "@/lib/validators/order-item.schema";
@@ -82,22 +82,58 @@ export interface ChildItemPage extends ChildItemGroupsResult {
   kitOverdue: KitOverdueTotals;
 }
 
-/** Card "Atrasados" (regra do KIT): varre o conjunto filtrado inteiro e soma os grupos com o KIT vencido. */
-async function listKitOverdueTotals(
+/**
+ * Varre o conjunto filtrado inteiro e devolve os grupos com o KIT vencido —
+ * mesma varredura da exportação (.xlsx): página de 1000 grupos por chamada,
+ * filtros idênticos aos da lista, para os cards baterem com a tela.
+ */
+async function listKitOverdueGroups(
   client: SupabaseServer,
   filters: ChildItemFilters,
   processId: string | null,
   processes: readonly ProcessDefinition[],
   today: string,
-): Promise<KitOverdueTotals> {
-  // Mesma varredura da exportação (.xlsx): página de 1000 grupos por chamada,
-  // filtros idênticos aos da lista — o card bate com o que a tela exibe.
+): Promise<ChildItemGroup[]> {
   const items = await collectAllPages((page) =>
     listChildItemGroups(client, { ...filters, page, pageSize: EXPORT_PAGE_SIZE }, processId).then(
       (result) => ({ rows: result.items, total: result.total }),
     ),
   );
-  return summarizeKitOverdue(items, processes, today);
+  return kitOverdueGroups(items, processes, today);
+}
+
+/** Os três números do card "Atrasados" para um conjunto de grupos já vencidos. */
+function kitOverdueTotalsOf(groups: readonly ChildItemGroup[]): KitOverdueTotals {
+  return groups.reduce<KitOverdueTotals>(
+    (totals, group) => {
+      totals.records += 1;
+      totals.qty += group.quantity;
+      totals.weight += group.weightTotal ?? 0;
+      return totals;
+    },
+    { records: 0, qty: 0, weight: 0 },
+  );
+}
+
+/**
+ * Página em memória de um conjunto JÁ recortado de grupos (filtro do card
+ * "Atrasados"): corta a página, soma qtd./peso e alimenta os cards com o
+ * mesmo conjunto que a lista exibe — "Atrasados" passa a ser o próprio
+ * recorte e "Eventos" mostra o total filtrado.
+ */
+function sliceChildItemGroups(
+  groups: readonly ChildItemGroup[],
+  filters: ChildItemFilters,
+): ChildItemGroupsResult & { kitOverdue: KitOverdueTotals } {
+  const totals = kitOverdueTotalsOf(groups);
+  const from = (filters.page - 1) * filters.pageSize;
+  return {
+    items: groups.slice(from, from + filters.pageSize),
+    total: groups.length,
+    qtyTotal: totals.qty,
+    weightTotal: totals.weight,
+    kitOverdue: totals,
+  };
 }
 
 /**
@@ -134,11 +170,21 @@ export async function getChildItemsPage(
     };
   }
 
-  const [result, kitOverdue] = await Promise.all([
+  // Card "Atrasados" LIGADO (clique no card): a janela do KIT é calculada em
+  // memória (dias úteis + status agregados do grupo), então não há filtro
+  // equivalente no banco — o recorte é feito sobre o conjunto filtrado inteiro
+  // e a página é montada aqui. Paginar no banco antes descartaria grupos
+  // vencidos das outras páginas.
+  if (filters.overdue) {
+    const overdue = await listKitOverdueGroups(client, filters, processId, processes, today);
+    return { ...sliceChildItemGroups(overdue, filters), processes, today };
+  }
+
+  const [result, overdueGroups] = await Promise.all([
     listChildItemGroups(client, filters, processId),
-    listKitOverdueTotals(client, filters, processId, processes, today),
+    listKitOverdueGroups(client, filters, processId, processes, today),
   ]);
-  return { ...result, processes, today, kitOverdue };
+  return { ...result, processes, today, kitOverdue: kitOverdueTotalsOf(overdueGroups) };
 }
 
 export async function getOrder(client: SupabaseServer, orderId: string): Promise<OrderDetails | null> {

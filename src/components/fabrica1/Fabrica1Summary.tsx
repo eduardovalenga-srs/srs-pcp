@@ -53,10 +53,10 @@ interface Card {
  * atraso é a regra da coluna KIT) e "KIT" com o KPI global de item raiz.
  * Somente os totais, sem quebra por família.
  *
- * Cards clicáveis (mesmo modelo da Fábrica 2 / Gestão): o card "KIT" aplica
- * o filtro de expedição concluída (EXP/CONCLUIDO) sobre a tela — o card
- * "Atrasados" já exibe o recorte de grupos com o KIT vencido sobre o
- * conjunto filtrado.
+ * Cards clicáveis (mesmo modelo da Fábrica 2 / Gestão): "Atrasados" liga o
+ * recorte do KIT vencido (a mesma regra dos números do card) e "KIT" aplica
+ * o filtro de expedição concluída (EXP/CONCLUIDO) sobre a tela. Ao clicar, os
+ * demais filtros são mantidos e a lista volta para a primeira página.
  */
 export function Fabrica1Summary({
   total,
@@ -85,6 +85,9 @@ export function Fabrica1Summary({
       label: "Atrasados",
       icon: <AlertTriangle className="h-4 w-4" aria-hidden />,
       tone: "danger",
+      // Clique no card: a lista passa a mostrar só os grupos com o KIT vencido.
+      filter: { overdue: true },
+      active: filters.overdue,
       details: [
         { label: "Registros", value: formatQuantity(kitOverdue.records) },
         { label: "Qtd. total", value: formatQuantity(kitOverdue.qty) },

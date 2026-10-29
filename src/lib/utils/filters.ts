@@ -347,6 +347,9 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
     ? (processStatusRaw as ProcessStatus)
     : "ALL";
 
+  // Card "Atrasados" da Fábrica 1: `?atrasados=1` liga o recorte do KIT vencido.
+  const overdue = firstValue(params.atrasados) === "1";
+
   // 043: ordenação por coluna (whitelist + códigos de processo).
   const sortRaw = firstValue(params.ordem).toLowerCase();
   const sort =
@@ -374,6 +377,7 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
     deliveryTo,
     processCode,
     processStatus,
+    overdue,
     // 038: seq por igualdade + faixas sobre os AGREGADOS do grupo.
     seq: seqParam(params, "seq"),
     qtyMin: numberParam(params, "qtdmin"),
@@ -570,6 +574,7 @@ export function childItemQueryString(
     entregaate: next.deliveryTo || undefined,
     processo: next.processCode === "ALL" ? undefined : next.processCode,
     situacao: next.processStatus === "ALL" ? undefined : next.processStatus,
+    atrasados: next.overdue ? 1 : undefined,
     seq: next.seq ?? undefined,
     qtdmin: next.qtyMin ?? undefined,
     qtdmax: next.qtyMax ?? undefined,
@@ -598,6 +603,7 @@ export interface ChildItemFilterChip {
     | "material"
     | "deliveryPeriod"
     | "process"
+    | "overdue"
     | "seq"
     | "qty"
     | "weight"
@@ -689,6 +695,11 @@ export function childItemFilterChips(filters: ChildItemFilters): ChildItemFilter
       label: `${PROCESS_STATUS_LABELS[filters.processStatus]} (qualquer processo)`,
       clear: { processCode: "ALL", processStatus: "ALL" },
     });
+  }
+
+  // Card "Atrasados": recorte pela regra do KIT (o clique no card liga).
+  if (filters.overdue) {
+    chips.push({ key: "overdue", label: "Atrasados (KIT vencido)", clear: { overdue: false } });
   }
 
   return chips;

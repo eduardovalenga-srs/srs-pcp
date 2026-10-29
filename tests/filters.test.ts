@@ -263,6 +263,7 @@ describe("parseChildItemFilters", () => {
       deliveryTo: null,
       processCode: "ALL",
       processStatus: "ALL",
+      overdue: false,
       seq: null,
       qtyMin: null,
       qtyMax: null,
@@ -315,6 +316,20 @@ describe("parseChildItemFilters", () => {
     const invalid = parseChildItemFilters({ entregade: "2026-02-31", situacao: "QUALQUER" });
     expect(invalid.deliveryFrom).toBeNull();
     expect(invalid.processStatus).toBe("ALL");
+  });
+
+  it("liga o filtro do card Atrasados pela URL (atrasados=1)", () => {
+    const filters = parseChildItemFilters({ atrasados: "1" });
+    expect(filters.overdue).toBe(true);
+    // Só "1" liga: qualquer outro valor mantém o recorte desligado.
+    expect(parseChildItemFilters({ atrasados: "0" }).overdue).toBe(false);
+    expect(parseChildItemFilters({}).overdue).toBe(false);
+
+    const params = new URLSearchParams(childItemQueryString(filters));
+    expect(params.get("atrasados")).toBe("1");
+    expect(parseChildItemFilters(Object.fromEntries(params)).overdue).toBe(true);
+    // Padrão omitido: o link dos outros cards não carrega `atrasados`.
+    expect(childItemQueryString(parseChildItemFilters({}))).not.toContain("atrasados");
   });
 
   it("descarta página inválida e limita o tamanho da página", () => {
@@ -441,6 +456,18 @@ describe("childItemFilterChips", () => {
       "Período de entrega: 01/10/2026 – 31/10/2026",
       "Concluído (qualquer processo)",
     ]);
+  });
+
+  it("descreve o filtro do card Atrasados e sabe removê-lo", () => {
+    const filters = parseChildItemFilters({ cliente: "ACME", atrasados: "1" });
+    const chips = childItemFilterChips(filters);
+    expect(chips.map((chip) => chip.label)).toEqual(["Cliente: ACME", "Atrasados (KIT vencido)"]);
+
+    const overdueChip = chips.find((chip) => chip.key === "overdue");
+    const semAtrasados = { ...filters, ...overdueChip?.clear };
+    expect(semAtrasados.overdue).toBe(false);
+    // Remover o recorte não derruba os demais filtros.
+    expect(semAtrasados.customer).toBe("ACME");
   });
 
   it("descreve o seq e as faixas dos agregados do grupo (038)", () => {
