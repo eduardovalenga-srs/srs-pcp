@@ -2,8 +2,9 @@ import "server-only";
 
 import type { SessionUser } from "@/lib/auth/session";
 import { PROCESS_STATUS_LABELS, type ProcessStatus } from "@/lib/constants/production";
+import { SHIPMENT_PROCESS_CODE } from "@/lib/constants/processes";
 import type { SupabaseServer } from "@/lib/supabase/types";
-import type { ProductionEvent, ProductionFilters, ProductionOrderResult, ProductionResult, ProductionStats, ProcessDefinition } from "@/lib/types/production";
+import type { ProductionEvent, ProductionFilters, ProductionOrderResult, ProductionResult, ProductionRow, ProductionStats, ProcessDefinition } from "@/lib/types/production";
 import {
   getActiveProcesses,
   getEventsByItemId,
@@ -22,8 +23,11 @@ import {
   allowedProcessStatuses,
   concludedProcessesToReset,
   deriveOrderItemStatus,
+  isAcabOverdue,
   predecessorsToComplete,
+  productionRowsTotals,
 } from "@/lib/utils/production";
+import { collectAllPages, EXPORT_PAGE_SIZE } from "@/lib/utils/collect-pages";
 import { todayISODate } from "@/lib/utils/dates";
 import { processUpdateSchema, type ProcessUpdateInput } from "@/lib/validators/production.schema";
 import { firstZodMessage } from "@/lib/validators/common";
@@ -34,17 +38,86 @@ export interface ProductionPage extends ProductionResult {
   today: string;
 }
 
-/** Página da tela de gestão de entregas (dados + catálogo de processos). */
+/**
+ * Varre o conjunto filtrado INTEIRO (todas as páginas) e devolve os itens da
+ * Fábrica 2 com a data da coluna ACAB anterior a hoje — regra do card
+ * "Atrasados" desta tela.
+ *
+ * A janela do processo é calculada em memória (dias úteis + status do item),
+ * então não há filtro equivalente no banco: é a MESMA varredura da exportação
+ * .xlsx. Quando o filtro da própria tela já está ligado (`delivery=OVERDUE`),
+ * o recorte antigo do banco é desligado (ALL) para não descartar itens antes
+ * da comparação da data do ACAB.
+ */
+export async function listAcabOverdueRows(
+  client: SupabaseServer,
+  filters: ProductionFilters,
+  today: string,
+  processes: readonly ProcessDefinition[],
+): Promise<ProductionRow[]> {
+  const rows = await collectAllPages((page) =>
+    getProductionRows(
+      client,
+      {
+        ...filters,
+        delivery: filters.delivery === "OVERDUE" ? "ALL" : filters.delivery,
+        page,
+        pageSize: EXPORT_PAGE_SIZE,
+      },
+      today,
+    ),
+  );
+  return rows.filter((row) => isAcabOverdue(row, processes, today));
+}
+
+/** Itens do recorte com EXPEDIÇÃO concluída — card "Expedição" da Fábrica 2. */
+function expeditionTotalsOf(rows: readonly ProductionRow[]) {
+  return productionRowsTotals(
+    rows.filter((row) => row.processes[SHIPMENT_PROCESS_CODE]?.status === "CONCLUIDO"),
+  );
+}
+
+/**
+ * Página da Fábrica 2 (uma linha por item).
+ *
+ * O card "Atrasados" desta tela usa a data da coluna ACAB (início previsto
+ * anterior a hoje), não a entrega: como a janela não existe no banco, o
+ * conjunto filtrado inteiro é varrido e recortado em memória — paginação,
+ * totais e exportação falam a mesma língua. Com o filtro ligado
+ * (`delivery=OVERDUE`), a lista passa a ser o próprio recorte de atrasados.
+ *
+ * A gestão de OF continua usando `getProductionOrdersPage` (regra de atraso
+ * por entrega, calculada na RPC).
+ */
 export async function getProductionPage(
   client: SupabaseServer,
   filters: ProductionFilters,
 ): Promise<ProductionPage> {
   const today = todayISODate();
-  const [result, processes] = await Promise.all([
+  const processes = await getActiveProcesses(client);
+
+  // Filtro do card ligado: só o recorte do ACAB, paginado aqui.
+  if (filters.delivery === "OVERDUE") {
+    const overdueRows = await listAcabOverdueRows(client, filters, today, processes);
+    const totals = productionRowsTotals(overdueRows);
+    const from = (filters.page - 1) * filters.pageSize;
+    return {
+      rows: overdueRows.slice(from, from + filters.pageSize),
+      total: overdueRows.length,
+      qtyTotal: totals.qty,
+      weightTotal: totals.weight,
+      overdue: totals,
+      expedition: expeditionTotalsOf(overdueRows),
+      processes,
+      today,
+    };
+  }
+
+  const [result, overdueRows] = await Promise.all([
     getProductionRows(client, filters, today),
-    getActiveProcesses(client),
+    listAcabOverdueRows(client, filters, today, processes),
   ]);
-  return { ...result, processes, today };
+  return { ...result, processes, today, overdue: productionRowsTotals(overdueRows) };
 }
 
 export interface ProductionOrderPage extends ProductionOrderResult {

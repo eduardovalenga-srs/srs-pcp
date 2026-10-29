@@ -281,13 +281,13 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   completo, estados finais e eventos dedicados) fica para a fase 2 — a planilha de
   importação também não tem coluna de OP (item importado nasce sem OP).
 - **Atraso**: `delivery_date < hoje` **e** processo `EXP <> CONCLUIDO`
-  ("hoje" calculado no fuso do negócio, `America/Sao_Paulo`). É a regra das
-  telas de produção (gestão, Fábrica 2, dashboard); o card **Atrasados da
-  Fábrica 1** tem regra própria — a data da coluna **KIT** do conjunto
-  filtrado (ver a tela). **Desde a 041** os cards **Atrasados** e
-  **Expedição** da gestão e da Fábrica 2 são calculados sobre o **conjunto
-  filtrado** (na gestão: contam **itens** das OFs que passam no filtro) —
-  só o dashboard continua global.
+  ("hoje" calculado no fuso do negócio, `America/Sao_Paulo`). É a regra da
+  coluna Entrega das telas de produção (gestão, Fábrica 2, dashboard); os cards
+  **Atrasados** da Fábrica 1 e da Fábrica 2 têm regra própria — a data da coluna
+  **KIT** (F1) e a data da coluna **ACAB** (F2) do conjunto filtrado (ver as
+  telas). **Desde a 041** os cards **Atrasados** e **Expedição** são calculados
+  sobre o **conjunto filtrado** (na gestão: contam **itens** das OFs que passam
+  no filtro) — só o dashboard continua global.
 - **Importação (layout novo — estrutura OF)**: o arquivo da fábrica **substitui** a
   planilha antiga de 22 colunas. Ele traz a árvore completa — **OF → itens pai
   (`ps_idPos`) → itens filhos (`cp_comp`) → matéria-prima por item** — reconhecida
@@ -353,12 +353,12 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   `QTDE` a quantidade **por conjunto**, `PERFIL` a **matéria-prima** (papel do `cp_DesMaterial`),
   `MATERIAL` a qualidade do aço e `MASSA` o peso unitário, com `COMPR.(mm)` entrando na
   observação da MP (`DIN 2440 · 995 mm`); filho sem PERFIL cai para o código como descrição
-  e avisa "sem matéria-prima". O **código da OF não vem do arquivo**: é **gerado da data de
-  entrega + sufixo derivado dos bytes do arquivo** (`orderCodeFromDateAndFileKey` —
-  `2026-11-05` → `OF 0511-XXXX`), determinístico de propósito (reimportar o MESMO arquivo com
-  a MESMA entrega gera o mesmo código e cai na decisão Atualizar/Mantir/Ignorar em vez de
-  criar OF nova) e distinto entre arquivos diferentes com a mesma entrega (dois projetos
-  nunca colidem); o wizard mostra o código que será gerado (mesmo hash no client). Pesos
+  e avisa "sem matéria-prima". O **código da OF não vem do arquivo**: é **gerado do nome do
+  arquivo sem a extensão** (`orderCodeFromFileName` — `TT10.xlsx` → `OF TT10`,
+  `tt4 gc (5) (1).xlsx` → `OF TT4-GC-5-1`), determinístico de propósito (reimportar o MESMO
+  arquivo gera o mesmo código e cai na decisão Atualizar/Mantir/Ignorar em vez de criar OF
+  nova); nomes diferentes geram OFs diferentes (renomear o arquivo cria outra OF). O wizard
+  mostra o código que será gerado (mesma regra no client). Pesos
   derivam igual ao layout da fábrica (unitário do pai = Σ peça unit × qtd;
   total = qtd × unit, 023) e a `MASSA` da linha-mãe só **avisa** quando diverge da fórmula
   (tolerância 0,5% — a lista arredonda a massa para 1 casa). Avisos e erros: conjunto sem
@@ -378,9 +378,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   unitário (total recalculado pela fórmula); `PEÇA PRINCIPAL` é a **matéria-prima** do filho
   (papel do `cp_DesMaterial`, ex.: `TB.RED.DN32_DIN`) com a quantidade do filho e unidade
   `UN`, e linha sem PEÇA PRINCIPAL avisa "sem matéria-prima". O **código da OF segue a
-  MESMA estratégia centralizada da lista de peças** (`orderCodeFromDateAndFileKey` em
-  `lib/utils/order-code.ts` — entrega + sufixo do arquivo, determinístico e sem colisão
-  entre projetos; único ponto de geração de código do sistema). Avisos e erros: peça
+  MESMA estratégia centralizada da lista de peças** (`orderCodeFromFileName` em
+  `lib/utils/order-code.ts` — nome do arquivo sem a extensão; único ponto de geração de
+  código do sistema). Avisos e erros: peça
   repetida no grupo (aviso, 1ª mantida), linha sem grupo ou sem código (erro), quantidade
   ausente/≤ 0 (erro), números inválidos (aviso) e grupo sem tipo do produto (aviso); nada
   muda na prévia, diffs, decisões, lote e RPC `apply_of_import` — testes em
@@ -487,9 +487,14 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   no guard da página — VISUALIZADOR e OPERADOR caem em "Acesso negado" mesmo por URL).
   Os três cards (038) são só números — a lista **Famílias** saiu dos cards das
   três telas; os chips clicáveis continuam aplicando os mesmos filtros. **Desde a 041**
-  os cards **Atrasados** e **Expedição** são calculados sobre o **conjunto filtrado**
-  (as colunas `overdue_*`/`expedition_*` vêm da própria `get_production_rows`), e não
-  mais do KPI global. As colunas
+  os cards **Atrasados** e **Expedição** são calculados sobre o **conjunto filtrado**,
+  e não mais do KPI global. Na Fábrica 2 o card **Atrasados** usa a **data da coluna
+  ACAB** (acabamento): o item conta quando o **início previsto** da janela do ACAB é
+  anterior a hoje (ACAB `CONCLUIDO`/`NAO_APLICAVEL` fica fora) — a janela é calculada
+  **em memória**, então o serviço varre o conjunto filtrado inteiro antes de paginar,
+  e o clique no card (`entrega=OVERDUE`) usa exatamente o mesmo recorte na lista e na
+  exportação. O card **Expedição** continua vindo das colunas `expedition_*` da
+  `get_production_rows`. As colunas
   ganharam filtros de cabeçalho (038 — mesmos da gestão): Seq., TP ("contém"), OP
   ("contém"), Qtd./Peso/Peso un. (faixas) e situação por coluna de processo.
 - **Gestão como hub**: o código da OF/OS na tabela de entregas (desktop e mobile) abre a
@@ -615,7 +620,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   Os três números vêm da MESMA consulta da lista (migração 041), então
   **acompanham qualquer filtro** — a Fábrica 2 faz o mesmo com
   `get_production_rows` (colunas iguais, contadas sobre os próprios itens
-  filtrados). Atenção às unidades: o card **OFs conta PEDIDOS** (a lista é por OF) e
+  filtrados), com a exceção do card **Atrasados**, que na Fábrica 2 segue a
+  **data da coluna ACAB** (início previsto anterior a hoje, recorte em memória).
+  Atenção às unidades: o card **OFs conta PEDIDOS** (a lista é por OF) e
   Atrasados / Expedição contam **ITENS** (escopo dos antigos chips de entrega,
   que saíram junto com "Em produção" e "Concluídos"); os dois são clicáveis e aplicam
   o filtro correspondente na lista. Itens sem peso ou sem quantidade entram

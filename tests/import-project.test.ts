@@ -11,15 +11,15 @@ import {
 } from "@/lib/import/excel-parser";
 import { familyFromDescription, orderStatusOf } from "@/lib/import/of-structure";
 import { buildProjectOfStructure } from "@/lib/import/of-structure-project";
-import { fileKeyFromBytes, orderCodeFromDateAndFileKey } from "@/lib/utils/order-code";
+import { orderCodeFromFileName } from "@/lib/utils/order-code";
 import { assertSheetStructure } from "@/lib/validators/import.schema";
 import type { ParsedSheet } from "@/lib/types/import";
 
 /**
  * Testes do QUARTO formato de importação: a lista de peças do projeto
  * (arquivos TUCUMANN GC GERAL) — 6 colunas, uma linha POR PEÇA, grupos
- * GT/MD como itens pai, código da OF gerado da entrega + sufixo do
- * arquivo. Inclui o teste de ponta a ponta com o arquivo real.
+ * GT/MD como itens pai, código da OF gerado do nome do arquivo sem a
+ * extensão. Inclui o teste de ponta a ponta com o arquivo real.
  */
 
 const PROJECT_HEADERS = [
@@ -33,8 +33,8 @@ const PROJECT_HEADERS = [
 
 const FORM = { customerName: "TUCUMANN", deliveryDate: "2026-11-05" };
 
-/** Chave de arquivo fixa nos testes — o sufixo do código vira "3K7Q". */
-const FILE_KEY = "3k7q";
+/** Nome de arquivo fixo nos testes — o código da OF vira "OF PROJETO-TESTE". */
+const FILE_NAME = "Projeto Teste.xlsx";
 
 /** Fixture do arquivo real (movido de public/ para tests/fixtures). */
 const REAL_FILE_PATH = path.join(process.cwd(), "tests", "fixtures", "tucumann-gc-geral.xlsx");
@@ -55,7 +55,7 @@ function sheetFrom(rows: unknown[][]): ParsedSheet {
 }
 
 function buildRows(rows: unknown[][]) {
-  return buildProjectOfStructure(sheetFrom(rows), FORM, FILE_KEY);
+  return buildProjectOfStructure(sheetFrom(rows), FORM, FILE_NAME);
 }
 
 /**
@@ -187,7 +187,7 @@ describe("buildProjectOfStructure", () => {
     expect(orders).toHaveLength(1);
     const order = orders[0]!;
 
-    expect(order.code).toBe("OF 0511-3K7Q");
+    expect(order.code).toBe("OF PROJETO-TESTE");
     expect(order.type).toBe("OF");
     expect(order.customerName).toBe(FORM.customerName);
     expect(order.deliveryDate).toBe(FORM.deliveryDate);
@@ -415,7 +415,7 @@ describe("buildProjectOfStructure", () => {
       headerRowIndex: 0,
       rows: [["ACME", "05/11"]],
     };
-    expect(() => buildProjectOfStructure(sheet, FORM, FILE_KEY)).toThrow(
+    expect(() => buildProjectOfStructure(sheet, FORM, FILE_NAME)).toThrow(
       /Colunas obrigatórias ausentes na lista do projeto: GT\/MD, PEÇA, CÓDIGO DA PEÇA, QUANTIDADE EM PROJETO/,
     );
   });
@@ -434,7 +434,8 @@ describe("buildProjectOfStructure", () => {
 
 describe("arquivo real TUCUMANN (tests/fixtures/tucumann-gc-geral.xlsx)", () => {
   const bytes = readFileSync(REAL_FILE_PATH);
-  const fileKey = fileKeyFromBytes(new Uint8Array(bytes));
+  /** Nome do arquivo real — é dele que sai o código da OF. */
+  const realFileName = "tucumann-gc-geral.xlsx";
 
   it("parse + detecção: 1 aba, 172 linhas, formato lista-projeto", () => {
     const parsed = parseExcelFile(
@@ -464,19 +465,17 @@ describe("arquivo real TUCUMANN (tests/fixtures/tucumann-gc-geral.xlsx)", () => 
     const { orders, ignoredColumns } = buildProjectOfStructure(
       parsed.sheets[0]!,
       FORM,
-      fileKey,
+      realFileName,
     );
 
     expect(ignoredColumns).toEqual([]);
     expect(orders).toHaveLength(1);
     const order = orders[0]!;
 
-    // Código = entrega + sufixo derivado dos bytes (mesmo arquivo, sempre igual).
-    expect(order.code).toBe(orderCodeFromDateAndFileKey(FORM.deliveryDate, fileKey).code);
-    expect(order.code).toMatch(/^OF \d{4}-[0-9A-Z]{4}$/);
-    expect(orderCodeFromDateAndFileKey(FORM.deliveryDate, fileKey)).toEqual(
-      orderCodeFromDateAndFileKey(FORM.deliveryDate, fileKey),
-    );
+    // Código = nome do arquivo sem a extensão (mesmo arquivo, sempre igual).
+    expect(order.code).toBe(orderCodeFromFileName(realFileName).code);
+    expect(order.code).toBe("OF TUCUMANN-GC-GERAL");
+    expect(orderCodeFromFileName(realFileName)).toEqual(orderCodeFromFileName(realFileName));
 
     expect(orderStatusOf(order.issues)).toBe("VALID");
     expect(order.description).toBe("GUARDA CORPO");

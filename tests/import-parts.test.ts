@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 
@@ -9,18 +12,17 @@ import {
 import { familyFromDescription, orderStatusOf } from "@/lib/import/of-structure";
 import { buildPartsOfStructure } from "@/lib/import/of-structure-parts";
 import {
-  fileKeyFromBytes,
+  fileLabelFromFileName,
   normalizeOrderCode,
-  orderCodeFromDateAndFileKey,
-  orderCodeFromDeliveryDate,
+  orderCodeFromFileName,
 } from "@/lib/utils/order-code";
 import { assertSheetStructure } from "@/lib/validators/import.schema";
 import type { ParsedSheet } from "@/lib/types/import";
 
 /**
  * Testes da lista de peças e conjuntos de cliente (038) — 7 colunas,
- * conjuntos como itens pai, peças como filhos e código de OF gerado da
- * data de entrega + sufixo derivado dos bytes do arquivo.
+ * conjuntos como itens pai, peças como filhos e código de OF gerado do
+ * nome do arquivo sem a extensão.
  */
 
 const PARTS_HEADERS = [
@@ -35,8 +37,8 @@ const PARTS_HEADERS = [
 
 const FORM = { customerName: "VIA RONDON", deliveryDate: "2026-11-05" };
 
-/** Chave de arquivo fixa nos testes — o sufixo do código vira "3K7Q". */
-const FILE_KEY = "3k7q";
+/** Nome de arquivo fixo nos testes — o código da OF vira "OF TT10". */
+const FILE_NAME = "TT10.xlsx";
 
 /** Monta uma linha alinhada aos cabeçalhos informados (por nome). */
 function makeRow(values: Record<string, unknown>): unknown[] {
@@ -54,7 +56,7 @@ function sheetFrom(rows: unknown[][]): ParsedSheet {
 }
 
 function buildRows(rows: unknown[][]) {
-  return buildPartsOfStructure(sheetFrom(rows), FORM, FILE_KEY);
+  return buildPartsOfStructure(sheetFrom(rows), FORM, FILE_NAME);
 }
 
 /**
@@ -162,45 +164,49 @@ describe("detecção da lista de peças e conjuntos", () => {
 });
 
 // -------------------------------------------------------------
-// Código da OF gerado da data de entrega + sufixo do arquivo
+// Código da OF gerado do nome do arquivo (sem a extensão)
 // -------------------------------------------------------------
 
-describe("código da OF gerado da entrega (038)", () => {
-  it("a base vira dia+mês no padrão <TIPO> <número>", () => {
-    expect(orderCodeFromDeliveryDate("2026-11-05")).toEqual({ code: "OF 0511", type: "OF" });
-    expect(orderCodeFromDeliveryDate("2026-12-31")).toEqual({ code: "OF 3112", type: "OF" });
-  });
-
-  it("compõe entrega + sufixo do arquivo e faz round-trip na normalização", () => {
-    const generated = orderCodeFromDateAndFileKey(FORM.deliveryDate, FILE_KEY);
-    expect(generated).toEqual({ code: "OF 0511-3K7Q", type: "OF" });
+describe("código da OF gerado do nome do arquivo (038)", () => {
+  it("usa o nome sem a extensão no padrão <TIPO> <número>", () => {
+    expect(orderCodeFromFileName("TT10.xlsx")).toEqual({ code: "OF TT10", type: "OF" });
+    expect(orderCodeFromFileName("tt10.XLSX")).toEqual({ code: "OF TT10", type: "OF" });
+    // Mesmo nome gera sempre o mesmo código e faz round-trip na normalização.
+    const generated = orderCodeFromFileName(FILE_NAME);
+    expect(generated).toEqual({ code: "OF TT10", type: "OF" });
     expect(normalizeOrderCode(generated.code, generated.type)).toEqual(generated);
   });
 
-  it("arquivos diferentes com a mesma entrega geram códigos diferentes", () => {
-    const first = orderCodeFromDateAndFileKey(FORM.deliveryDate, "aaaa");
-    const second = orderCodeFromDateAndFileKey(FORM.deliveryDate, "zzzz");
-    expect(first.code).not.toBe(second.code);
+  it("normaliza espaços, parênteses, acentos e caminho colado no nome", () => {
+    expect(fileLabelFromFileName("TT4 GC (5) (1).xlsx")).toBe("TT4-GC-5-1");
+    expect(fileLabelFromFileName("Ordem de Fabricação 123.xlsx")).toBe("ORDEM-DE-FABRICACAO-123");
+    expect(fileLabelFromFileName("C:\\temp\\TT10.xlsx")).toBe("TT10");
   });
 
-  it("mesmo arquivo + mesma entrega geram sempre o mesmo código (reimportação deduplica)", () => {
-    const first = orderCodeFromDateAndFileKey(FORM.deliveryDate, FILE_KEY);
-    const second = orderCodeFromDateAndFileKey(FORM.deliveryDate, FILE_KEY);
-    expect(second).toEqual(first);
+  it("nome maior que o limite é cortado no último separador", () => {
+    const label = fileLabelFromFileName("PROJETO-DE-GUARDA-CORPO-DA-ESCADA-NORTE.xlsx");
+    expect(label.length).toBeLessThanOrEqual(30);
+    expect(label).not.toMatch(/-$/);
+    expect(label.startsWith("PROJETO-DE-GUARDA")).toBe(true);
   });
 
-  it("chave derivada dos bytes é estável e muda com o conteúdo", () => {
-    const bytes = new TextEncoder().encode("planilha de teste");
-    const other = new TextEncoder().encode("planilha de teste!");
-    expect(fileKeyFromBytes(bytes)).toBe(fileKeyFromBytes(bytes));
-    expect(fileKeyFromBytes(bytes)).not.toBe(fileKeyFromBytes(other));
-    expect(fileKeyFromBytes(bytes)).toMatch(/^[0-9a-z]{4}$/);
+  it("arquivos diferentes geram códigos diferentes", () => {
+    expect(orderCodeFromFileName("TT10.xlsx").code).not.toBe(
+      orderCodeFromFileName("TT11.xlsx").code,
+    );
   });
 
-  it("data inválida lança erro", () => {
-    expect(() => orderCodeFromDeliveryDate("05/11/2026")).toThrow(/Data de entrega inválida/);
-    expect(() => orderCodeFromDeliveryDate("")).toThrow(/Data de entrega inválida/);
-    expect(() => orderCodeFromDateAndFileKey("", FILE_KEY)).toThrow(/Data de entrega inválida/);
+  it("a entrega não entra mais no código (reimportação deduplica pelo nome)", () => {
+    expect(orderCodeFromFileName("tt10.xlsx").code).toBe(orderCodeFromFileName("TT10.xlsx").code);
+  });
+
+  it("prefixo OF/OS do nome é respeitado pela normalização", () => {
+    expect(orderCodeFromFileName("OF 107482.xlsx").code).toBe("OF 107482");
+  });
+
+  it("nome sem caractere aproveitável lança erro de entrada", () => {
+    expect(fileLabelFromFileName("###.xlsx")).toBe("");
+    expect(() => orderCodeFromFileName("###.xlsx")).toThrow(/nome do arquivo/);
   });
 });
 
@@ -216,7 +222,7 @@ describe("buildPartsOfStructure", () => {
     expect(orders).toHaveLength(1);
     const order = orders[0]!;
 
-    expect(order.code).toBe("OF 0511-3K7Q");
+    expect(order.code).toBe("OF TT10");
     expect(order.type).toBe("OF");
     expect(order.customerName).toBe(FORM.customerName);
     expect(order.deliveryDate).toBe(FORM.deliveryDate);
@@ -396,7 +402,7 @@ describe("buildPartsOfStructure", () => {
       headerRowIndex: 0,
       rows: [["ACME", "05/11"]],
     };
-    expect(() => buildPartsOfStructure(sheet, FORM, FILE_KEY)).toThrow(
+    expect(() => buildPartsOfStructure(sheet, FORM, FILE_NAME)).toThrow(
       /Colunas obrigatórias ausentes na lista: CONJUNTO, PEÇA, QTDE/,
     );
   });
@@ -406,5 +412,58 @@ describe("buildPartsOfStructure", () => {
     expect(orders[0]?.issues).toContainEqual(
       expect.objectContaining({ type: "STRUCTURE", severity: "error" }),
     );
+  });
+});
+
+// -------------------------------------------------------------
+// Arquivo real (public/TT10.xlsx) — ponta a ponta
+// -------------------------------------------------------------
+
+describe("arquivo real TT10 (public/TT10.xlsx)", () => {
+  const realFilePath = path.join(process.cwd(), "public", "TT10.xlsx");
+  const bytes = readFileSync(realFilePath);
+  const arrayBuffer = () =>
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+
+  it("parse + detecção: 1 aba, formato lista-pecas", () => {
+    const parsed = parseExcelFile(arrayBuffer(), "TT10.xlsx", bytes.byteLength);
+
+    expect(parsed.sheets).toHaveLength(1);
+    expect(parsed.sheets[0]?.name).toBe("Página1");
+    expect(parsed.headerBySheet["Página1"]).toMatchObject({
+      detected: true,
+      format: "lista-pecas",
+      headerRowIndex: 0,
+    });
+    expect(parsed.sheets[0]?.rows).toHaveLength(71);
+  });
+
+  it("gera a OF TT10 com 7 conjuntos e 64 peças, sem erros", () => {
+    const parsed = parseExcelFile(arrayBuffer(), "TT10.xlsx", bytes.byteLength);
+    const { orders, ignoredColumns } = buildPartsOfStructure(
+      parsed.sheets[0]!,
+      { customerName: "VIA RONDON", deliveryDate: "2026-11-05" },
+      "TT10.xlsx",
+    );
+
+    // A coluna PROJETO (8ª) não faz parte do layout lido.
+    expect(ignoredColumns).toEqual(["PROJETO"]);
+
+    expect(orders).toHaveLength(1);
+    const order = orders[0]!;
+    expect(order.code).toBe("OF TT10");
+    expect(order.type).toBe("OF");
+    expect(order.parents).toHaveLength(7);
+    expect(order.parents.map((parent) => parent.code)).toEqual([
+      "10GC45",
+      "10GC47",
+      "10GC48",
+      "10GC49",
+      "10GC51",
+      "10GC52",
+      "10GC53",
+    ]);
+    expect(order.parents.reduce((total, parent) => total + parent.children.length, 0)).toBe(64);
+    expect(order.issues.filter((entry) => entry.severity === "error")).toEqual([]);
   });
 });

@@ -8,7 +8,7 @@ import {
 } from "@/lib/import/of-structure";
 import type { BuiltOf, FileChild, ParsedSheet, StructureIssue } from "@/lib/types/import";
 import { calculateTotalWeight } from "@/lib/utils/formatting";
-import { orderCodeFromDateAndFileKey } from "@/lib/utils/order-code";
+import { orderCodeFromFileName } from "@/lib/utils/order-code";
 
 /**
  * Construção da estrutura a partir da LISTA DE PEÇAS DO PROJETO
@@ -26,11 +26,10 @@ import { orderCodeFromDateAndFileKey } from "@/lib/utils/order-code";
  *     CH4.8X200) — mesma função do cp_DesMaterial do layout da fábrica;
  *     entra com a quantidade do filho e unidade "UN".
  *
- * O código da OF NÃO vem do arquivo (nem o cliente/entrega): é gerado
- * com `orderCodeFromDateAndFileKey` (data de entrega + sufixo derivado
- * dos bytes do arquivo), a MESMA estratégia da lista de peças da 038 —
- * dois projetos com a mesma entrega ficam em OFs distintas e a
- * reimportação do mesmo arquivo continua determinística (mesmo código =
+ * O código da OF NÃO vem do arquivo (nem o cliente/entrega): é gerado do
+ * NOME DO ARQUIVO sem a extensão (`orderCodeFromFileName` — "GC-GERAL.xlsx"
+ * vira "OF GC-GERAL"), a MESMA estratégia da lista de peças e conjuntos:
+ * a reimportação do mesmo arquivo continua determinística (mesmo código =
  * decisão da prévia em vez de OF nova).
  *
  * Pesos: o peso unitário do pai = massa de UM torre (Σ filho unit ×
@@ -66,15 +65,14 @@ function issue(partial: StructureIssue): StructureIssue {
 }
 
 /**
- * Monta a estrutura OF única (código gerado da entrega + sufixo do
- * arquivo) -> grupos GT/MD como itens pai -> peças como filhos ->
- * matéria-prima. Lança erro quando faltam colunas obrigatórias ou a
- * data de entrega é inválida.
+ * Monta a estrutura OF única (código gerado do nome do arquivo) -> grupos
+ * GT/MD como itens pai -> peças como filhos -> matéria-prima. Lança erro
+ * quando faltam colunas obrigatórias ou o nome do arquivo não gera código.
  */
 export function buildProjectOfStructure(
   sheet: ParsedSheet,
   form: ProjectStructureFormInput,
-  fileKey: string,
+  fileName: string,
 ): { orders: BuiltOf[]; ignoredColumns: string[] } {
   const missing = findMissingProjectColumns(sheet.headers);
   if (missing.length > 0) {
@@ -90,7 +88,7 @@ export function buildProjectOfStructure(
     if (key && !(key in col)) col[key as keyof ColumnIndex] = index;
   });
 
-  const { code, type } = orderCodeFromDateAndFileKey(form.deliveryDate, fileKey);
+  const { code, type } = orderCodeFromFileName(fileName);
   const order: BuiltOf = {
     code,
     type,

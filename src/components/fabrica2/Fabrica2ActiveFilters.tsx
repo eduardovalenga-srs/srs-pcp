@@ -18,7 +18,13 @@ export function Fabrica2ActiveFilters({ filters }: { filters: ProductionFilters 
   const router = useRouter();
   const pathname = usePathname();
 
-  const chips = activeFilterChips(filters);
+  // A Fábrica 2 usa a data da coluna ACAB no card "Atrasados": o chip
+  // compartilhado ("Entrega: Atrasados") ganha o esclarecimento da tela.
+  const chips = activeFilterChips(filters).map((chip) =>
+    chip.key === "delivery" && filters.delivery === "OVERDUE"
+      ? { ...chip, label: "Atrasados (ACAB vencido)" }
+      : chip,
+  );
   if (chips.length === 0) return null;
 
   const apply = (overrides: Partial<ProductionFilters>) => {

@@ -1,11 +1,19 @@
 import {
+  ACAB_PROCESS_CODE,
   FABRICA1_PROCESS_CODES,
   KIT_PROCESS_CODE,
   MP_PROCESS_CODE,
   SHIPMENT_PROCESS_CODE,
 } from "@/lib/constants/processes";
 import { PROCESS_STATUSES, type ProcessStatus } from "@/lib/constants/production";
+import type { ProductionRow } from "@/lib/types/production";
 import { todayISODate } from "@/lib/utils/dates";
+import { calculateTotalWeight } from "@/lib/utils/formatting";
+import {
+  computeProcessSchedule,
+  scheduleProcessesForItem,
+  type ProcessWindow,
+} from "@/lib/utils/process-schedule";
 
 export interface ProcessState {
   processCode: string;
@@ -20,14 +28,19 @@ export interface OverdueInput {
 }
 
 /**
- * REGRA DE ATRASO (item 13, revisada):
- * atrasado quando delivery_date < hoje — a data da coluna "Entrega"
- * anterior à data atual é o critério (não depende da expedição).
+ * REGRA DE ATRASO (item 13, revisada) — a MESMA da coluna `overdue` da RPC
+ * `get_production_rows`: atrasado quando a entrega é anterior a hoje E a
+ * EXPEDIÇÃO do item ainda não foi concluída (`processStatuses` traz o status
+ * por código de processo; EXP concluído nunca fica atrasado).
  * Não considera feriados/fins de semana no MVP.
  */
-export function isItemOverdue({ deliveryDate }: OverdueInput, today = todayISODate()): boolean {
+export function isItemOverdue(
+  { deliveryDate, processStatuses }: OverdueInput,
+  today = todayISODate(),
+): boolean {
   if (!deliveryDate) return false;
-  return deliveryDate < today;
+  if (deliveryDate >= today) return false;
+  return processStatuses[SHIPMENT_PROCESS_CODE] !== "CONCLUIDO";
 }
 
 /**
@@ -44,6 +57,79 @@ export function isProcessStartOverdue(
   if (!startDate) return false;
   if (startDate >= today) return false;
   return status !== "CONCLUIDO";
+}
+
+/** Dados que o cálculo da janela do ACAB precisa de cada processo do catálogo. */
+export interface AcabCatalogProcess {
+  code: string;
+  displayOrder: number;
+  durationDays: number;
+}
+
+/**
+ * Janela prevista do ACAB de um item da Fábrica 2 — MESMA receita da célula
+ * da tabela (`scheduleByItem` em `components/fabrica2/Fabrica2Table`): dias
+ * úteis contados de trás para frente a partir da entrega, com o status do
+ * processo NO ITEM (`NAO_APLICAVEL` não ocupa dias nem ganha janela).
+ * Devolve null quando não há entrega válida ou o item não tem ACAB aplicável.
+ */
+export function acabWindowForItem(
+  item: Pick<ProductionRow, "deliveryDate" | "processes">,
+  catalog: readonly AcabCatalogProcess[],
+): ProcessWindow | null {
+  const statusByCode = new Map(
+    Object.entries(item.processes).map(([code, cell]) => [code, cell.status] as const),
+  );
+  return (
+    computeProcessSchedule(
+      item.deliveryDate,
+      scheduleProcessesForItem(catalog, (code) => statusByCode.get(code)),
+    ).get(ACAB_PROCESS_CODE) ?? null
+  );
+}
+
+/**
+ * REGRA DE ATRASO DA FÁBRICA 2 — card "Atrasados" desta tela:
+ * o item está atrasado quando a data da coluna ACAB (o INÍCIO previsto da
+ * janela, o mesmo valor exibido em vermelho na célula) é ANTERIOR à data de
+ * referência.
+ *
+ * Fora da conta:
+ *  - ACAB `CONCLUIDO` (item que já passou pelo acabamento não fica
+ *    eternamente "atrasado" — mesma convenção da cor de data vencida);
+ *  - ACAB `NAO_APLICAVEL`/ausente no item;
+ *  - sem janela calculável (item sem data de entrega).
+ *
+ * ATENÇÃO: a regra global de atraso por entrega (`isItemOverdue`) continua
+ * valendo para as demais telas (gestão de OF e cores da coluna Entrega).
+ */
+export function isAcabOverdue(
+  item: Pick<ProductionRow, "deliveryDate" | "processes">,
+  catalog: readonly AcabCatalogProcess[],
+  today: string,
+): boolean {
+  const acab = item.processes[ACAB_PROCESS_CODE];
+  if (!acab || acab.status === "NAO_APLICAVEL") return false;
+
+  const window = acabWindowForItem(item, catalog);
+  if (!window) return false;
+
+  return isProcessStartOverdue(window.start, acab.status, today);
+}
+
+/** Totais de um recorte de itens da Fábrica 2 (registros, Σ qtd., Σ peso). */
+export function productionRowsTotals(
+  rows: readonly Pick<ProductionRow, "quantity" | "unitWeightKg">[],
+): { records: number; qty: number; weight: number } {
+  return rows.reduce(
+    (totals, row) => {
+      totals.records += 1;
+      totals.qty += row.quantity;
+      totals.weight += calculateTotalWeight(row.quantity, row.unitWeightKg) ?? 0;
+      return totals;
+    },
+    { records: 0, qty: 0, weight: 0 },
+  );
 }
 
 /**

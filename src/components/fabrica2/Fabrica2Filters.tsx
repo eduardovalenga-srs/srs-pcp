@@ -198,7 +198,11 @@ export function Fabrica2FiltersBar({ filters, processes }: Fabrica2FiltersProps)
           label="Entrega"
           value={filters.delivery}
           onValueChange={setSelect("delivery")}
-          options={DELIVERY_FILTERS.map((value) => ({ value, label: DELIVERY_LABELS[value] }))}
+          options={DELIVERY_FILTERS.map((value) => ({
+            value,
+            // Na Fábrica 2 "Atrasados" é a data da coluna ACAB.
+            label: value === "OVERDUE" ? "Atrasados (ACAB)" : DELIVERY_LABELS[value],
+          }))}
         />
 
         {/* Período de entrega (014): lados opcionais, combina com a janela acima */}

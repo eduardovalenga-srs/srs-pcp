@@ -30,7 +30,6 @@ import { getImportMaxFileSize } from "@/lib/env";
 import { ALLOWED_IMPORT_EXTENSIONS, PDF_IMPORT_EXTENSION } from "@/lib/constants/import";
 import { assertSheetStructure, validateImportFile } from "@/lib/validators/import.schema";
 import type { Json } from "@/lib/types/database";
-import { fileKeyFromBytes } from "@/lib/utils/order-code";
 import { errorMessage } from "@/lib/utils/supabase-result";
 
 /**
@@ -60,8 +59,8 @@ export class ImportInputError extends Error {
  * PEÇA/... — arquivos TUCUMANN) e PDF da A1 (.pdf, seção "COMPOSIÇÃO
  * DOS CONJUNTOS"). Todas produzem `BuiltOf` — prévia, diffs, decisões,
  * plano e RPC não mudam conforme a origem. As duas listas de peças não
- * trazem código de OF: ele é gerado da entrega + sufixo do arquivo
- * (`orderCodeFromDateAndFileKey`), em um único ponto (`order-code.ts`).
+ * trazem código de OF: ele é gerado do NOME DO ARQUIVO sem a extensão
+ * (`orderCodeFromFileName`), em um único ponto (`order-code.ts`).
  */
 
 export interface AnalyzeOutput {
@@ -209,9 +208,8 @@ export async function buildPreview(client: SupabaseServer, input: PreviewInput):
       }
       assertSheetStructure(sheet.headers, sheet.rows.length, detection.format);
 
-      // Mesma chave do arquivo em prévia e execução: os formatos que
-      // GERAM o código da OF derivam o sufixo dela (ver order-code.ts).
-      const fileKey = fileKeyFromBytes(new Uint8Array(input.buffer));
+      // Os formatos que GERAM o código da OF derivam dele o nome do arquivo
+      // sem a extensão (ver order-code.ts) — prévia e execução usam o mesmo.
       const built =
         detection.format === "lista-pecas"
           ? buildPartsOfStructure(
@@ -220,7 +218,7 @@ export async function buildPreview(client: SupabaseServer, input: PreviewInput):
                 customerName: input.customerName,
                 deliveryDate: input.deliveryDate,
               },
-              fileKey,
+              input.fileName,
             )
           : detection.format === "lista-projeto"
             ? buildProjectOfStructure(
@@ -229,7 +227,7 @@ export async function buildPreview(client: SupabaseServer, input: PreviewInput):
                   customerName: input.customerName,
                   deliveryDate: input.deliveryDate,
                 },
-                fileKey,
+                input.fileName,
               )
             : buildOfStructure(sheet, {
                 customerName: input.customerName,

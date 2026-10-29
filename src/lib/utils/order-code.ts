@@ -25,64 +25,62 @@ export function normalizeOrderCode(id: string, typeHint: OrderType | string): {
 }
 
 /**
- * Código da OF gerado da DATA DE ENTREGA (base, sem sufixo) — a lista de
- * peças e conjuntos (038) e a lista de peças do projeto não trazem
- * código: dia e mês viram o número, no mesmo padrão "<TIPO> <número>" dos
- * demais pedidos ("2026-11-05" -> "OF 0511").
- *
- * Determinístico de propósito: reimportar o mesmo arquivo com a mesma
- * entrega gera o MESMO código e cai no fluxo de decisão da prévia
- * (UPDATE/KEEP/SKIP) em vez de criar uma OF duplicada. Os formatos que
- * geram código usam {@link orderCodeFromDateAndFileKey} — esta função é
- * só a parte da data.
+ * Tamanho máximo do trecho do nome do arquivo usado no código da OF —
+ * mantém o código legível (e a coluna "OF" das telas sem estourar) mesmo
+ * com nomes de arquivo longos ("Ordem de Fabricação ...").
  */
-export function orderCodeFromDeliveryDate(deliveryDate: string): {
-  code: string;
-  type: OrderType;
-} {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(deliveryDate.trim());
-  if (!match) {
-    throw new Error("Data de entrega inválida (AAAA-MM-DD) para gerar o código da OF.");
-  }
-  const [, , month, day] = match;
-  return normalizeOrderCode(`${day}${month}`, "OF");
-}
+const MAX_FILE_LABEL_LENGTH = 30;
 
 /**
- * Chave do arquivo para o sufixo do código da OF: hash FNV-1a (32 bits)
- * dos bytes, em base36 com 4 caracteres. Estável para o MESMO arquivo —
- * a prévia e a execução derivam o mesmo código e a reimportação cai no
- * fluxo de decisão da prévia — e praticamente única entre arquivos
- * distintos, evitando que dois projetos com a MESMA entrega caiam na
- * mesma OF.
+ * Rótulo do arquivo para o código da OF: o NOME SEM A EXTENSÃO, normalizado
+ * para o formato do código — sem acento, maiúsculo e com as sequências de
+ * caracteres especiais trocadas por "-" (as mesmas convenções de
+ * `normalizeOrderCode`, que depois reconhece o prefixo OF/OS).
+ *
+ * Exemplos: "TT10.xlsx" -> "TT10"; "tt4 gc (5) (1).xlsx" ->
+ * "TT4-GC-5-1"; "Ordem de Fabricação 123.xlsx" -> "ORDEM-DE-FABRICACAO-123".
+ * Devolve "" quando o nome não tem nenhum caractere aproveitável.
  */
-export function fileKeyFromBytes(bytes: Uint8Array): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < bytes.length; index += 1) {
-    hash ^= bytes[index] ?? 0;
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(36).padStart(7, "0").slice(-4);
+export function fileLabelFromFileName(fileName: string): string {
+  // Nome puro: descarta caminho (upload antigo pode vir com pasta) e a
+  // extensão (tudo depois do ÚLTIMO ponto do nome).
+  const baseName = fileName.split(/[\\/]/).pop() ?? "";
+  const withoutExtension = baseName.replace(/\.[^.]+$/, "");
+
+  const label = withoutExtension
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  if (label.length <= MAX_FILE_LABEL_LENGTH) return label;
+  // Corte no último "-" antes do limite, para não partir uma palavra.
+  const clipped = label.slice(0, MAX_FILE_LABEL_LENGTH);
+  const lastDash = clipped.lastIndexOf("-");
+  return (lastDash > 0 ? clipped.slice(0, lastDash) : clipped).replace(/-+$/g, "");
 }
 
 /**
  * Código da OF para os formatos cujo arquivo NÃO traz número (lista de
- * peças e conjuntos da 038 e lista de peças do projeto): dia+mês da
- * entrega + sufixo derivado dos bytes do arquivo — "2026-11-05" com a
- * chave "3k7q" vira "OF 0511-3K7Q".
+ * peças e conjuntos da 038 e lista de peças do projeto): o NOME DO ARQUIVO
+ * sem a extensão é o número do pedido — "TT10.xlsx" vira "OF TT10" e
+ * "tt4 gc (5) (1).xlsx" vira "OF TT4-GC-5-1".
  *
- * O sufixo mantém projetos distintos com a mesma entrega em OFs
- * separadas sem perder a determinística: mesmo arquivo + mesma entrega
- * geram sempre o mesmo código (reimportação deduplica pela prévia), e a
- * prévia e a execução da mesma importação nunca divergem.
+ * A entrega NÃO entra no código (continua obrigatória no formulário: é a
+ * data dos itens e a base das janelas dos processos). Determinístico de
+ * propósito: reimportar o MESMO arquivo gera o mesmo código e cai na
+ * decisão Atualizar/Manter/Ignorar da prévia em vez de criar OF nova —
+ * renomear o arquivo, porém, passa a ser outra OF (o nome é a identidade
+ * que o cliente usa no projeto).
+ *
+ * Lança erro quando o nome não gera nenhum caractere válido (ex.:
+ * "###.xlsx") — é entrada inválida, não falha do sistema.
  */
-export function orderCodeFromDateAndFileKey(
-  deliveryDate: string,
-  fileKey: string,
-): { code: string; type: OrderType } {
-  const base = orderCodeFromDeliveryDate(deliveryDate);
-  const suffix = fileKey.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (!suffix) return base;
-  const number = base.code.slice(base.type.length + 1);
-  return normalizeOrderCode(`${number}-${suffix}`, base.type);
+export function orderCodeFromFileName(fileName: string): { code: string; type: OrderType } {
+  const label = fileLabelFromFileName(fileName);
+  if (!label) {
+    throw new Error("Não foi possível gerar o código da OF a partir do nome do arquivo.");
+  }
+  return normalizeOrderCode(label, "OF");
 }

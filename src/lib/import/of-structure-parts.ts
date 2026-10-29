@@ -8,7 +8,7 @@ import {
 } from "@/lib/import/of-structure";
 import type { BuiltOf, FileChild, FileParent, ParsedSheet, StructureIssue } from "@/lib/types/import";
 import { calculateTotalWeight, formatWeight, toNumber } from "@/lib/utils/formatting";
-import { orderCodeFromDateAndFileKey } from "@/lib/utils/order-code";
+import { orderCodeFromFileName } from "@/lib/utils/order-code";
 
 /**
  * Construção da estrutura a partir da LISTA DE PEÇAS E CONJUNTOS de
@@ -26,14 +26,12 @@ import { orderCodeFromDateAndFileKey } from "@/lib/utils/order-code";
  *     (A36, DIN 2440) e MASSA o peso UNITÁRIO do filho;
  *   * COMPR.(mm) entra nas observações da matéria-prima.
  *
- * O código da OF NÃO vem do arquivo: é gerado com
- * `orderCodeFromDateAndFileKey` (data de entrega + sufixo derivado dos
- * bytes do arquivo — "2026-11-05" vira "OF 0511-XXXX"), a MESMA
- * estratégia da lista de peças do projeto: dois clientes com a MESMA
- * entrega ficam em OFs distintas e a reimportação continua
- * determinística (mesmo arquivo + mesma entrega = mesmo código = decisão
- * da prévia em vez de OF nova). Cliente e data continuam vindo do
- * formulário, como nos demais formatos.
+ * O código da OF NÃO vem do arquivo: é gerado do NOME DO ARQUIVO sem a
+ * extensão (`orderCodeFromFileName` — "TT10.xlsx" vira "OF TT10"), a MESMA
+ * estratégia da lista de peças do projeto: reimportar o mesmo arquivo gera
+ * o mesmo código e cai no fluxo de decisão da prévia (UPDATE/KEEP/SKIP) em
+ * vez de criar uma OF nova. Cliente e data continuam vindo do formulário,
+ * como nos demais formatos.
  *
  * Pesos: o peso unitário do pai = massa de UM conjunto (Σ filho unit ×
  * qtd) e o total = qtd × unit (023 — o banco recalcula por trigger). A
@@ -82,15 +80,14 @@ function issue(partial: StructureIssue): StructureIssue {
 }
 
 /**
- * Monta a estrutura OF única (código gerado da entrega + sufixo do
- * arquivo) -> conjuntos como itens pai -> peças como filhos ->
- * matéria-prima. Lança erro quando faltam colunas obrigatórias ou a
- * data de entrega é inválida.
+ * Monta a estrutura OF única (código gerado do nome do arquivo) -> conjuntos
+ * como itens pai -> peças como filhos -> matéria-prima. Lança erro quando
+ * faltam colunas obrigatórias ou o nome do arquivo não gera código.
  */
 export function buildPartsOfStructure(
   sheet: ParsedSheet,
   form: PartsStructureFormInput,
-  fileKey: string,
+  fileName: string,
 ): { orders: BuiltOf[]; ignoredColumns: string[] } {
   const missing = findMissingPartsColumns(sheet.headers);
   if (missing.length > 0) {
@@ -105,7 +102,7 @@ export function buildPartsOfStructure(
     if (key && !(key in col)) col[key as keyof ColumnIndex] = index;
   });
 
-  const { code, type } = orderCodeFromDateAndFileKey(form.deliveryDate, fileKey);
+  const { code, type } = orderCodeFromFileName(fileName);
   const order: BuiltOf = {
     code,
     type,

@@ -16,8 +16,8 @@ interface Fabrica2SummaryProps {
   weightTotal: number;
   filters: ProductionFilters;
   /**
-   * 041: itens atrasados (entrega vencida + EXPEDIÇÃO pendente) do
-   * conjunto FILTRADO — o card deixou de ser global (get_production_stats).
+   * Itens atrasados do conjunto FILTRADO — na Fábrica 2 a data da coluna
+   * ACAB (acabamento) anterior a hoje.
    */
   overdue: FilteredKpiTotals;
   /** 041: itens com EXPEDIÇÃO concluída do conjunto filtrado — também filtrado. */
@@ -60,8 +60,9 @@ export function Fabrica2Summary({
       ],
     },
     {
-      // 041: itens atrasados do conjunto FILTRADO (a linha da tabela é o
-      // item, então "Registros" bate com a contagem por item).
+      // Fábrica 2: itens atrasados do conjunto FILTRADO pela data da coluna
+      // ACAB (acabamento) anterior a hoje (a linha da tabela é o item, então
+      // "Registros" bate com a contagem por item).
       key: "overdue",
       label: "Atrasados",
       value: overdue.records,

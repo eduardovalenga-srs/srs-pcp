@@ -146,8 +146,9 @@ export interface ProductionResult {
   /** Soma da coluna "Qtd." da lista filtrada inteira — de todas as páginas. */
   qtyTotal: number;
   /**
-   * 041: itens atrasados (entrega vencida + EXPEDIÇÃO pendente) do
-   * conjunto FILTRADO — o card "Atrasados" deixou de ser global.
+   * 041: itens atrasados do conjunto FILTRADO. Na Fábrica 2 a regra é a
+   * data da coluna ACAB (início previsto anterior a hoje), calculada em
+   * memória pelo serviço.
    */
   overdue: FilteredKpiTotals;
   /** 041: itens com EXPEDIÇÃO concluída do conjunto filtrado (card "Expedição"). */

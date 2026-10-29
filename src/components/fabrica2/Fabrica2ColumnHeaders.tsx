@@ -146,7 +146,7 @@ export function Fabrica2DeliveryFilter({ filters }: { filters: ProductionFilters
             <SelectContent>
               {DELIVERY_FILTERS.map((value) => (
                 <SelectItem key={value} value={value}>
-                  {DELIVERY_LABELS[value]}
+                  {value === "OVERDUE" ? "Atrasados (ACAB)" : DELIVERY_LABELS[value]}
                 </SelectItem>
               ))}
             </SelectContent>

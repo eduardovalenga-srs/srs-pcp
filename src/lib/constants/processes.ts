@@ -81,6 +81,12 @@ export const SHIPMENT_PROCESS_CODE: ProcessCode = "EXP";
 export const KIT_PROCESS_CODE: ProcessCode = "KIT";
 
 /**
+ * Acabamento: data da coluna ACAB da Fábrica 2 — base da regra do card
+ * "Atrasados" daquela tela (início previsto anterior a hoje).
+ */
+export const ACAB_PROCESS_CODE: ProcessCode = "ACAB";
+
+/**
  * Matéria-prima (migration 021): primeira coluna de processos da Fábrica 1.
  * Não faz parte do catálogo da migration 004 (entra pelo import).
  */
