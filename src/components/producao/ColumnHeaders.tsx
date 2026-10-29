@@ -1,15 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 
 import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS } from "@/lib/constants/production";
 import { DELIVERY_FILTERS, DELIVERY_LABELS } from "@/lib/constants/pagination";
 import type { ProductionFilters } from "@/lib/types/production";
 import { productionQueryString } from "@/lib/utils/filters";
-import { cn } from "@/lib/utils";
 import {
   DeliveryPeriodPopover,
   FilterMenu,
@@ -17,6 +14,7 @@ import {
   SeqEqualityFilter,
   TextColumnFilter as SharedTextColumnFilter,
 } from "@/components/shared/column-filters";
+import { SortLink as SharedSortLink } from "@/components/shared/SortLink";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -50,32 +48,18 @@ function SortLink({
   columnId: string;
   filters: ProductionFilters;
 }) {
-  const active = filters.sort === columnId;
-  const sortDir = active ? filters.sortDir : "asc";
-  const next: ProductionFilters = {
-    ...filters,
-    sort: columnId,
-    sortDir: active && filters.sortDir === "asc" ? "desc" : "asc",
-    page: 1,
-  };
-  const query = productionQueryString(next);
-  const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
-
   return (
-    <Link
-      href={query ? `/gestao-entregas?${query}` : "/gestao-entregas"}
-      className={cn(
-        "inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 transition-colors hover:text-foreground",
-        !active && "text-muted-foreground",
-      )}
-      aria-label={`Ordenar por ${fullName}${active ? `, atualmente ${sortDir === "asc" ? "crescente" : "decrescente"}` : ""}`}
-      title={fullName}
-    >
-      <span className="truncate" aria-hidden>
-        {label}
-      </span>
-      <Icon className={cn("h-3 w-3 shrink-0", active ? "opacity-100" : "opacity-40")} aria-hidden />
-    </Link>
+    <SharedSortLink
+      label={label}
+      fullName={fullName}
+      columnId={columnId}
+      sort={filters.sort}
+      sortDir={filters.sortDir}
+      buildHref={(next) => {
+        const query = productionQueryString({ ...filters, ...next, page: 1 });
+        return query ? `/gestao-entregas?${query}` : "/gestao-entregas";
+      }}
+    />
   );
 }
 

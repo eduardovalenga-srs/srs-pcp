@@ -26,8 +26,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({})),
 }));
 
-// UI do topo não é o alvo do teste.
-vi.mock("@/components/layout/TopNav", () => ({ TopNav: () => null }));
+// UI do painel não é o alvo do teste (o guard é puro servidor).
 vi.mock("@/components/layout/AdminClaimBanner", () => ({ AdminClaimBanner: () => null }));
 vi.mock("@/components/layout/PasswordBanner", () => ({ PasswordBanner: () => null }));
 

@@ -20,18 +20,14 @@ export interface OverdueInput {
 }
 
 /**
- * REGRA DE ATRASO (item 13):
- * atrasado quando delivery_date < hoje AND processo de expedição != CONCLUIDO.
+ * REGRA DE ATRASO (item 13, revisada):
+ * atrasado quando delivery_date < hoje — a data da coluna "Entrega"
+ * anterior à data atual é o critério (não depende da expedição).
  * Não considera feriados/fins de semana no MVP.
- *
- * Se o item não possuir registro do processo de expedição, também é considerado
- * atrasado (não há envio concluído).
  */
-export function isItemOverdue({ deliveryDate, processStatuses }: OverdueInput, today = todayISODate()): boolean {
+export function isItemOverdue({ deliveryDate }: OverdueInput, today = todayISODate()): boolean {
   if (!deliveryDate) return false;
-  if (deliveryDate >= today) return false;
-  const shipmentStatus = processStatuses[SHIPMENT_PROCESS_CODE];
-  return shipmentStatus !== "CONCLUIDO";
+  return deliveryDate < today;
 }
 
 /**

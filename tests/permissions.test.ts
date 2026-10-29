@@ -28,6 +28,10 @@ const ALL_CAPABILITIES: Capability[] = [
   "menu.fabrica2",
   "menu.settings",
   "menu.romaneio",
+  // 043: módulo RH (sidebar agrupada).
+  "menu.rh",
+  "rh.view",
+  "rh.manage",
 ];
 
 describe("página inicial por papel (homePathFor)", () => {
@@ -64,11 +68,9 @@ describe("matriz de permissões (item 40)", () => {
       "orders.create",
       "orders.edit",
       "orders.delete",
-      "dashboard.view",
       "import.access",
       "processes.view",
       "menu.gestao",
-      "menu.dashboard",
       "menu.processes",
       "menu.fabrica1",
       "fabrica2.view",
@@ -82,6 +84,7 @@ describe("matriz de permissões (item 40)", () => {
       "users.manage",
       "settings.manage",
       "menu.settings",
+      "rh.manage",
     ];
 
     for (const capability of allowed) expect(can("GESTOR", capability), capability).toBe(true);
@@ -92,6 +95,11 @@ describe("matriz de permissões (item 40)", () => {
     const allowed: Capability[] = [
       "production.update_status",
       "orders.view",
+      // 043: Dashboard (menu + página) e RH (grupo + item) são de ADMIN e OPERADOR.
+      "menu.dashboard",
+      "dashboard.view",
+      "menu.rh",
+      "rh.view",
       "menu.fabrica1",
       // Romaneio: consulta pela URL (sem menu) — a montagem é de ADMIN/GESTOR.
       "romaneio.view",
@@ -107,13 +115,14 @@ describe("matriz de permissões (item 40)", () => {
       "settings.manage",
       "users.manage",
       "processes.manage",
-      "dashboard.view",
       "processes.view",
       "menu.gestao",
       "fabrica2.view",
       "menu.fabrica2",
       "romaneio.edit",
       "menu.romaneio",
+      // 043: RH agora é de ADMIN e OPERADOR (grupo + item).
+      "rh.manage",
     ];
 
     for (const capability of allowed) expect(can("OPERADOR", capability), capability).toBe(true);
@@ -145,13 +154,17 @@ describe("matriz de permissões (item 40)", () => {
       "fabrica2.view",
       "menu.fabrica2",
       "romaneio.edit",
+      // 043: RH é de ADMIN/GESTOR — o visualizador não vê o grupo.
+      "menu.rh",
+      "rh.view",
+      "rh.manage",
     ];
 
     for (const capability of allowed) expect(can("VISUALIZADOR", capability), capability).toBe(true);
     for (const capability of denied) expect(can("VISUALIZADOR", capability), capability).toBe(false);
   });
 
-  it("menus por perfil: OPERADOR vê só a Fábrica 1", () => {
+  it("menus por perfil: OPERADOR vê Fábrica 1, Dashboard e RH", () => {
     // Gestão de Entregas: ADMIN, GESTOR e VISUALIZADOR — o OPERADOR não.
     expect(can("ADMIN", "menu.gestao")).toBe(true);
     expect(can("GESTOR", "menu.gestao")).toBe(true);
@@ -164,8 +177,18 @@ describe("matriz de permissões (item 40)", () => {
     expect(can("OPERADOR", "menu.settings")).toBe(false);
     expect(can("VISUALIZADOR", "menu.settings")).toBe(false);
 
-    // Dashboard/Processos: ADMIN e GESTOR apenas.
-    for (const capability of ["menu.dashboard", "menu.processes"] as const) {
+    // Dashboard: ADMIN e OPERADOR — fora do menu de Gestão de OF; menu e página
+    // (dashboard.view) são exclusivos de operador e admin.
+    expect(can("ADMIN", "menu.dashboard")).toBe(true);
+    expect(can("OPERADOR", "menu.dashboard")).toBe(true);
+    expect(can("GESTOR", "menu.dashboard")).toBe(false);
+    expect(can("VISUALIZADOR", "menu.dashboard")).toBe(false);
+    expect(can("ADMIN", "dashboard.view")).toBe(true);
+    expect(can("OPERADOR", "dashboard.view")).toBe(true);
+    expect(can("GESTOR", "dashboard.view")).toBe(false);
+
+    // Processos: ADMIN e GESTOR apenas.
+    for (const capability of ["menu.processes"] as const) {
       expect(can("GESTOR", capability), capability).toBe(true);
       expect(can("OPERADOR", capability), capability).toBe(false);
       expect(can("VISUALIZADOR", capability), capability).toBe(false);
@@ -196,6 +219,18 @@ describe("matriz de permissões (item 40)", () => {
     expect(can("GESTOR", "romaneio.edit")).toBe(true);
     expect(can("VISUALIZADOR", "romaneio.edit")).toBe(false);
     expect(can("OPERADOR", "romaneio.edit")).toBe(false);
+
+    // 043: RH (grupo + item) é de ADMIN e OPERADOR; o cadastro é do ADMIN.
+    expect(can("ADMIN", "menu.rh")).toBe(true);
+    expect(can("OPERADOR", "menu.rh")).toBe(true);
+    expect(can("GESTOR", "menu.rh")).toBe(false);
+    expect(can("VISUALIZADOR", "menu.rh")).toBe(false);
+    expect(can("ADMIN", "rh.view")).toBe(true);
+    expect(can("OPERADOR", "rh.view")).toBe(true);
+    expect(can("GESTOR", "rh.view")).toBe(false);
+    expect(can("VISUALIZADOR", "rh.view")).toBe(false);
+    expect(can("ADMIN", "rh.manage")).toBe(true);
+    expect(can("GESTOR", "rh.manage")).toBe(false);
   });
 
   it("perfil desconhecido/nulo não tem acesso a nada", () => {

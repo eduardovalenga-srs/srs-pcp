@@ -96,6 +96,7 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
           weightTotal={data.weightTotal}
           kitOverdue={data.kitOverdue}
           expedition={stats.expedition}
+          filters={filters}
         />
 
         {/* Chips de filtros ativos: removem um a um ou limpam tudo. */}

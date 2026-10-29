@@ -1,10 +1,13 @@
 import type { ReactNode } from "react";
-import { createClient } from "@/lib/supabase/server";
+
 import { hasAdmin } from "@/lib/repositories/profiles.repository";
-import { DashboardLayoutGuard } from "./layout-guard";
+import { createClient } from "@/lib/supabase/server";
 import { AdminClaimBanner } from "@/components/layout/AdminClaimBanner";
+import { AppSidebar } from "@/components/layout/AppSidebar";
+import { MobileTopBar } from "@/components/layout/MobileTopBar";
 import { PasswordBanner } from "@/components/layout/PasswordBanner";
-import { TopNav } from "@/components/layout/TopNav";
+import { ForceReauth } from "@/components/auth/ForceReauth";
+import { DashboardLayoutGuard } from "./layout-guard";
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
   // Guard anti-loop (ver layout-guard.ts): sessão que a app rejeita cai em
@@ -15,22 +18,29 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   const supabase = await createClient();
   const adminExists = await hasAdmin(supabase).catch(() => true);
 
-  return (
-    <div className="min-h-screen bg-background">
-      <TopNav
-        user={{
-          name: sessionUser.profile.name ?? sessionUser.email,
-          email: sessionUser.email,
-          role: sessionUser.role,
-        }}
-      />
+  const user = {
+    name: sessionUser.profile.name ?? sessionUser.email,
+    email: sessionUser.email,
+    role: sessionUser.role,
+  };
 
-      {/* Nav sticky em fluxo: o conteúdo simplesmente começa abaixo dela (sem pt/pl fixos). */}
-      <main className="mx-auto w-full p-3 sm:p-4 lg:p-5">
-        {sessionUser.profile.must_change_password ? <PasswordBanner /> : null}
-        {!adminExists ? <AdminClaimBanner /> : null}
-        {children}
-      </main>
+  // 043: navegação lateral. No desktop a sidebar fixa ocupa a coluna da
+  // esquerda e o conteúdo fica ao lado; abaixo de lg a sidebar some e a
+  // MobileTopBar assume (botão de menu abre o mesmo itens num drawer).
+  return (
+    <div className="flex min-h-screen bg-background">
+      <ForceReauth />
+      <AppSidebar user={user} />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <MobileTopBar user={user} />
+
+        <main className="mx-auto w-full flex-1 p-3 sm:p-4 lg:p-5">
+          {sessionUser.profile.must_change_password ? <PasswordBanner /> : null}
+          {!adminExists ? <AdminClaimBanner /> : null}
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
+import { SortLink, type SortState } from "@/components/shared/SortLink";
 
 interface RomaneioOrderPickerProps {
   candidates: RomaneioCandidate[];
@@ -55,6 +56,28 @@ export function RomaneioOrderPicker({ candidates, filters, total }: RomaneioOrde
     const query = romaneioCandidateQueryString(filters, { page });
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   };
+
+  // 043: servidor decide a ordem via URL (?ordem=&direcao=).
+  const buildHref = (next: SortState) => {
+    const query = romaneioCandidateQueryString({ ...filters, ...next, page: 1 });
+    return query ? `${pathname}?${query}` : pathname;
+  };
+  const sortable = (label: string, fullName: string, columnId: string) => (
+    <SortLink
+      label={label}
+      fullName={fullName}
+      columnId={columnId}
+      sort={filters.sort}
+      sortDir={filters.sortDir}
+      buildHref={buildHref}
+    />
+  );
+  const ariaSort = (columnId: string): "ascending" | "descending" | undefined =>
+    filters.sort === columnId
+      ? filters.sortDir === "asc"
+        ? "ascending"
+        : "descending"
+      : undefined;
 
   const onSearchChange = (value: string) => {
     setSearch(value);
@@ -131,14 +154,30 @@ export function RomaneioOrderPicker({ candidates, filters, total }: RomaneioOrde
           </caption>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-              <th scope="col" className="px-3 py-2 font-semibold">OF/OS</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Cliente</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Entrega</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Situação</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">Qtd itens</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">Peso (kg)</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">Já expedida</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">Ações</th>
+              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("order_code")}>
+                {sortable("OF/OS", "OF/OS", "order_code")}
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("customer")}>
+                {sortable("Cliente", "Cliente", "customer")}
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("delivery_date")}>
+                {sortable("Entrega", "Entrega", "delivery_date")}
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("status")}>
+                {sortable("Situação", "Situação", "status")}
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold" aria-sort={ariaSort("quantity")}>
+                {sortable("Qtd itens", "Quantidade de itens", "quantity")}
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold" aria-sort={ariaSort("weight")}>
+                {sortable("Peso (kg)", "Peso", "weight")}
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold" aria-sort={ariaSort("shipped")}>
+                {sortable("Já expedida", "Já expedida", "shipped")}
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold">
+                Ações
+              </th>
             </tr>
           </thead>
           <tbody>

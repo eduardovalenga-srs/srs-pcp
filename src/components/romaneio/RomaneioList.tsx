@@ -1,17 +1,22 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 
-import type { RomaneioSummary } from "@/lib/types/romaneio";
+import type { RomaneioFilters, RomaneioSummary } from "@/lib/types/romaneio";
+import { romaneioQueryString } from "@/lib/utils/filters";
 import { formatDate } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
+import { SortLink, type SortState } from "@/components/shared/SortLink";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RomaneioStatusBadge } from "@/components/romaneio/RomaneioStatusBadge";
 
 interface RomaneioListProps {
   romaneios: RomaneioSummary[];
+  /** 043: estado de ordenação vigente (URL) — cada header vira SortLink. */
+  filters: RomaneioFilters;
 }
 
 /** Marcador de saldo de devolução sem NF registrada. */
@@ -24,7 +29,32 @@ function ReturnPendingBadge() {
 }
 
 /** Listagem de romaneios: tabela no desktop (lg+) e cards no mobile. */
-export function RomaneioList({ romaneios }: RomaneioListProps) {
+export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
+  const pathname = usePathname();
+
+  // 043: servidor decide a ordem via URL (?ordem=&direcao=) — a lista
+  // nunca ordena no client (a paginação é server-side).
+  const buildHref = (next: SortState) => {
+    const query = romaneioQueryString({ ...filters, ...next, page: 1 });
+    return query ? `${pathname}?${query}` : pathname;
+  };
+  const sortable = (label: string, fullName: string, columnId: string) => (
+    <SortLink
+      label={label}
+      fullName={fullName}
+      columnId={columnId}
+      sort={filters.sort}
+      sortDir={filters.sortDir}
+      buildHref={buildHref}
+    />
+  );
+  const ariaSort = (columnId: string): "ascending" | "descending" | undefined =>
+    filters.sort === columnId
+      ? filters.sortDir === "asc"
+        ? "ascending"
+        : "descending"
+      : undefined;
+
   return (
     <>
       {/* Desktop / tablet largo: tabela */}
@@ -35,17 +65,39 @@ export function RomaneioList({ romaneios }: RomaneioListProps) {
           </caption>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-              <th scope="col" className="px-3 py-2 font-semibold">Nº</th>
-              <th scope="col" className="px-3 py-2 font-semibold">OF/OS</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Cliente</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Situação</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Saída</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">Itens</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">Qtd</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">Peso (kg)</th>
-              <th scope="col" className="px-3 py-2 font-semibold">NF saída</th>
-              <th scope="col" className="px-3 py-2 font-semibold">NF devolução</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">Ações</th>
+              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("number")}>
+                {sortable("Nº", "Número", "number")}
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("order_code")}>
+                {sortable("OF/OS", "OF/OS", "order_code")}
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("customer")}>
+                {sortable("Cliente", "Cliente", "customer")}
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("status")}>
+                {sortable("Situação", "Situação", "status")}
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("shipment_date")}>
+                {sortable("Saída", "Data de saída", "shipment_date")}
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold" aria-sort={ariaSort("item_count")}>
+                {sortable("Itens", "Itens", "item_count")}
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold" aria-sort={ariaSort("quantity_total")}>
+                {sortable("Qtd", "Quantidade expedida", "quantity_total")}
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold" aria-sort={ariaSort("weight_total")}>
+                {sortable("Peso (kg)", "Peso total", "weight_total")}
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("nf_number")}>
+                {sortable("NF saída", "NF de saída", "nf_number")}
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("return_nf_number")}>
+                {sortable("NF devolução", "NF de devolução", "return_nf_number")}
+              </th>
+              <th scope="col" className="px-3 py-2 text-right font-semibold">
+                Ações
+              </th>
             </tr>
           </thead>
           <tbody>

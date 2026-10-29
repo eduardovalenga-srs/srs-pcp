@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 
 import {
   forgotPasswordAction,
@@ -9,10 +9,12 @@ import {
   type AuthFormState,
   type ForgotPasswordState,
 } from "@/lib/actions/auth.actions";
+import { requestSkipForcedReauth } from "@/lib/auth/forced-reauth";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 const INITIAL_LOGIN: AuthFormState = { error: null };
 const INITIAL_FORGOT: ForgotPasswordState = { error: null, message: null };
@@ -30,6 +32,7 @@ export function LoginForm() {
   const [mode, setMode] = useState<"login" | "forgot">("login");
   const [email, setEmail] = useState("");
   const [remember, setRemember] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [loginState, loginFormAction, isPending] = useActionState(loginAction, INITIAL_LOGIN);
   const [forgotState, forgotFormAction, forgotPending] = useActionState(
     forgotPasswordAction,
@@ -58,6 +61,8 @@ export function LoginForm() {
     } else {
       window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
     }
+    // Marca o fluxo: o forced re-auth não deve derrubar a sessão recém-criada.
+    requestSkipForcedReauth();
     loginFormAction(formData);
   };
 
@@ -132,15 +137,27 @@ export function LoginForm() {
         <Label htmlFor="password" className="sr-only">
           Senha
         </Label>
-        <Input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          placeholder="Senha"
-          required
-          className={inputClass}
-        />
+        <div className="relative">
+          <Input
+            id="password"
+            name="password"
+            type={showPassword ? "text" : "password"}
+            autoComplete="current-password"
+            placeholder="Senha"
+            required
+            className={cn(inputClass, "pr-11")}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute right-2 top-1/2 h-8 w-8 -translate-y-1/2"
+            onClick={() => setShowPassword((value) => !value)}
+            aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+          >
+            {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+          </Button>
+        </div>
       </div>
 
       <label

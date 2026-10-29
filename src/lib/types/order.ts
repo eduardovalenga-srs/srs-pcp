@@ -126,6 +126,9 @@ export interface ChildItemFilters {
   /** 038: faixa sobre o Peso unitário exibido ("—" quando os membros divergem). */
   weightUnitMin: number | null;
   weightUnitMax: number | null;
+  /** 043: chave de ordenação (whitelist da Fábrica 1 + códigos de processo). */
+  sort: string;
+  sortDir: "asc" | "desc";
   page: number;
   pageSize: number;
 }

@@ -80,7 +80,9 @@ describe("parseProductionFilters", () => {
 
   it("aceita chave de ordenação de coluna de processo", () => {
     expect(isSortableColumn("delivery_date")).toBe(true);
-    expect(isSortableColumn("customer")).toBe(false);
+    // 043: a Fábrica 2/Gestão passaram a ordenar pela coluna do cliente —
+    // a chave `customer` está na whitelist da produção agora.
+    expect(isSortableColumn("customer")).toBe(true);
     expect(isValidProcessSort("SOLDA")).toBe(true);
     expect(isValidProcessSort("solda")).toBe(false);
     expect(isValidProcessSort("LASER'; drop")).toBe(false);
@@ -268,6 +270,8 @@ describe("parseChildItemFilters", () => {
       weightMax: null,
       weightUnitMin: null,
       weightUnitMax: null,
+      sort: "seq",
+      sortDir: "asc",
       page: 1,
       pageSize: CHILD_ITEMS_PAGE_SIZE,
     });

@@ -23,7 +23,7 @@ interface ChangePasswordDialogProps {
   /** Rótulo do botão (também usado no aria-label quando só ícone). */
   label?: string;
   variant?: "default" | "secondary" | "outline" | "ghost" | "destructive";
-  /** false = botão só com ícone (TopNav desktop). */
+  /** false = botão só com ícone (ex.: sidebar recolhida e barra mobile). */
   showLabel?: boolean;
   className?: string;
   /** Modo controlado (ex.: item de menu) — não renderiza botão gatilho. */

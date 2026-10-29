@@ -346,10 +346,13 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
       // DP (data de proposta): ao lado da entrega — quando a MP ainda não
       // foi entregue, é a data até a qual podemos entregar se ela chegar
       // hoje (hoje + Σ dos processos aplicáveis, em dias úteis). Sem MP
-      // pendente a célula é "—".
+      // pendente a célula é "—". 043: ordenável (a RPC computa a mesma
+      // regra em SQL — sem cenário, a linha ordena por último).
       helper.accessor((row) => orderProposalDate(row, processes, today), {
         id: "proposalDate",
-        header: () => <ColumnHeader label="DP" fullLabel="Data de proposta" filters={filters} />,
+        header: () => (
+          <ColumnHeader label="DP" fullLabel="Data de proposta" columnId="proposal_date" filters={filters} />
+        ),
         cell: (info) => <ProposalDateCell value={info.getValue()} />,
       }),
     ];
@@ -423,7 +426,7 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
   return (
     <>
       {/* Desktop / tablet: tabela com rolagem própria e cabeçalho fixo */}
-      <div className="hidden max-h-[calc(100vh-8rem)] overflow-auto rounded border bg-card lg:block">
+      <div className="hidden max-h-[calc(100vh-5rem)] overflow-auto rounded border bg-card lg:block">
         <table className="w-full caption-bottom text-[10px]">
           <caption className="sr-only">
             Gestão de OF consolidada por OF — uma linha por pedido, com uma coluna por processo.

@@ -150,7 +150,7 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
           />
         ) : (
           <>
-            <RomaneioList romaneios={romaneios} />
+            <RomaneioList romaneios={romaneios} filters={filters} />
             <RomaneioPagination filters={filters} total={total} />
           </>
         )}

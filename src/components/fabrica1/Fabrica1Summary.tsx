@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { AlertTriangle, Inbox, Truck } from "lucide-react";
 
 import type { KitOverdueTotals } from "@/lib/utils/child-item-groups";
+import type { ChildItemFilters } from "@/lib/types/order";
+import { childItemQueryString } from "@/lib/utils/filters";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +30,8 @@ interface Fabrica1SummaryProps {
    * GLOBAL (não respeita os filtros desta tela).
    */
   expedition?: { count: number; qty: number; weight: number };
+  /** Filtros ativos da tela Fábrica 1 — alimentam os cards clicáveis. */
+  filters: ChildItemFilters;
 }
 
 interface Card {
@@ -36,17 +41,22 @@ interface Card {
   tone?: "danger" | "success";
   /** Três números lado a lado (Registros, Qtd. total, Peso total). */
   details: { label: string; value: string }[];
+  /** Card clicável: filtro aplicado ao clicar (os demais filtros são mantidos). */
+  filter?: Partial<ChildItemFilters>;
+  /** true quando o filtro deste card já está ativo. */
+  active?: boolean;
 }
 
 /**
  * Resumo da Fábrica 1 — três cards no mesmo modelo da Fábrica 2: "Eventos"
  * e "Atrasados" com o conjunto FILTRADO inteiro (contagem de grupos; o
- * atraso é a regra da coluna KIT) e "KIT" com o KPI global de item
- * raiz. Somente os totais, sem quebra por família.
+ * atraso é a regra da coluna KIT) e "KIT" com o KPI global de item raiz.
+ * Somente os totais, sem quebra por família.
  *
- * Sem clique/filtro: os filtros desta tela são por período De→Até e pela
- * cadeia da Fábrica 1 — não existe atalho OVERDUE/EXP no modelo de
- * filtros de filho (diferente de F2/Gestão). Cards informativos.
+ * Cards clicáveis (mesmo modelo da Fábrica 2 / Gestão): o card "KIT" aplica
+ * o filtro de expedição concluída (EXP/CONCLUIDO) sobre a tela — o card
+ * "Atrasados" já exibe o recorte de grupos com o KIT vencido sobre o
+ * conjunto filtrado.
  */
 export function Fabrica1Summary({
   total,
@@ -54,6 +64,7 @@ export function Fabrica1Summary({
   weightTotal,
   kitOverdue,
   expedition,
+  filters,
 }: Fabrica1SummaryProps) {
   const cards: Card[] = [
     {
@@ -80,12 +91,14 @@ export function Fabrica1Summary({
         { label: "Peso total", value: `${formatWeight(kitOverdue.weight)} kg` },
       ],
     },
+    // 037: no modelo da Fábrica 1 o card da EXPEDIÇÃO do item raiz é o KIT.
     {
-      // 037: no modelo da Fábrica 1 o card da EXPEDIÇÃO do item raiz é o KIT.
       key: "kit",
       label: "KIT",
       icon: <Truck className="h-4 w-4" aria-hidden />,
       tone: "success",
+      filter: { processCode: "EXP", processStatus: "CONCLUIDO" },
+      active: filters.processCode === "EXP" && filters.processStatus === "CONCLUIDO",
       details: [
         { label: "Registros", value: formatQuantity(expedition?.count) },
         { label: "Qtd. total", value: formatQuantity(expedition?.qty) },
@@ -114,19 +127,40 @@ export function Fabrica1Summary({
             ))}
           </div>
         );
-
-        return (
-          <div
-            key={card.key}
-            className={cn(
-              "col-span-2 flex h-full flex-col gap-1 rounded border bg-card px-3 py-2",
-              card.tone === "danger" && "border-status-late/50 text-status-late",
-              card.tone === "success" && "border-status-done/50",
-            )}
-          >
+        const content = (
+          <>
             {title}
             {body}
-          </div>
+          </>
+        );
+        const className = cn(
+          "flex h-full flex-col gap-1 rounded border bg-card px-3 py-2 transition-colors col-span-2",
+          card.tone === "danger" && "border-status-late/50 text-status-late",
+          card.tone === "success" && "border-status-done/50",
+          card.filter !== undefined && "hover:border-border hover:bg-accent/40",
+          card.active && "border-primary bg-primary/5",
+        );
+
+        if (card.filter === undefined) {
+          return (
+            <div key={card.key} className={className}>
+              {content}
+            </div>
+          );
+        }
+
+        const next: ChildItemFilters = { ...filters, ...card.filter, page: 1 };
+        const query = childItemQueryString(next);
+        return (
+          <Link
+            key={card.key}
+            href={query ? `/fabrica-1?${query}` : "/fabrica-1"}
+            aria-label={`${card.label}: ${card.details[0].value} — aplicar filtro`}
+            aria-current={card.active ? "true" : undefined}
+            className={className}
+          >
+            {content}
+          </Link>
         );
       })}
     </section>

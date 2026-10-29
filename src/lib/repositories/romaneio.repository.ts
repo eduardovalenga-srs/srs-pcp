@@ -7,6 +7,7 @@ import type {
   RomaneioCandidate,
   RomaneioCandidateFilters,
   RomaneioFilters,
+  RomaneioSummary,
 } from "@/lib/types/romaneio";
 import type { RomaneioMaterialValues } from "@/lib/validators/romaneio.schema";
 import { escapeFilterTerm } from "@/lib/utils/filters";
@@ -76,21 +77,43 @@ export interface RawRomaneioDetails {
   romaneio_materials: RawRomaneioMaterial[];
 }
 
-interface RomaneioSummaryRow {
+/** Linha crua de `get_romaneios_page` (RPC 043) — agregados no banco. */
+interface RawRomaneiosPageRow {
+  total_count: number | string;
   id: string;
-  number: number;
+  number: number | string;
   order_id: string;
-  status: RomaneioStatus;
+  order_code: string | null;
+  customer_name: string | null;
+  order_delivery_date: string | null;
+  status: string;
   shipment_date: string | null;
   carrier: string | null;
+  item_count: number | string;
+  quantity_total: number | string;
+  weight_total: number | string | null;
   nf_number: string | null;
   return_nf_number: string | null;
+  pending_return: boolean;
   conference_accepted_at: string | null;
   emitted_at: string | null;
   created_at: string;
-  orders: { code: string; customer_name: string | null; delivery_date: string | null } | null;
-  romaneio_items: { quantity: number | string; order_items: { unit_weight_kg: number | string | null } | null }[];
-  romaneio_materials: { quantity_received: number | string | null; quantity_used: number | string | null }[];
+}
+
+/** Linha crua de `get_romaneio_candidates` (RPC 043). */
+interface RawRomaneioCandidateRow {
+  total_count: number | string;
+  order_id: string;
+  code: string;
+  type: string;
+  customer_name: string | null;
+  delivery_date: string | null;
+  status: string;
+  root_quantity: number | string;
+  root_weight_kg: number | string | null;
+  shipped_quantity: number | string;
+  has_simulation: boolean;
+  simulation_id: string | null;
 }
 
 /**
@@ -183,47 +206,32 @@ function applyRomaneioFilters<T>(
 }
 
 /**
- * Lista paginada de romaneios com filtros no banco (nº, OF/OS e
- * cliente via join em `orders`; período sobre a data de saída).
+ * Lista paginada de romaneios — RPC `get_romaneios_page` (043): filtros,
+ * ordenação da coluna escolhida na URL e os agregados (Qtd/Peso/pendência
+ * de devolução) computados no banco. Os cartões por situação continuam
+ * em PostgREST (`countRomaneiosByStatus`).
  */
 export async function listRomaneios(
   client: SupabaseServer,
   filters: RomaneioFilters,
-): Promise<{ rows: RomaneioSummaryRow[]; total: number }> {
-  const searchOrderIds = await resolveSearchOrderIds(client, filters);
-  const pageQuery = applyRomaneioFilters(
-    client.from("romaneios").select(
-      `id, number, order_id, status, shipment_date, carrier, nf_number, return_nf_number,
-       conference_accepted_at, emitted_at, created_at,
-       orders ( code, customer_name, delivery_date ),
-       romaneio_items ( quantity, order_items ( unit_weight_kg ) ),
-       romaneio_materials ( quantity_received, quantity_used )`,
-    ),
-    filters,
-    searchOrderIds,
-  );
-  // Filtro por path embutido (orders.code/customer_name) exige o recurso
-  // embutido NO select: sem isso o PostgREST responde 400 PGRST108
-  // ("'orders' is not an embedded resource in this request"). Como aqui é
-  // head+count a resposta vem sem corpo e o erro vira mensagem genérica
-  // na tela. O embed to-one não duplica a contagem.
-  const countQuery = applyRomaneioFilters(
-    client.from("romaneios").select("id, orders ( id )", { count: "exact", head: true }),
-    filters,
-    searchOrderIds,
-  );
+): Promise<{ rows: RomaneioSummary[]; total: number }> {
+  const { data, error } = await client.rpc("get_romaneios_page", {
+    p_search: escapeFilterTerm(filters.search) || null,
+    p_status: filters.status === "ALL" ? null : filters.status,
+    p_order_code: escapeFilterTerm(filters.orderCode) || null,
+    p_customer: escapeFilterTerm(filters.customer) || null,
+    p_shipment_from: filters.shipmentFrom || null,
+    p_shipment_to: filters.shipmentTo || null,
+    p_sort: filters.sort,
+    p_sort_dir: filters.sortDir,
+    p_offset: (filters.page - 1) * filters.pageSize,
+    p_limit: filters.pageSize,
+  });
+  assertOk(error, "Não foi possível carregar os romaneios");
 
-  const from = (filters.page - 1) * filters.pageSize;
-  const [pageResult, countResult] = await Promise.all([
-    pageQuery
-      .order("number", { ascending: false })
-      .range(from, from + filters.pageSize - 1),
-    countQuery,
-  ]);
-
-  assertOk(pageResult.error, "Não foi possível carregar os romaneios");
-  assertOk(countResult.error, "Não foi possível carregar os romaneios");
-  return { rows: (pageResult.data ?? []) as RomaneioSummaryRow[], total: countResult.count ?? 0 };
+  const rows = (data ?? []) as RawRomaneiosPageRow[];
+  const total = rows.length > 0 ? toNumber(rows[0].total_count) ?? 0 : 0;
+  return { rows: rows.map(mapRomaneioSummary), total };
 }
 
 /**
@@ -247,34 +255,28 @@ export async function countRomaneiosByStatus(
   return count ?? 0;
 }
 
-/** Converte a linha crua da listagem em campos numéricos prontos. */
-export function romaneioSummaryNumbers(row: RomaneioSummaryRow) {
-  let quantityTotal = 0;
-  let weightTotal: number | null = null;
-  let pendingReturn = false;
-  let hasWeight = true;
-
-  for (const item of row.romaneio_items ?? []) {
-    const quantity = toNumber(item.quantity) ?? 0;
-    quantityTotal += quantity;
-    const unitWeight = toNumber(item.order_items?.unit_weight_kg ?? null);
-    if (unitWeight === null) {
-      hasWeight = false;
-    } else {
-      weightTotal = (weightTotal ?? 0) + unitWeight * quantity;
-    }
-  }
-  if (!hasWeight) weightTotal = null;
-
-  for (const material of row.romaneio_materials ?? []) {
-    const received = toNumber(material.quantity_received);
-    const used = toNumber(material.quantity_used);
-    if (received !== null && used !== null && received - used > 0) {
-      pendingReturn = true;
-    }
-  }
-
-  return { quantityTotal, weightTotal, pendingReturn };
+/** Converte a linha da RPC `get_romaneios_page` no resumo da tela/export. */
+function mapRomaneioSummary(row: RawRomaneiosPageRow): RomaneioSummary {
+  return {
+    id: row.id,
+    number: toNumber(row.number) ?? 0,
+    orderId: row.order_id,
+    orderCode: row.order_code || "—",
+    customerName: row.customer_name || null,
+    orderDeliveryDate: row.order_delivery_date,
+    status: row.status as RomaneioStatus,
+    shipmentDate: row.shipment_date,
+    carrier: row.carrier,
+    itemCount: toNumber(row.item_count) ?? 0,
+    quantityTotal: toNumber(row.quantity_total) ?? 0,
+    weightTotal: toNumber(row.weight_total),
+    nfNumber: row.nf_number,
+    returnNfNumber: row.return_nf_number,
+    pendingReturn: row.pending_return,
+    conferenceAcceptedAt: row.conference_accepted_at,
+    emittedAt: row.emitted_at,
+    createdAt: row.created_at,
+  };
 }
 
 /**
@@ -365,130 +367,40 @@ export async function listOrderMaterialLines(
 
 /**
  * OFs candidatas a virar romaneio: não canceladas e com ao menos um
- * item raiz. A flag de simulação aberta sai dos romaneios embutidos.
+ * item raiz. RPC `get_romaneio_candidates` (043) — agregados (qtd/peso
+ * raiz, Σ já expedido, simulação aberta) e a ordenação da coluna
+ * escolhida na URL saem prontos do banco.
  */
 export async function listRomaneioCandidates(
   client: SupabaseServer,
   filters: RomaneioCandidateFilters,
 ): Promise<{ candidates: RomaneioCandidate[]; total: number }> {
-  const applySearch = <T>(query: T): T => {
-    const term = escapeFilterTerm(filters.search);
-    if (!term) return query;
-    return (
-      query as unknown as { or: (filter: string) => unknown }
-    ).or(`code.ilike.%${term}%,customer_name.ilike.%${term}%`) as T;
-  };
-
-  const pageQuery = applySearch(
-    client
-      .from("orders")
-      .select(
-        `id, code, type, customer_name, delivery_date, status,
-         order_items!inner ( id, quantity, unit_weight_kg ),
-         romaneios ( id, status )`,
-      )
-      .neq("status", "CANCELADO")
-      .is("order_items.parent_order_item_id", null),
-  );
-  // O filtro .is("order_items.parent_order_item_id", null) é por path
-  // embutido: o PostgREST só aceita se `order_items` estiver no select —
-  // sem isso responde 400 PGRST108 (e em head+count a mensagem se perde
-  // na resposta sem corpo). O !inner mantém "tem item raiz" como filtro
-  // de existência e a contagem segue distinta por OF.
-  const countQuery = applySearch(
-    client
-      .from("orders")
-      .select("id, order_items!inner ( id )", { count: "exact", head: true })
-      .neq("status", "CANCELADO")
-      .is("order_items.parent_order_item_id", null),
-  );
-
-  const from = (filters.page - 1) * filters.pageSize;
-  const [pageResult, countResult] = await Promise.all([
-    pageQuery
-      .order("delivery_date", { ascending: true, nullsFirst: false })
-      .order("code", { ascending: true })
-      .range(from, from + filters.pageSize - 1),
-    countQuery,
-  ]);
-
-  assertOk(pageResult.error, "Não foi possível carregar as OFs");
-  assertOk(countResult.error, "Não foi possível carregar as OFs");
-
-  type CandidateRow = {
-    id: string;
-    code: string;
-    type: OrderType;
-    customer_name: string | null;
-    delivery_date: string | null;
-    status: OrderStatus;
-    order_items: { quantity: number | string; unit_weight_kg: number | string | null }[];
-    romaneios: { id: string; status: RomaneioStatus }[] | null;
-  };
-
-  const rows = (pageResult.data ?? []) as CandidateRow[];
-  const orderIds = rows.map((row) => row.id);
-  const shipped = orderIds.length > 0
-    ? await listEmittedQuantityByOrderIds(client, orderIds)
-    : new Map<string, number>();
-
-  const candidates = rows.map((row): RomaneioCandidate => {
-    let rootQuantity = 0;
-    let rootWeightKg: number | null = 0;
-    for (const item of row.order_items) {
-      rootQuantity += toNumber(item.quantity) ?? 0;
-      const unitWeight = toNumber(item.unit_weight_kg);
-      if (unitWeight === null) {
-        rootWeightKg = null;
-      } else if (rootWeightKg !== null) {
-        rootWeightKg += unitWeight * (toNumber(item.quantity) ?? 0);
-      }
-    }
-    const simulation = (row.romaneios ?? []).find(
-      (romaneio) => romaneio.status === "SIMULACAO",
-    );
-    return {
-      orderId: row.id,
-      code: row.code,
-      type: row.type,
-      customerName: row.customer_name,
-      deliveryDate: row.delivery_date,
-      status: row.status,
-      rootQuantity,
-      rootWeightKg,
-      shippedQuantity: shipped.get(row.id) ?? 0,
-      hasSimulation: simulation !== undefined,
-      simulationId: simulation?.id ?? null,
-    };
+  const { data, error } = await client.rpc("get_romaneio_candidates", {
+    p_search: escapeFilterTerm(filters.search) || null,
+    p_sort: filters.sort,
+    p_sort_dir: filters.sortDir,
+    p_offset: (filters.page - 1) * filters.pageSize,
+    p_limit: filters.pageSize,
   });
+  assertOk(error, "Não foi possível carregar as OFs");
 
-  return { candidates, total: countResult.count ?? 0 };
-}
+  const rows = (data ?? []) as RawRomaneioCandidateRow[];
+  const total = rows.length > 0 ? toNumber(rows[0].total_count) ?? 0 : 0;
+  const candidates = rows.map((row): RomaneioCandidate => ({
+    orderId: row.order_id,
+    code: row.code,
+    type: row.type as OrderType,
+    customerName: row.customer_name || null,
+    deliveryDate: row.delivery_date,
+    status: row.status as OrderStatus,
+    rootQuantity: toNumber(row.root_quantity) ?? 0,
+    rootWeightKg: toNumber(row.root_weight_kg),
+    shippedQuantity: toNumber(row.shipped_quantity) ?? 0,
+    hasSimulation: row.has_simulation,
+    simulationId: row.simulation_id,
+  }));
 
-/** Σ de quantidade expedida (EMITIDO) por OF para um conjunto de OFs. */
-async function listEmittedQuantityByOrderIds(
-  client: SupabaseServer,
-  orderIds: string[],
-): Promise<Map<string, number>> {
-  const { data, error } = await client
-    .from("romaneio_items")
-    .select("quantity, romaneios!inner ( status, order_id )")
-    .eq("romaneios.status", "EMITIDO")
-    .in("romaneios.order_id", orderIds);
-  assertOk(error, "Não foi possível calcular a expedição já emitida");
-
-  // A quantidade emitida é do ITEM; para o seletor agregamos por OF via
-  // lookup dos itens — aqui devolvemos o total geral por romaneio-OF.
-  const totals = new Map<string, number>();
-  for (const row of (data ?? []) as {
-    quantity: number | string;
-    romaneios: { order_id: string } | null;
-  }[]) {
-    const orderId = row.romaneios?.order_id;
-    if (!orderId) continue;
-    totals.set(orderId, (totals.get(orderId) ?? 0) + (toNumber(row.quantity) ?? 0));
-  }
-  return totals;
+  return { candidates, total };
 }
 
 // ---------------------------------------------------------------------------

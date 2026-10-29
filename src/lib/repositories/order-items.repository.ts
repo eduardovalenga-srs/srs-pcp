@@ -392,10 +392,18 @@ export async function listChildItemGroups(
     p_weight_unit_min: filters.weightUnitMin,
     p_weight_unit_max: filters.weightUnitMax,
   };
+  const groupsRpcFilters = {
+    ...rpcFilters,
+    // 043: ordenação por coluna (whitelist do parser) — a RPC decide o
+    // ORDER BY no servidor. Só a listagem de grupos recebe: os totais
+    // (get_child_items_totals) não aceitam p_sort/p_sort_dir.
+    p_sort: filters.sort,
+    p_sort_dir: filters.sortDir,
+  };
   const from = (filters.page - 1) * filters.pageSize;
   const [groupsResult, totalsResult] = await Promise.all([
     client.rpc("get_child_item_groups", {
-      ...rpcFilters,
+      ...groupsRpcFilters,
       p_offset: from,
       p_limit: filters.pageSize,
     }),

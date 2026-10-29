@@ -76,6 +76,7 @@ cp .env.example .env.local
 #    supabase/migrations/040_import_material_prefix_serra_laser.sql
 #    supabase/migrations/041_filtered_overdue_expedition_totals.sql
 #    supabase/migrations/042_romaneio.sql
+#    supabase/migrations/043_column_sorting.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -148,7 +149,7 @@ src/
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..042 (ordem obrigatória)
+  migrations/               001..043 (ordem obrigatória)
   seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
@@ -452,8 +453,14 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   unitário EXIBIDO — só quando todos os membros coincidem, senão "—") e **uma
   situação por coluna de processo** (o backend aceita um filtro de processo por vez;
   ativar numa coluna substitui o de outra).
-  Ordenação fixa **seq do grupo (menor dos membros, sem número por último) → menor
-  entrega → chave** (determinística para a paginação);
+  **Ordenação por coluna** (043 — o cabeçalho do grupo passou a ser ordenável por
+  link; antes era a ordenação fixa abaixo): **Seq.** (igualdade sobre o MENOR seq do
+  grupo) é o **default** (asc; sem número por último; entrega como desempate → chave) e
+  as demais colunas (**OF/OS**, **Cliente**, **Filho**, **Matérias-primas**, **Qtd.**,
+  **Peso un.**, **Peso total**, **Entrega** e uma coluna de processo — MP ordena pelo
+  pior rank entre os **pais** distintos, os demais por rank agregado do grupo — viram
+  `p_sort` na RPC `get_child_item_groups` (via `?ordem=&direcao=`, ordenação server-side).
+  A ordenação fixa (seq → entrega → chave) era a forma anterior e segue como default.
   no rodapé, **"Por página"** (padrão **200**; opções **200/500/1000** — o mesmo padrão
   das demais listas: gestão, Fábrica 2 e Pedidos, que também ganhou o seletor; o teto de
   1000 vale para qualquer valor vindo da URL e as leituras da página rodam em **lotes de
@@ -575,6 +582,21 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   da OF** (a OF aparece se bater). Tudo mora na query
   string (link compartilhável, validado no client) e vira chip em "filtros ativos", com
   um filtro por chip e "Limpar filtros" para zerar tudo.
+- **Ordenação por coluna em TODAS as listas** (043): padrão **server-side via URL** —
+  o cabeçalho grava `?ordem=&direcao=`, o parser valida contra whitelist e a RPC ordena
+  com `p_sort`/`p_sort_dir`. Nunca client-side: a paginação é server-side, então o sort
+  acompanha a página.
+  - **Fábrica 1** — colunas de grupo + processos (códigos do catálogo; MP = pior rank
+    entre os pais, demais = pior rank agregado; default `seq` asc);
+  - **Fábrica 2 / Gestão** — `Seq.`, **OF/OS**, **Cliente**, **Qtd.**, **Peso**, **Entrega**,
+    **Atrasado** e colunas de processo; a **DP** (data de proposta) é calculada no banco
+    via `add_business_days` (migração 043);
+  - **Romaneio** (lista e seletor de OFs em `/romaneio/novo`) — nº, OF/OS, Cliente,
+    Situação, Saída, Itens, Qtd., Peso, NF saída/devolução (lista); OF/OS, Cliente, Entrega,
+    Situação, Qtd., Peso, Já expedida (seletor);
+  Defaults preservados (zero mudança visual sem clique): F1 = `seq` asc; F2/Gestão = `seq`/
+  `delivery_date` asc; Romaneio lista = nº desc; seletor = entrega asc.
+
 - **Resumo com três números**: os cards **OFs**, **Atrasados** e
   **Expedição** ocupam duas colunas cada e reúnem contagem, **Qtd. total**
   e **Peso total** (soma do **peso total** — qtd × peso unit.,

@@ -23,6 +23,7 @@ import {
   SeqEqualityFilter,
   TextColumnFilter,
 } from "@/components/shared/column-filters";
+import { SortLink } from "@/components/shared/SortLink";
 import { Button } from "@/components/ui/button";
 
 /** Grava um conjunto de filtros da Fábrica 1 na URL e volta para a primeira página. */
@@ -37,26 +38,47 @@ function useApplyChildItemFilters(filters: ChildItemFilters) {
 }
 
 /**
- * Cabeçalho de coluna da Fábrica 1: rótulo + filtro opcional.
- * Sem ordenação — a ordem das linhas é fixa (entrega → item pai → descrição).
+ * Cabeçalho de coluna da Fábrica 1: rótulo + ordenação (043, quando a
+ * coluna recebe `columnId`) + filtro opcional. Sem `columnId` o rótulo
+ * fica fixo (texto puro, sem link).
  */
 export function Fabrica1ColumnHeader({
   label,
   fullLabel,
+  columnId,
+  filters,
   filter,
 }: {
   label: string;
   fullLabel?: string;
+  /** Chave de ordenação (whitelist da Fábrica 1 ou código de processo). */
+  columnId?: string;
+  filters?: ChildItemFilters;
   filter?: ReactNode;
 }) {
+  const pathname = usePathname();
   const fullName = fullLabel ?? label;
 
   return (
     <span className="flex w-full items-center justify-between gap-1">
-      <span className="truncate px-1" title={fullName}>
-        <span aria-hidden>{label}</span>
-        <span className="sr-only">{fullName}</span>
-      </span>
+      {columnId && filters ? (
+        <SortLink
+          label={label}
+          fullName={fullName}
+          columnId={columnId}
+          sort={filters.sort}
+          sortDir={filters.sortDir}
+          buildHref={(next) => {
+            const query = childItemQueryString({ ...filters, ...next, page: 1 });
+            return query ? `${pathname}?${query}` : pathname;
+          }}
+        />
+      ) : (
+        <span className="truncate px-1" title={fullName}>
+          <span aria-hidden>{label}</span>
+          <span className="sr-only">{fullName}</span>
+        </span>
+      )}
       {filter}
     </span>
   );

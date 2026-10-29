@@ -1016,20 +1016,21 @@ describe("migrations", () => {
     );
     expect(functions[0]?.count).toBe("1");
 
-    // 20 argumentos = os 11 filtros + paginação (p_offset, p_limit) + os
-    // 7 filtros de grupo da 038 (seq e faixas de qtd/peso/peso un.).
+    // 22 argumentos = os 11 filtros + paginação (p_offset, p_limit) + os
+    // 7 filtros de grupo da 038 (seq e faixas de qtd/peso/peso un.) + os
+    // 2 de ordenação (p_sort, p_sort_dir — 043).
     const { rows: args } = await db.query<{ count: string }>(
       `select count(*)::text as count
          from pg_proc p
          join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'get_child_item_groups'
-          and p.pronargs = 20`,
+          and p.pronargs = 22`,
     );
     expect(args[0]?.count).toBe("1");
 
     // Grant na régua das RPCs de produção: authenticated executa.
     const sig =
-      "public.get_child_item_groups(text, text, text, text, text, text, uuid[], date, date, uuid, text, integer, integer, integer, numeric, numeric, numeric, numeric, numeric, numeric)";
+      "public.get_child_item_groups(text, text, text, text, text, text, uuid[], date, date, uuid, text, integer, integer, integer, numeric, numeric, numeric, numeric, numeric, numeric, text, text)";
     const { rows: grants } = await db.query<{ authenticated: boolean }>(
       `select has_function_privilege('authenticated', $1, 'EXECUTE') as authenticated`,
       [sig],
@@ -1148,12 +1149,13 @@ describe("migrations", () => {
     expect(columns[0]?.data_type).toBe("integer");
     expect(columns[0]?.is_nullable).toBe("YES");
 
-    // DROP + recriação das duas RPCs de produção: 1 função cada, assinaturas
-    // vigentes (23 e 19 params — a 038 acrescentou p_seq/p_op) e grants refeitos.
+    // DROP + recriação das RPCs de produção: 1 função cada, assinaturas
+    // vigentes (23 e 19 params — a 038 acrescentou p_seq/p_op; o groups subiu
+    // de 20 para 22 na 043 com p_sort/p_sort_dir) e grants refeitos.
     const { rows: fns } = await db.query<{
       rows_23: string;
       by_order_19: string;
-      groups_20: string;
+      groups_22: string;
       grants: boolean;
     }>(
       `select (select count(*)
@@ -1167,14 +1169,14 @@ describe("migrations", () => {
               (select count(*)
                  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                 where n.nspname = 'public' and p.proname = 'get_child_item_groups'
-                  and p.pronargs = 20)::text as groups_20,
+                  and p.pronargs = 22)::text as groups_22,
               has_function_privilege('authenticated',
                 'public.get_production_rows_by_order(text, text, text, text, text, date, text, text, integer, integer, text, text, numeric, numeric, numeric, numeric, date, date, integer)',
                 'EXECUTE') as grants`,
     );
     expect(fns[0]?.rows_23).toBe("1");
     expect(fns[0]?.by_order_19).toBe("1");
-    expect(fns[0]?.groups_20).toBe("1");
+    expect(fns[0]?.groups_22).toBe("1");
     expect(fns[0]?.grants).toBe(true);
 
     // OF-036 com dois pais (seq 2 e 1) e um sem número; um filho por pai.
@@ -1371,13 +1373,13 @@ describe("migrations", () => {
       families: { family: string | null; qty: number; weight: number }[];
     };
 
-    // 1 função cada RPC nas assinaturas NOVAS (23/19/20/18 params); as
+    // 1 função cada RPC nas assinaturas NOVAS (23/19/22/18 params); as
     // assinaturas antigas não sobram (DROP da 038) e o trigger existe.
     const { rows: meta } = await db.query<{
       trigger_count: string;
       rows_23: string;
       by_order_19: string;
-      groups_20: string;
+      groups_22: string;
       totals_18: string;
       old_rows: string;
       old_by_order: string;
@@ -1396,7 +1398,7 @@ describe("migrations", () => {
               (select count(*)::text
                  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                 where n.nspname = 'public' and p.proname = 'get_child_item_groups'
-                  and p.pronargs = 20) as groups_20,
+                  and p.pronargs = 22) as groups_22,
               (select count(*)::text
                  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                 where n.nspname = 'public' and p.proname = 'get_child_items_totals'
@@ -1421,7 +1423,7 @@ describe("migrations", () => {
     expect(meta[0]?.trigger_count).toBe("1");
     expect(meta[0]?.rows_23).toBe("1");
     expect(meta[0]?.by_order_19).toBe("1");
-    expect(meta[0]?.groups_20).toBe("1");
+    expect(meta[0]?.groups_22).toBe("1");
     expect(meta[0]?.totals_18).toBe("1");
     expect(meta[0]?.old_rows).toBe("0");
     expect(meta[0]?.old_by_order).toBe("0");

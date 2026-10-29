@@ -30,6 +30,11 @@ export const PRODUCTION_SORT_KEYS = [
   // 025: coluna "Peso total" da gestão de entregas consolidada por OF.
   // A Fábrica 2 não usa — a RPC dela ignora chaves fora da whitelist.
   "weight_total",
+  // 043: "Cli." (a Fábrica 2 passa a ordenar junto) e a DP (data de
+  // proposta) — a DP só existe na gestão; a RPC da Fábrica 2 não a
+  // reconhece e cai no default (entrega), sem quebrar nada.
+  "customer",
+  "proposal_date",
 ] as const;
 export type ProductionSortKey = (typeof PRODUCTION_SORT_KEYS)[number];
 
@@ -39,6 +44,78 @@ export type ProductionSortKey = (typeof PRODUCTION_SORT_KEYS)[number];
  * sequência nenhuma, tudo cai no desempate = comportamento de antes.
  */
 export const DEFAULT_PRODUCTION_SORT: ProductionSortKey = "seq";
+
+/**
+ * 043: chaves de ordenação da Fábrica 1 (colunas da lista de grupos de
+ * itens filhos). Os códigos de processo do catálogo também ordenam —
+ * validação separada (isValidProcessSort), como na produção.
+ */
+export const CHILD_ITEM_SORT_KEYS = [
+  "seq",
+  "order_code",
+  "customer",
+  "child_item",
+  "materials",
+  "quantity",
+  "unit_weight_kg",
+  "weight_total",
+  "delivery_date",
+] as const;
+export type ChildItemSortKey = (typeof CHILD_ITEM_SORT_KEYS)[number];
+
+/** Ordem default da Fábrica 1 — exatamente a ordem fixa de antes. */
+export const DEFAULT_CHILD_ITEM_SORT: ChildItemSortKey = "seq";
+
+export function isChildItemSortableColumn(value: string): value is ChildItemSortKey {
+  return (CHILD_ITEM_SORT_KEYS as readonly string[]).includes(value);
+}
+
+/**
+ * 043: chaves de ordenação da listagem de romaneios. `number` é o
+ * default (desc — os romaneios novos saem no topo).
+ */
+export const ROMANEIO_SORT_KEYS = [
+  "number",
+  "order_code",
+  "customer",
+  "status",
+  "shipment_date",
+  "item_count",
+  "quantity_total",
+  "weight_total",
+  "nf_number",
+  "return_nf_number",
+] as const;
+export type RomaneioSortKey = (typeof ROMANEIO_SORT_KEYS)[number];
+
+/** Ordem default da listagem de romaneios: nº decrescente. */
+export const DEFAULT_ROMANEIO_SORT: RomaneioSortKey = "number";
+export const DEFAULT_ROMANEIO_SORT_DIR: "asc" | "desc" = "desc";
+
+export function isRomaneioSortableColumn(value: string): value is RomaneioSortKey {
+  return (ROMANEIO_SORT_KEYS as readonly string[]).includes(value);
+}
+
+/**
+ * 043: chaves de ordenação do seletor de OFs de /romaneio/novo.
+ * `delivery_date` é o default (asc, nulls last) — a ordem de antes.
+ */
+export const ROMANEIO_CANDIDATE_SORT_KEYS = [
+  "order_code",
+  "customer",
+  "delivery_date",
+  "status",
+  "quantity",
+  "weight",
+  "shipped",
+] as const;
+export type RomaneioCandidateSortKey = (typeof ROMANEIO_CANDIDATE_SORT_KEYS)[number];
+
+export const DEFAULT_ROMANEIO_CANDIDATE_SORT: RomaneioCandidateSortKey = "delivery_date";
+
+export function isRomaneioCandidateSortableColumn(value: string): value is RomaneioCandidateSortKey {
+  return (ROMANEIO_CANDIDATE_SORT_KEYS as readonly string[]).includes(value);
+}
 
 /** Extrai o primeiro valor de um parâmetro de busca. */
 export function firstValue(value: string | string[] | undefined): string {
@@ -270,6 +347,15 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
     ? (processStatusRaw as ProcessStatus)
     : "ALL";
 
+  // 043: ordenação por coluna (whitelist + códigos de processo).
+  const sortRaw = firstValue(params.ordem).toLowerCase();
+  const sort =
+    isChildItemSortableColumn(sortRaw) || isValidProcessSort(sortRaw)
+      ? sortRaw
+      : DEFAULT_CHILD_ITEM_SORT;
+  const sortDirRaw = firstValue(params.direcao).toLowerCase();
+  const sortDir: "asc" | "desc" = sortDirRaw === "desc" ? "desc" : "asc";
+
   const pageRaw = Number.parseInt(firstValue(params.pagina), 10);
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
 
@@ -296,6 +382,8 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
     weightMax: numberParam(params, "pesomax"),
     weightUnitMin: numberParam(params, "pesounmin"),
     weightUnitMax: numberParam(params, "pesounmax"),
+    sort,
+    sortDir,
     page,
     pageSize,
   };
@@ -313,6 +401,13 @@ export function parseRomaneioFilters(params: SearchParamsRecord): RomaneioFilter
     ? (statusRaw as RomaneioStatus)
     : "ALL";
 
+  // 043: ordenação por coluna (whitelist fechada — sem código de processo).
+  const sortRaw = firstValue(params.ordem).toLowerCase();
+  const sort = isRomaneioSortableColumn(sortRaw) ? sortRaw : DEFAULT_ROMANEIO_SORT;
+  const sortDirRaw = firstValue(params.direcao).toLowerCase();
+  const sortDir: "asc" | "desc" =
+    sortDirRaw === "asc" || sortDirRaw === "desc" ? sortDirRaw : DEFAULT_ROMANEIO_SORT_DIR;
+
   const pageRaw = Number.parseInt(firstValue(params.pagina), 10);
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
 
@@ -326,6 +421,8 @@ export function parseRomaneioFilters(params: SearchParamsRecord): RomaneioFilter
     customer: textParam(params, "cliente"),
     shipmentFrom: dateParam(params, "saidade"),
     shipmentTo: dateParam(params, "saidaate"),
+    sort,
+    sortDir,
     page,
     pageSize,
   };
@@ -344,6 +441,11 @@ export function romaneioQueryString(
     cliente: next.customer || undefined,
     saidade: next.shipmentFrom || undefined,
     saidaate: next.shipmentTo || undefined,
+    ordem: next.sort === DEFAULT_ROMANEIO_SORT ? undefined : next.sort,
+    // `direcao` só sobrevive quando difere do default da tela (desc) —
+    // no default, "asc" sobrevive sozinho (`?direcao=asc` reparseia na
+    // chave padrão), senão a coluna ativa nunca conseguiria inverter.
+    direcao: next.sortDir === DEFAULT_ROMANEIO_SORT_DIR ? undefined : next.sortDir,
     pagina: next.page === 1 ? undefined : next.page,
     porpagina: next.pageSize === ROMANEIO_PAGE_SIZE ? undefined : next.pageSize,
   });
@@ -353,6 +455,14 @@ export function romaneioQueryString(
 export function parseRomaneioCandidateFilters(
   params: SearchParamsRecord,
 ): RomaneioCandidateFilters {
+  // 043: ordenação por coluna (whitelist fechada).
+  const sortRaw = firstValue(params.ordem).toLowerCase();
+  const sort = isRomaneioCandidateSortableColumn(sortRaw)
+    ? sortRaw
+    : DEFAULT_ROMANEIO_CANDIDATE_SORT;
+  const sortDirRaw = firstValue(params.direcao).toLowerCase();
+  const sortDir: "asc" | "desc" = sortDirRaw === "desc" ? "desc" : "asc";
+
   const pageRaw = Number.parseInt(firstValue(params.pagina), 10);
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
 
@@ -361,6 +471,8 @@ export function parseRomaneioCandidateFilters(
 
   return {
     search: firstValue(params.q).trim().slice(0, MAX_COLUMN_FILTER_LENGTH),
+    sort,
+    sortDir,
     page,
     pageSize,
   };
@@ -374,6 +486,9 @@ export function romaneioCandidateQueryString(
   const next = { ...filters, ...overrides };
   return toSearchParams({
     q: next.search || undefined,
+    ordem: next.sort === DEFAULT_ROMANEIO_CANDIDATE_SORT ? undefined : next.sort,
+    // `direcao` só sobrevive quando difere do default da tela (asc).
+    direcao: next.sortDir === "asc" ? undefined : next.sortDir,
     pagina: next.page === 1 ? undefined : next.page,
     porpagina: next.pageSize === ROMANEIO_PAGE_SIZE ? undefined : next.pageSize,
   });
@@ -462,6 +577,11 @@ export function childItemQueryString(
     pesomax: next.weightMax ?? undefined,
     pesounmin: next.weightUnitMin ?? undefined,
     pesounmax: next.weightUnitMax ?? undefined,
+    ordem: next.sort === DEFAULT_CHILD_ITEM_SORT ? undefined : next.sort,
+    // `direcao` cai só quando é "asc" (o default da tela) — no default,
+    // "desc" sobrevive sozinha na URL, senão a coluna ativa nunca
+    // conseguiria inverter a ordem.
+    direcao: next.sortDir === "asc" ? undefined : next.sortDir,
     pagina: next.page === 1 ? undefined : next.page,
     porpagina: next.pageSize === CHILD_ITEMS_PAGE_SIZE ? undefined : next.pageSize,
   });

@@ -302,6 +302,45 @@ export type RomaneioMaterialRow = {
   updated_at: string;
 };
 
+/** Linha retornada pela RPC get_romaneios_page (043) — agregados no banco. */
+export type RomaneioPageRow = {
+  total_count: number;
+  id: string;
+  number: number | string;
+  order_id: string;
+  order_code: string | null;
+  customer_name: string | null;
+  order_delivery_date: string | null;
+  status: string;
+  shipment_date: string | null;
+  carrier: string | null;
+  item_count: number | string;
+  quantity_total: number | string;
+  weight_total: number | string | null;
+  nf_number: string | null;
+  return_nf_number: string | null;
+  pending_return: boolean;
+  conference_accepted_at: string | null;
+  emitted_at: string | null;
+  created_at: string;
+};
+
+/** Linha retornada pela RPC get_romaneio_candidates (043). */
+export type RomaneioCandidateRow = {
+  total_count: number;
+  order_id: string;
+  code: string;
+  type: string;
+  customer_name: string | null;
+  delivery_date: string | null;
+  status: string;
+  root_quantity: number | string;
+  root_weight_kg: number | string | null;
+  shipped_quantity: number | string;
+  has_simulation: boolean;
+  simulation_id: string | null;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -791,6 +830,17 @@ export type Database = {
           p_process_status?: string | null;
           p_offset?: number;
           p_limit?: number;
+          // 038: seq por igualdade + faixas sobre os AGREGADOS do grupo.
+          p_seq?: number | null;
+          p_qty_min?: number | null;
+          p_qty_max?: number | null;
+          p_weight_min?: number | null;
+          p_weight_max?: number | null;
+          p_weight_unit_min?: number | null;
+          p_weight_unit_max?: number | null;
+          // 043: ordenação por coluna (whitelist do parser).
+          p_sort?: string | null;
+          p_sort_dir?: string | null;
         };
         Returns: Json;
       };
@@ -859,6 +909,33 @@ export type Database = {
           childrenUpdated: number;
           itemsRemoved: number;
         };
+      };
+      get_romaneios_page: {
+        // listagem de romaneios com ordenação por coluna (043)
+        Args: {
+          p_search?: string | null;
+          p_status?: string | null;
+          p_order_code?: string | null;
+          p_customer?: string | null;
+          p_shipment_from?: string | null;
+          p_shipment_to?: string | null;
+          p_sort?: string | null;
+          p_sort_dir?: string | null;
+          p_offset?: number | null;
+          p_limit?: number | null;
+        };
+        Returns: RomaneioPageRow[];
+      };
+      get_romaneio_candidates: {
+        // seletor de OFs candidatas com ordenação (043)
+        Args: {
+          p_search?: string | null;
+          p_sort?: string | null;
+          p_sort_dir?: string | null;
+          p_offset?: number | null;
+          p_limit?: number | null;
+        };
+        Returns: RomaneioCandidateRow[];
       };
     };
     Enums: Record<string, never>;

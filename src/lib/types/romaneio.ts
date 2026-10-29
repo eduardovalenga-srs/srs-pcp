@@ -40,6 +40,9 @@ export interface RomaneioFilters {
   /** Período da data de saída (inclusivo, lados opcionais). */
   shipmentFrom: string | null;
   shipmentTo: string | null;
+  /** 043: chave de ordenação (whitelist fechada da RPC de listagem). */
+  sort: string;
+  sortDir: "asc" | "desc";
   page: number;
   pageSize: number;
 }
@@ -159,6 +162,9 @@ export interface RomaneioCandidate {
 /** Filtros do seletor de OFs em /romaneio/novo. */
 export interface RomaneioCandidateFilters {
   search: string;
+  /** 043: chave de ordenação (whitelist fechada da RPC de candidatos). */
+  sort: string;
+  sortDir: "asc" | "desc";
   page: number;
   pageSize: number;
 }

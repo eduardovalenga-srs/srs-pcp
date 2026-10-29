@@ -50,6 +50,28 @@ interface Fabrica1TableProps {
 
 const helper = createColumnHelper<CoreFeatures, ChildItemGroup>();
 
+/**
+ * 043: id da coluna (TanStack) → chave de ordenação aceita pela RPC.
+ * As colunas de processo usam o próprio código (id = código = chave).
+ */
+const SORT_KEY_BY_COLUMN_ID: Record<string, string> = {
+  seq: "seq",
+  order: "order_code",
+  customer: "customer",
+  childItem: "child_item",
+  materials: "materials",
+  quantity: "quantity",
+  unitWeightKg: "unit_weight_kg",
+  totalWeight: "weight_total",
+  deliveryDate: "delivery_date",
+};
+
+/** Chave de ordenação de uma coluna folha (null = não ordenável). */
+function sortKeyForHeader(headerId: string, isLeaf: boolean): string | null {
+  if (!isLeaf) return null;
+  return SORT_KEY_BY_COLUMN_ID[headerId] ?? headerId;
+}
+
 /** Processo editável nesta tela: as etapas de sub-item e o KIT (nunca o MP). */
 function isEditableProcess(code: string): boolean {
   return (FABRICA1_EDITABLE_PROCESS_CODES as readonly string[]).includes(code);
@@ -361,6 +383,8 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
           <Fabrica1ColumnHeader
             label="Seq."
             fullLabel="Sequência de fabricação"
+            columnId="seq"
+            filters={filters}
             filter={<Fabrica1SeqFilter filters={filters} />}
           />
         ),
@@ -381,6 +405,8 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         header: () => (
           <Fabrica1ColumnHeader
             label="OF/OS"
+            columnId="order_code"
+            filters={filters}
             filter={
               <Fabrica1TextFilter filters={filters} field="orderCode" column="OF/OS" context="OF/OS" />
             }
@@ -404,6 +430,8 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
           <Fabrica1ColumnHeader
             label="Cli."
             fullLabel="Cliente"
+            columnId="customer"
+            filters={filters}
             filter={
               <Fabrica1TextFilter filters={filters} field="customer" column="Cliente" context="cliente" />
             }
@@ -416,7 +444,14 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
       // aceito na URL para links antigos).
       helper.accessor("childItem", {
         id: "childItem",
-        header: () => <Fabrica1ColumnHeader label="Filho" filter={<Fabrica1ChildItemFilter filters={filters} />} />,
+        header: () => (
+          <Fabrica1ColumnHeader
+            label="Filho"
+            columnId="child_item"
+            filters={filters}
+            filter={<Fabrica1ChildItemFilter filters={filters} />}
+          />
+        ),
         cell: (info) => {
           const row = info.row.original;
           // Coluna só com o CÓDIGO — sem descrição nem "×N" para não poluir
@@ -436,6 +471,8 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         header: () => (
           <Fabrica1ColumnHeader
             label="Matérias-primas"
+            columnId="materials"
+            filters={filters}
             filter={
               <Fabrica1TextFilter
                 filters={filters}
@@ -453,6 +490,8 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         header: () => (
           <Fabrica1ColumnHeader
             label="Qtd."
+            columnId="quantity"
+            filters={filters}
             filter={
               <Fabrica1NumericFilter
                 filters={filters}
@@ -472,6 +511,8 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
           <Fabrica1ColumnHeader
             label="Peso un."
             fullLabel="Peso unitário"
+            columnId="unit_weight_kg"
+            filters={filters}
             filter={
               <Fabrica1NumericFilter
                 filters={filters}
@@ -491,6 +532,8 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         header: () => (
           <Fabrica1ColumnHeader
             label="Peso total"
+            columnId="weight_total"
+            filters={filters}
             filter={
               <Fabrica1NumericFilter
                 filters={filters}
@@ -515,6 +558,8 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
           <Fabrica1ColumnHeader
             label="Ent."
             fullLabel="Entrega"
+            columnId="delivery_date"
+            filters={filters}
             filter={<Fabrica1DeliveryFilter filters={filters} />}
           />
         ),
@@ -536,6 +581,8 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
           header: () => (
             <Fabrica1ColumnHeader
               label={process.code}
+              columnId={process.code}
+              filters={filters}
               filter={<Fabrica1ProcessColumnFilter filters={filters} code={process.code} />}
             />
           ),
@@ -607,7 +654,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
   return (
     <>
       {/* Desktop / tablet: tabela com rolagem própria e cabeçalho fixo */}
-      <div className="hidden max-h-[calc(100vh-8rem)] overflow-auto rounded border bg-card lg:block">
+      <div className="hidden max-h-[calc(100vh-5rem)] overflow-auto rounded border bg-card lg:block">
         <table className="w-full caption-bottom text-[10px]">
           <caption className="sr-only">
             Itens filhos das OFs agrupados por código: uma coluna por processo da cadeia da
@@ -619,11 +666,20 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
                 {headerGroup.headers.map((header) => {
                   const isLeaf = header.subHeaders.length === 0;
                   const isFirstLeaf = isLeaf && header.index === 0;
+                  // 043: sinaliza a coluna ordenada para leitores de tela.
+                  const sortKey = sortKeyForHeader(header.id, isLeaf);
                   return (
                     <th
                       key={header.id}
                       colSpan={header.colSpan}
                       scope={isLeaf ? "col" : "colgroup"}
+                      aria-sort={
+                        sortKey && filters.sort === sortKey
+                          ? filters.sortDir === "asc"
+                            ? "ascending"
+                            : "descending"
+                          : undefined
+                      }
                       className={cn(
                         "h-9 whitespace-nowrap px-1.5 text-left align-middle text-[10px] font-semibold uppercase tracking-wide text-muted-foreground",
                         // Cabeçalho fixo: as duas linhas grudam no topo da rolagem.

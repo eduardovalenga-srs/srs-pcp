@@ -293,6 +293,7 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
           <Fabrica2ColumnHeader
             label="Cli."
             fullLabel="Cliente"
+            columnId="customer"
             filters={filters}
             filter={<Fabrica2TextColumnFilter filters={filters} field="customer" column="Cliente" context="cliente" />}
           />
@@ -494,7 +495,7 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
   return (
     <>
       {/* Desktop / tablet: tabela com rolagem própria e cabeçalho fixo */}
-      <div className="hidden max-h-[calc(100vh-8rem)] overflow-auto rounded border bg-card lg:block">
+      <div className="hidden max-h-[calc(100vh-5rem)] overflow-auto rounded border bg-card lg:block">
         <table className="w-full caption-bottom text-[10px]">
           <caption className="sr-only">
             Fábrica 2 — acompanhamento por item, com uma coluna por processo do fluxo fabril.

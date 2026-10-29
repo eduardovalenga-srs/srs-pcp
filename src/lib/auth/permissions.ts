@@ -25,7 +25,11 @@ export type Capability =
   | "fabrica2.view"
   | "menu.fabrica2"
   | "menu.settings"
-  | "menu.romaneio";
+  | "menu.romaneio"
+  // 043: módulo RH (sidebar agrupada).
+  | "menu.rh"
+  | "rh.view"
+  | "rh.manage";
 
 const CAPABILITIES: Record<Role, readonly Capability[]> = {
   ADMIN: [
@@ -53,6 +57,10 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "menu.fabrica2",
     "menu.settings",
     "menu.romaneio",
+    // 043: RH — admin gerencia (cadastro completo).
+    "menu.rh",
+    "rh.view",
+    "rh.manage",
   ],
   GESTOR: [
     "production.view",
@@ -63,11 +71,9 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "orders.create",
     "orders.edit",
     "orders.delete",
-    "dashboard.view",
     "import.access",
     "processes.view",
     "menu.gestao",
-    "menu.dashboard",
     "menu.processes",
     "menu.fabrica1",
     "fabrica2.view",
@@ -79,7 +85,17 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
   // OPERADOR não vê a gestão de entregas (menu nem página): o trabalho dele
   // entra pela Fábrica 1 → link da OF → folha do processo em /pedidos/[id].
   // Romaneio: view sem menu (acesso pela URL, ex.: consulta na expedição).
-  OPERADOR: ["production.update_status", "orders.view", "menu.fabrica1", "romaneio.view"],
+  OPERADOR: [
+    "production.update_status",
+    "orders.view",
+    // 043: Dashboard (menu + página) e RH (grupo + item) são de ADMIN e OPERADOR.
+    "menu.dashboard",
+    "dashboard.view",
+    "menu.rh",
+    "rh.view",
+    "menu.fabrica1",
+    "romaneio.view",
+  ],
   VISUALIZADOR: [
     "production.view",
     "orders.view",

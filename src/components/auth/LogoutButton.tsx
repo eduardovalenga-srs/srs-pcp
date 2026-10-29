@@ -8,7 +8,7 @@ import { logoutAction } from "@/lib/actions/auth.actions";
 import { Button } from "@/components/ui/button";
 
 /**
- * Sair imperativo (mesmo padrão do TopNav): encerra a sessão no Supabase
+ * Sair imperativo (mesmo padrão do UserMenu): encerra a sessão no Supabase
  * e leva ao /login. Usado na rota terminal /acesso-negado, onde o layout
  * autenticado não existe.
  */

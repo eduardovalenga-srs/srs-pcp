@@ -20,7 +20,6 @@ import {
   listOrderMaterialLines,
   listRomaneioCandidates,
   listRomaneios,
-  romaneioSummaryNumbers,
   saveRomaneioRpc,
   signRomaneioConferenceRpc,
   updateRomaneioNfNumbers,
@@ -37,31 +36,6 @@ import {
   type StoredMaterialLine,
 } from "@/lib/utils/romaneio";
 
-/** Converte a linha crua do repository no resumo da tela/exportação. */
-function mapRomaneioSummary(row: Parameters<typeof romaneioSummaryNumbers>[0]): RomaneioSummary {
-  const numbers = romaneioSummaryNumbers(row);
-  return {
-    id: row.id,
-    number: row.number,
-    orderId: row.order_id,
-    orderCode: row.orders?.code ?? "—",
-    customerName: row.orders?.customer_name ?? null,
-    orderDeliveryDate: row.orders?.delivery_date ?? null,
-    status: row.status,
-    shipmentDate: row.shipment_date,
-    carrier: row.carrier,
-    itemCount: row.romaneio_items?.length ?? 0,
-    quantityTotal: numbers.quantityTotal,
-    weightTotal: numbers.weightTotal,
-    nfNumber: row.nf_number,
-    returnNfNumber: row.return_nf_number,
-    pendingReturn: numbers.pendingReturn,
-    conferenceAcceptedAt: row.conference_accepted_at,
-    emittedAt: row.emitted_at,
-    createdAt: row.created_at,
-  };
-}
-
 /** Lista paginada de romaneios + cartões de resumo por situação. */
 export async function getRomaneiosPage(
   client: SupabaseServer,
@@ -74,7 +48,7 @@ export async function getRomaneiosPage(
   ]);
 
   return {
-    romaneios: page.rows.map(mapRomaneioSummary),
+    romaneios: page.rows,
     total: page.total,
     simulationCount,
     emittedCount,
@@ -86,10 +60,9 @@ export async function listRomaneiosForExport(
   client: SupabaseServer,
   filters: RomaneioFilters,
 ): Promise<RomaneioSummary[]> {
-  const rows = await collectAllPages((page) =>
+  return collectAllPages((page) =>
     listRomaneios(client, { ...filters, page, pageSize: EXPORT_PAGE_SIZE }),
   );
-  return rows.map(mapRomaneioSummary);
 }
 
 /** Seletor de OFs candidatas em /romaneio/novo. */
