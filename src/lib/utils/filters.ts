@@ -1,7 +1,7 @@
 import { DELIVERY_FILTERS, DELIVERY_LABELS, PRODUCTION_PAGE_SIZE, PRODUCTION_PAGE_SIZE_OPTIONS, MAX_PAGE_SIZE, ORDERS_PAGE_SIZE, CHILD_ITEMS_PAGE_SIZE, ROMANEIO_PAGE_SIZE, type DeliveryFilter } from "@/lib/constants/pagination";
 import { ORDER_STATUSES, ORDER_STATUS_LABELS, type OrderStatus } from "@/lib/constants/orders";
 import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, type ProcessStatus } from "@/lib/constants/production";
-import { ROMANEIO_STATUSES, type RomaneioStatus } from "@/lib/constants/romaneio";
+import { ROMANEIO_STATUSES, ROMANEIO_STATUS_LABELS, type RomaneioStatus } from "@/lib/constants/romaneio";
 import type { ChildItemFilters, OrderFilters } from "@/lib/types/order";
 import type { ProductionFilters } from "@/lib/types/production";
 import type { RomaneioCandidateFilters, RomaneioFilters } from "@/lib/types/romaneio";
@@ -733,6 +733,13 @@ function deliveryPeriodLabel(from: string | null, to: string | null): string {
   return `Período de entrega: até ${formatDate(to)}`;
 }
 
+/** Rótulo do chip do período de saída do romaneio (lados opcionais). */
+function shipmentPeriodLabel(from: string | null, to: string | null): string {
+  if (from && to) return `Período de saída: ${formatDate(from)} – ${formatDate(to)}`;
+  if (from) return `Período de saída: a partir de ${formatDate(from)}`;
+  return `Período de saída: até ${formatDate(to)}`;
+}
+
 function rangeChipLabel(
   column: string,
   min: number | null,
@@ -831,6 +838,52 @@ export function activeFilterChips(filters: ProductionFilters): ActiveFilterChip[
       key: "weight",
       label: rangeChipLabel("Peso un.", filters.weightMin, filters.weightMax, formatWeight),
       clear: { weightMin: null, weightMax: null },
+    });
+  }
+
+  return chips;
+}
+
+export interface RomaneioFilterChip {
+  key: "search" | "status" | "orderCode" | "customer" | "shipmentPeriod";
+  label: string;
+  /** Como desligar só este filtro, mantendo os demais. */
+  clear: Partial<RomaneioFilters>;
+}
+
+/**
+ * Chips de "filtros ativos" da listagem de romaneios — um chip por filtro
+ * ligado (busca, situação e filtros de coluna), com o ajuste exato para
+ * removê-lo individualmente.
+ */
+export function romaneioFilterChips(filters: RomaneioFilters): RomaneioFilterChip[] {
+  const chips: RomaneioFilterChip[] = [];
+
+  if (filters.search) {
+    chips.push({ key: "search", label: `Busca: ${filters.search}`, clear: { search: "" } });
+  }
+
+  if (filters.status !== "ALL") {
+    chips.push({
+      key: "status",
+      label: `Situação: ${ROMANEIO_STATUS_LABELS[filters.status]}`,
+      clear: { status: "ALL" },
+    });
+  }
+
+  if (filters.orderCode) {
+    chips.push({ key: "orderCode", label: `OF/OS: ${filters.orderCode}`, clear: { orderCode: "" } });
+  }
+
+  if (filters.customer) {
+    chips.push({ key: "customer", label: `Cliente: ${filters.customer}`, clear: { customer: "" } });
+  }
+
+  if (filters.shipmentFrom || filters.shipmentTo) {
+    chips.push({
+      key: "shipmentPeriod",
+      label: shipmentPeriodLabel(filters.shipmentFrom, filters.shipmentTo),
+      clear: { shipmentFrom: null, shipmentTo: null },
     });
   }
 

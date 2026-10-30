@@ -24,7 +24,11 @@ interface RomaneioFiltersProps {
   filters: RomaneioFilterValues;
 }
 
-/** Filtros da listagem de romaneios — busca, situação, OF, cliente e saída. */
+/**
+ * Barra de filtros da listagem de romaneios no MOBILE (nos cards não há
+ * cabeçalho de coluna): busca, situação, OF, cliente e saída. No desktop
+ * os filtros ficam nos cabeçalhos das colunas (RomaneioColumnHeaders).
+ */
 export function RomaneioFilters({ filters }: RomaneioFiltersProps) {
   const router = useRouter();
   const pathname = usePathname();

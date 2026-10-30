@@ -16,6 +16,7 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { RomaneioActiveFilters } from "@/components/romaneio/RomaneioColumnHeaders";
 import { RomaneioFilters } from "@/components/romaneio/RomaneioFilters";
 import { RomaneioList } from "@/components/romaneio/RomaneioList";
 import { RomaneioPagination } from "@/components/romaneio/RomaneioPagination";
@@ -125,7 +126,13 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
           />
         </div>
 
-        <RomaneioFilters filters={filters} />
+        {/* Mobile: barra de filtros (no desktop os filtros ficam nos cabeçalhos). */}
+        <div className="lg:hidden">
+          <RomaneioFilters filters={filters} />
+        </div>
+
+        {/* Chips de filtros ativos: removem um a um ou limpam tudo. */}
+        <RomaneioActiveFilters filters={filters} />
 
         {romaneios.length === 0 ? (
           <EmptyState

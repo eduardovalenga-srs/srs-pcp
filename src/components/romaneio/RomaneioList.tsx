@@ -12,10 +12,16 @@ import { SortLink, type SortState } from "@/components/shared/SortLink";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RomaneioStatusBadge } from "@/components/romaneio/RomaneioStatusBadge";
+import {
+  RomaneioColumnHeader,
+  RomaneioShipmentFilter,
+  RomaneioStatusFilter,
+  RomaneioTextFilter,
+} from "@/components/romaneio/RomaneioColumnHeaders";
 
 interface RomaneioListProps {
   romaneios: RomaneioSummary[];
-  /** 043: estado de ordenação vigente (URL) — cada header vira SortLink. */
+  /** Filtros vigentes (URL) — cada cabeçalho ordena e filtra a coluna. */
   filters: RomaneioFilters;
 }
 
@@ -33,7 +39,9 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
   const pathname = usePathname();
 
   // 043: servidor decide a ordem via URL (?ordem=&direcao=) — a lista
-  // nunca ordena no client (a paginação é server-side).
+  // nunca ordena no client (a paginação é server-side). Os cabeçalhos
+  // com filtro combinam ordenação + funil no mesmo espaço (padrão das
+  // demais telas de lista); os demais ficam só ordenáveis.
   const buildHref = (next: SortState) => {
     const query = romaneioQueryString({ ...filters, ...next, page: 1 });
     return query ? `${pathname}?${query}` : pathname;
@@ -69,16 +77,51 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
                 {sortable("Nº", "Número", "number")}
               </th>
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("order_code")}>
-                {sortable("OF/OS", "OF/OS", "order_code")}
+                <RomaneioColumnHeader
+                  label="OF/OS"
+                  columnId="order_code"
+                  filters={filters}
+                  filter={
+                    <RomaneioTextFilter
+                      filters={filters}
+                      field="orderCode"
+                      column="OF/OS"
+                      context="OF/OS"
+                    />
+                  }
+                />
               </th>
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("customer")}>
-                {sortable("Cliente", "Cliente", "customer")}
+                <RomaneioColumnHeader
+                  label="Cliente"
+                  columnId="customer"
+                  filters={filters}
+                  filter={
+                    <RomaneioTextFilter
+                      filters={filters}
+                      field="customer"
+                      column="Cliente"
+                      context="cliente"
+                    />
+                  }
+                />
               </th>
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("status")}>
-                {sortable("Situação", "Situação", "status")}
+                <RomaneioColumnHeader
+                  label="Situação"
+                  columnId="status"
+                  filters={filters}
+                  filter={<RomaneioStatusFilter filters={filters} />}
+                />
               </th>
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("shipment_date")}>
-                {sortable("Saída", "Data de saída", "shipment_date")}
+                <RomaneioColumnHeader
+                  label="Saída"
+                  fullLabel="Data de saída"
+                  columnId="shipment_date"
+                  filters={filters}
+                  filter={<RomaneioShipmentFilter filters={filters} />}
+                />
               </th>
               <th scope="col" className="px-3 py-2 text-right font-semibold" aria-sort={ariaSort("item_count")}>
                 {sortable("Itens", "Itens", "item_count")}

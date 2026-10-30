@@ -4,6 +4,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { RomaneioList } from "@/components/romaneio/RomaneioList";
 import { RomaneioOrderPicker } from "@/components/romaneio/RomaneioOrderPicker";
+import {
+  RomaneioActiveFilters,
+  RomaneioShipmentFilter,
+  RomaneioStatusFilter,
+  RomaneioTextFilter,
+} from "@/components/romaneio/RomaneioColumnHeaders";
 import { parseRomaneioCandidateFilters, parseRomaneioFilters } from "@/lib/utils/filters";
 import type { RomaneioCandidate, RomaneioSummary } from "@/lib/types/romaneio";
 
@@ -110,6 +116,107 @@ describe("cabeçalhos de ordenação — RomaneioList (/romaneio)", () => {
     expect(table).toContain('href="/romaneio?ordem=status&amp;direcao=asc"');
     expect(table).toContain('aria-label="Ordenar por OF/OS"');
     expect(table).toContain('aria-label="Ordenar por Situação"');
+  });
+
+  it("cabeçalhos de OF/OS, Cliente, Situação e Saída carregam o funil de filtro", () => {
+    const markup = html(
+      createElement(RomaneioList, { romaneios: [summary()], filters: parseRomaneioFilters({}) }),
+    );
+    const table = tableMarkup(markup);
+    expect(table).toContain('aria-label="Filtrar por OF/OS"');
+    expect(table).toContain('aria-label="Filtrar por cliente"');
+    expect(table).toContain('aria-label="Filtrar por situação do romaneio"');
+    expect(table).toContain('aria-label="Filtrar por saída"');
+    // Sem filtro ligado, nenhum funil aparece preenchido.
+    expect(table).not.toContain("fill-current");
+    // Colunas sem filtro (Nº, Itens, Qtd, Peso, NFs e Ações) ficam só ordenáveis.
+    expect(table).not.toContain("Filtrar por número");
+    expect(table).not.toContain("Filtrar por NF");
+  });
+});
+
+describe("filtros por coluna — listagem de romaneios", () => {
+  it("texto (OF/OS e Cliente) — \"contém\" com sinalização de ativo", () => {
+    const inativo = html(
+      createElement(RomaneioTextFilter, {
+        filters: parseRomaneioFilters({}),
+        field: "customer",
+        column: "Cliente",
+        context: "cliente",
+      }),
+    );
+    expect(inativo).toContain('aria-label="Filtrar por cliente"');
+    expect(inativo).not.toContain("fill-current");
+
+    const ativo = html(
+      createElement(RomaneioTextFilter, {
+        filters: parseRomaneioFilters({ cliente: "ACME" }),
+        field: "customer",
+        column: "Cliente",
+        context: "cliente",
+      }),
+    );
+    expect(ativo).toContain('aria-label="Filtrar por cliente — filtro ativo"');
+    expect(ativo).toContain("fill-current");
+  });
+
+  it("situação — menu com as opções de romaneio e sinalização de ativo", () => {
+    const inativo = html(
+      createElement(RomaneioStatusFilter, { filters: parseRomaneioFilters({}) }),
+    );
+    expect(inativo).toContain('aria-label="Filtrar por situação do romaneio"');
+    expect(inativo).not.toContain("fill-current");
+
+    const ativo = html(
+      createElement(RomaneioStatusFilter, { filters: parseRomaneioFilters({ status: "EMITIDO" }) }),
+    );
+    expect(ativo).toContain('aria-label="Filtrar por situação do romaneio — filtro ativo"');
+    expect(ativo).toContain("fill-current");
+  });
+
+  it("saída — período De/Até com sinalização de ativo", () => {
+    const inativo = html(
+      createElement(RomaneioShipmentFilter, { filters: parseRomaneioFilters({}) }),
+    );
+    expect(inativo).toContain('aria-label="Filtrar por saída"');
+    expect(inativo).not.toContain("fill-current");
+
+    const ativo = html(
+      createElement(
+        RomaneioShipmentFilter,
+        { filters: parseRomaneioFilters({ saidade: "2026-10-01" }) },
+      ),
+    );
+    expect(ativo).toContain('aria-label="Filtrar por saída — filtro ativo"');
+    expect(ativo).toContain("fill-current");
+  });
+});
+
+describe("chips de filtros ativos — listagem de romaneios", () => {
+  it("lista cada filtro ligado com remoção individual e limpeza geral", () => {
+    const markup = html(
+      createElement(RomaneioActiveFilters, {
+        filters: parseRomaneioFilters({
+          q: "107482",
+          status: "SIMULACAO",
+          of: "OF 107482",
+          cliente: "ACME",
+          saidade: "2026-10-01",
+        }),
+      }),
+    );
+    expect(markup).toContain("Filtros ativos:");
+    expect(markup).toContain("Busca: 107482");
+    expect(markup).toContain("Situação: Simulação");
+    expect(markup).toContain("OF/OS: OF 107482");
+    expect(markup).toContain("Cliente: ACME");
+    expect(markup).toContain("Período de saída: a partir de 01/10/2026");
+    expect(markup).toContain('aria-label="Remover filtro: Cliente: ACME"');
+    expect(markup).toContain("Limpar filtros");
+  });
+
+  it("some quando não há filtro ligado", () => {
+    expect(html(createElement(RomaneioActiveFilters, { filters: parseRomaneioFilters({}) }))).toBe("");
   });
 });
 
