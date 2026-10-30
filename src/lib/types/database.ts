@@ -257,7 +257,7 @@ export type ProductionOrderRowRecord = {
   >;
 };
 
-export type RomaneioStatusValue = "SIMULACAO" | "EMITIDO" | "CANCELADO";
+export type RomaneioStatusValue = "MONTADO" | "CONFERIDO" | "CONFIRMADO" | "CANCELADO";
 
 export type RomaneioRow = {
   id: string;
@@ -325,7 +325,7 @@ export type RomaneioPageRow = {
   created_at: string;
 };
 
-/** Linha retornada pela RPC get_romaneio_candidates (043). */
+/** Linha retornada pela RPC get_romaneio_candidates (043/045). */
 export type RomaneioCandidateRow = {
   total_count: number;
   order_id: string;
@@ -337,8 +337,29 @@ export type RomaneioCandidateRow = {
   root_quantity: number | string;
   root_weight_kg: number | string | null;
   shipped_quantity: number | string;
-  has_simulation: boolean;
-  simulation_id: string | null;
+  /** Já existe um romaneio em MONTADO para esta OF. */
+  has_open: boolean;
+  /** Id do romaneio em MONTADO, quando houver. */
+  open_romaneio_id: string | null;
+};
+
+/** Linha retornada pela RPC get_romaneio_customers (044/045) — seletor em cascata. */
+export type RomaneioCustomerRow = {
+  customer_name: string | null;
+  of_count: number | string;
+  /** OFs disponíveis do cliente (JSON array de RomaneioCandidateRow sem total_count). */
+  ofs: {
+    order_id: string;
+    code: string;
+    type: string;
+    delivery_date: string | null;
+    status: string;
+    root_quantity: number | string;
+    root_weight_kg: number | string | null;
+    shipped_quantity: number | string;
+    has_open: boolean;
+    open_romaneio_id: string | null;
+  }[];
 };
 
 export type Database = {
@@ -859,7 +880,7 @@ export type Database = {
         Returns: number;
       };
       save_romaneio: {
-        // cria/atualiza romaneio em SIMULAÇÃO (cabeçalho+itens+materiais numa transação — 042)
+        // cria/atualiza romaneio em MONTADO (cabeçalho+itens+materiais numa transação — 042/045)
         Args: {
           p_romaneio_id: string | null;
           p_order_id: string;
@@ -873,17 +894,22 @@ export type Database = {
         Returns: { id: string; number: number };
       };
       sign_romaneio_conference: {
-        // sinaliza o aceite da conferência (quem/quando/obs) — 042
+        // sinaliza o aceite da conferência e move p/ CONFERIDO (quem/quando/obs) — 042/045
         Args: { p_romaneio_id: string; p_notes: string | null };
         Returns: undefined;
       };
-      emit_romaneio: {
-        // valida os gates de emissão e trava o romaneio (EMITIDO) — 042
+      confirm_romaneio: {
+        // valida os gates e move CONFERIDO → CONFIRMADO (baixa na pendência da OF) — 045
+        Args: { p_romaneio_id: string };
+        Returns: undefined;
+      };
+      delete_romaneio: {
+        // exclusão DEFINITIVA — só romaneios em MONTADO (045)
         Args: { p_romaneio_id: string };
         Returns: undefined;
       };
       cancel_romaneio: {
-        // cancela (bloqueia com NF de saída registrada) — 042
+        // cancela CONFERIDO/CONFIRMADO (reverte a baixa derivada) — 042/045
         Args: { p_romaneio_id: string };
         Returns: undefined;
       };
@@ -936,6 +962,11 @@ export type Database = {
           p_limit?: number | null;
         };
         Returns: RomaneioCandidateRow[];
+      };
+      get_romaneio_customers: {
+        // seletor em cascata de /romaneio/novo (044)
+        Args: Record<string, never>;
+        Returns: RomaneioCustomerRow[];
       };
     };
     Enums: Record<string, never>;

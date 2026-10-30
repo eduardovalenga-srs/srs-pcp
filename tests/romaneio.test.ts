@@ -4,7 +4,7 @@ import type { PGlite } from "@electric-sql/pglite";
 
 import {
   allocateRomaneioMaterials,
-  checkRomaneioEmission,
+  checkRomaneioConfirmation,
   materialReturnQuantity,
   mergeRomaneioMaterialLines,
 } from "@/lib/utils/romaneio";
@@ -130,12 +130,26 @@ async function signConference(romaneioId: string, notes: string | null = null): 
   await db.query(`select public.sign_romaneio_conference($1::uuid, $2::text)`, [romaneioId, notes]);
 }
 
-async function emitRomaneio(romaneioId: string): Promise<void> {
-  await db.query(`select public.emit_romaneio($1::uuid)`, [romaneioId]);
+async function confirmRomaneio(romaneioId: string): Promise<void> {
+  await db.query(`select public.confirm_romaneio($1::uuid)`, [romaneioId]);
+}
+
+async function deleteRomaneio(romaneioId: string): Promise<void> {
+  await db.query(`select public.delete_romaneio($1::uuid)`, [romaneioId]);
 }
 
 async function cancelRomaneio(romaneioId: string): Promise<void> {
   await db.query(`select public.cancel_romaneio($1::uuid)`, [romaneioId]);
+}
+
+/** Registra a NF de saída direto no banco (o emissor é externo). */
+async function setNfNumber(romaneioId: string, nfNumber: string): Promise<void> {
+  await asSuperUser(db);
+  await db.query(`update public.romaneios set nf_number = $2 where id = $1`, [
+    romaneioId,
+    nfNumber,
+  ]);
+  await asUser(db, "authenticated", gestorId);
 }
 
 async function romaneioStatus(romaneioId: string): Promise<string> {
@@ -146,14 +160,26 @@ async function romaneioStatus(romaneioId: string): Promise<string> {
   return rows[0]!.status;
 }
 
+async function concludeExp(orderItemId: string): Promise<void> {
+  await asSuperUser(db);
+  await db.query(
+    `update public.production_processes pp set status = 'CONCLUIDO'
+       from public.processes p
+      where p.id = pp.process_id and p.code = 'EXP'
+        and pp.order_item_id = $1`,
+    [orderItemId],
+  );
+  await asUser(db, "authenticated", gestorId);
+}
+
 // OF-R01: raiz A (EXP concluído, com materiais no raiz e no filho) e raiz B
-// (EXP pendente) — bloqueia a emissão até concluir.
+// (EXP pendente) — bloqueia a confirmação até concluir.
 let orderR1: string;
 let rootA: string;
 let rootB: string;
 let childA: string;
 
-// OF-R02: única raiz, EXP concluído — flujos de emissão/cancelamento.
+// OF-R02: única raiz, EXP concluído — fluxos de confirmação/baixa.
 let orderR2: string;
 let rootC: string;
 
@@ -317,11 +343,11 @@ describe("regras puras do romaneio", () => {
     expect(materialReturnQuantity(null, 4)).toBeNull();
   });
 
-  it("lista os gates de emissão que faltam (conferência, EXP pendente, teto)", () => {
-    const result = checkRomaneioEmission({
-      status: "SIMULACAO",
+  it("lista os gates de confirmação que faltam (montagem, NF, EXP pendente, teto)", () => {
+    const result = checkRomaneioConfirmation({
+      status: "MONTADO",
       orderStatus: "EM_PRODUCAO",
-      conferenceAccepted: false,
+      hasNfNumber: false,
       items: [
         { itemQuantity: 10, shippedQuantity: 8, quantity: 5, expStatus: "CONCLUIDO" },
         { itemQuantity: 6, shippedQuantity: 0, quantity: 0, expStatus: "NAO_INICIADO" },
@@ -329,31 +355,32 @@ describe("regras puras do romaneio", () => {
       ],
     });
 
-    expect(result.canEmit).toBe(false);
-    expect(result.blockers).toContain("Sinalize o aceite da conferência antes de emitir.");
+    expect(result.canConfirm).toBe(false);
+    expect(result.blockers).toContain("Conclua a conferência (aceite) antes de confirmar.");
+    expect(result.blockers).toContain("Registre o número da NF de saída.");
     // EXP pendente conta TODOS os itens raiz da OF, mesmo fora da carga.
     expect(result.blockers).toContain("1 item raiz com EXPEDIÇÃO pendente.");
     // 8 já expedidas + 5 nesta carga > 10 do item.
     expect(result.blockers).toContain("1 item acima da pendência de expedição.");
   });
 
-  it("libera a emissão quando todos os pré-requisitos batem", () => {
-    const result = checkRomaneioEmission({
-      status: "SIMULACAO",
+  it("libera a confirmação quando todos os pré-requisitos batem", () => {
+    const result = checkRomaneioConfirmation({
+      status: "CONFERIDO",
       orderStatus: "EM_PRODUCAO",
-      conferenceAccepted: true,
+      hasNfNumber: true,
       items: [
         { itemQuantity: 10, shippedQuantity: 2, quantity: 8, expStatus: "CONCLUIDO" },
         { itemQuantity: 6, shippedQuantity: 0, quantity: 0, expStatus: "CONCLUIDO" },
       ],
     });
 
-    expect(result).toEqual({ canEmit: true, blockers: [] });
+    expect(result).toEqual({ canConfirm: true, blockers: [] });
   });
 });
 
-describe("RPC save_romaneio (042)", () => {
-  it("cria uma simulação por OF e bloqueia a segunda (uma por OF)", async () => {
+describe("RPC save_romaneio (042/045)", () => {
+  it("cria um romaneio em montagem por OF e bloqueia o segundo", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const created = await saveRomaneio({
@@ -371,10 +398,11 @@ describe("RPC save_romaneio (042)", () => {
     });
     expect(created.id).toBeTruthy();
     expect(Number(created.number)).toBeGreaterThan(0);
+    expect(await romaneioStatus(created.id)).toBe("MONTADO");
 
     await expect(
       saveRomaneio({ orderId: orderR1, items: [{ orderItemId: rootB, quantity: 1 }] }),
-    ).rejects.toThrow(/já existe uma simulação/i);
+    ).rejects.toThrow(/já existe um romaneio em montagem/i);
   });
 
   it("rejeita item fora da OF, item filho e quantidade acima do item", async () => {
@@ -387,7 +415,7 @@ describe("RPC save_romaneio (042)", () => {
 
     // Item FILHO (016): a carga expede só os itens RAIZ da OF.
     const { rows } = await db.query<{ id: string }>(
-      `select id from public.romaneios where order_id = $1 and status = 'SIMULACAO'`,
+      `select id from public.romaneios where order_id = $1 and status = 'MONTADO'`,
       [orderR1],
     );
     await expect(
@@ -398,7 +426,7 @@ describe("RPC save_romaneio (042)", () => {
       }),
     ).rejects.toThrow(/somente itens raiz/i);
 
-    // Quantidade acima da do item (OF nova, sem simulação, para isolar a checagem).
+    // Quantidade acima da do item (OF nova, sem romaneio aberto, para isolar a checagem).
     const orderR3 = await createOrder("OF-R03");
     const rootD = await createRootItem(orderR3, "Base reforçada", 2, [
       { code: "EXP", status: "CONCLUIDO" },
@@ -426,11 +454,11 @@ describe("RPC save_romaneio (042)", () => {
     ).rejects.toThrow(/utilizada não pode exceder a recebida/i);
   });
 
-  it("substitui itens e materiais do rascunho (edição de simulação)", async () => {
+  it("substitui itens e materiais do rascunho (edição de montado)", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const { rows } = await db.query<{ id: string }>(
-      `select id from public.romaneios where order_id = $1 and status = 'SIMULACAO'`,
+      `select id from public.romaneios where order_id = $1 and status = 'MONTADO'`,
       [orderR1],
     );
     const romaneioId = rows[0]!.id;
@@ -469,7 +497,7 @@ describe("RPC save_romaneio (042)", () => {
     await asUser(db, "authenticated", gestorId);
 
     const { rows } = await db.query<{ id: string }>(
-      `select id from public.romaneios where order_id = $1 and status = 'SIMULACAO'`,
+      `select id from public.romaneios where order_id = $1 and status = 'MONTADO'`,
       [orderR1],
     );
     const romaneioId = rows[0]!.id;
@@ -497,8 +525,55 @@ describe("RPC save_romaneio (042)", () => {
   });
 });
 
-describe("RPC emit_romaneio (042) — gates de emissão", () => {
-  it("bloqueia a emissão sem o aceite da conferência", async () => {
+describe("RPC sign_romaneio_conference (045) — aceite da conferência", () => {
+  it("move o montado para CONFERIDO e registra quem/quando/obs", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    const { rows } = await db.query<{ id: string }>(
+      `select id from public.romaneios where order_id = $1 and status = 'MONTADO'`,
+      [orderR1],
+    );
+    const romaneioId = rows[0]!.id;
+
+    await signConference(romaneioId, "Carga conferida com o cliente.");
+    expect(await romaneioStatus(romaneioId)).toBe("CONFERIDO");
+
+    const { rows: signed } = await db.query<{
+      conference_accepted_by: string | null;
+      conference_notes: string | null;
+      conference_accepted_at: string | null;
+    }>(
+      `select conference_accepted_by, conference_notes, conference_accepted_at
+         from public.romaneios where id = $1`,
+      [romaneioId],
+    );
+    expect(signed[0]!.conference_accepted_by).toBe(gestorId);
+    expect(signed[0]!.conference_notes).toBe("Carga conferida com o cliente.");
+    expect(signed[0]!.conference_accepted_at).toBeTruthy();
+  });
+
+  it("re-sinalizar em um já CONFERIDO atualiza o registro do aceite", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    const { rows } = await db.query<{ id: string }>(
+      `select id from public.romaneios where order_id = $1 and status = 'CONFERIDO'`,
+      [orderR1],
+    );
+    const romaneioId = rows[0]!.id;
+
+    await signConference(romaneioId, "Reconferida após ajuste de carga.");
+    expect(await romaneioStatus(romaneioId)).toBe("CONFERIDO");
+
+    const { rows: signed } = await db.query<{ conference_notes: string | null }>(
+      `select conference_notes from public.romaneios where id = $1`,
+      [romaneioId],
+    );
+    expect(signed[0]!.conference_notes).toBe("Reconferida após ajuste de carga.");
+  });
+});
+
+describe("RPC confirm_romaneio (045) — gates e baixa", () => {
+  it("bloqueia a confirmação antes do aceite e sem a NF de saída", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const created = await saveRomaneio({
@@ -506,96 +581,221 @@ describe("RPC emit_romaneio (042) — gates de emissão", () => {
       items: [{ orderItemId: rootC, quantity: 4 }],
     });
 
-    await expect(emitRomaneio(created.id)).rejects.toThrow(
-      /sinalize o aceite da conferência/i,
+    // Ainda em montagem: a ordem do fluxo exige a conferência antes.
+    await expect(confirmRomaneio(created.id)).rejects.toThrow(
+      /apenas romaneios conferidos/i,
     );
 
     await signConference(created.id, "Carga conferida com o cliente.");
-    await emitRomaneio(created.id);
-    expect(await romaneioStatus(created.id)).toBe("EMITIDO");
+    await expect(confirmRomaneio(created.id)).rejects.toThrow(
+      /registre o número da nf de saída/i,
+    );
+
+    await setNfNumber(created.id, "12345");
+    await confirmRomaneio(created.id);
+    expect(await romaneioStatus(created.id)).toBe("CONFIRMADO");
+
+    const { rows } = await db.query<{ emitted_at: string | null; emitted_by: string | null }>(
+      `select emitted_at, emitted_by from public.romaneios where id = $1`,
+      [created.id],
+    );
+    expect(rows[0]!.emitted_at).toBeTruthy();
+    expect(rows[0]!.emitted_by).toBe(gestorId);
   });
 
-  it("trava o romaneio emitido (só simulações são editadas)", async () => {
+  it("trava o confirmado: nem editar, nem re-conferir, nem excluir", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const { rows } = await db.query<{ id: string }>(
-      `select id from public.romaneios where order_id = $1 and status = 'EMITIDO'`,
+      `select id from public.romaneios where order_id = $1 and status = 'CONFIRMADO'`,
       [orderR2],
     );
-    const emittedId = rows[0]!.id;
+    const confirmedId = rows[0]!.id;
 
     await expect(
-      saveRomaneio({ romaneioId: emittedId, orderId: orderR2, items: [{ orderItemId: rootC, quantity: 1 }] }),
-    ).rejects.toThrow(/somente simulações/i);
+      saveRomaneio({ romaneioId: confirmedId, orderId: orderR2, items: [{ orderItemId: rootC, quantity: 1 }] }),
+    ).rejects.toThrow(/somente romaneios em montagem/i);
+    await expect(signConference(confirmedId)).rejects.toThrow(
+      /conferência só pode ser sinalizada/i,
+    );
+    await expect(deleteRomaneio(confirmedId)).rejects.toThrow(
+      /somente romaneios em montagem podem ser excluídos/i,
+    );
   });
 
-  it("expedição parcial: a segunda carga não pode estourar o teto do item", async () => {
+  it("expedição parcial: cancelar o confirmado DEVOLVE a baixa à pendência", async () => {
     await asUser(db, "authenticated", gestorId);
 
+    // 4 já confirmados (primeira carga) — a segunda não cabe no teto do item.
     const second = await saveRomaneio({
       orderId: orderR2,
       items: [{ orderItemId: rootC, quantity: 4 }],
     });
     await signConference(second.id);
-    await expect(emitRomaneio(second.id)).rejects.toThrow(/pendência de expedição/i);
+    await setNfNumber(second.id, "22345");
+    await expect(confirmRomaneio(second.id)).rejects.toThrow(/pendência de expedição/i);
 
-    // Liberando a primeira carga (cancelar), a segunda usa o teto inteiro.
+    // Cancelar a PRIMEIRA carga (com NF registrada — permitido) libera o teto:
+    // a baixa é derivada, então sai do somatório automaticamente.
     const { rows } = await db.query<{ id: string }>(
-      `select id from public.romaneios where order_id = $1 and status = 'EMITIDO'`,
+      `select id from public.romaneios where order_id = $1 and status = 'CONFIRMADO'`,
       [orderR2],
     );
     const firstId = rows[0]!.id;
 
-    await asSuperUser(db);
-    await db.query(
-      `update public.romaneios set nf_number = null where id = $1`,
-      [firstId],
-    );
-    await asUser(db, "authenticated", gestorId);
     await cancelRomaneio(firstId);
     expect(await romaneioStatus(firstId)).toBe("CANCELADO");
+    await expect(cancelRomaneio(firstId)).rejects.toThrow(/já cancelado/i);
 
-    await emitRomaneio(second.id);
-    expect(await romaneioStatus(second.id)).toBe("EMITIDO");
+    await confirmRomaneio(second.id);
+    expect(await romaneioStatus(second.id)).toBe("CONFIRMADO");
   });
 
-  it("cancelamento é bloqueado com NF de saída registrada", async () => {
-    await asSuperUser(db);
+  it("a baixa é derivada: um novo CONFIRMADO só passa com a pendência liberada", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    // rootC (4) está 100% confirmado na segunda carga — a terceira estoura o teto.
+    const third = await saveRomaneio({
+      orderId: orderR2,
+      items: [{ orderItemId: rootC, quantity: 4 }],
+    });
+    await signConference(third.id);
+    await setNfNumber(third.id, "32345");
+    await expect(confirmRomaneio(third.id)).rejects.toThrow(/pendência de expedição/i);
+
+    // Cancelando a segunda (CONFIRMADO), a pendência se restaura sozinha
+    // (nenhum contador é descontado — o Σ deriva dos confirmados).
     const { rows } = await db.query<{ id: string }>(
-      `select id from public.romaneios where order_id = $1 and status = 'EMITIDO'`,
+      `select id from public.romaneios where order_id = $1 and status = 'CONFIRMADO'`,
       [orderR2],
     );
-    const emittedId = rows[0]!.id;
-    await db.query(`update public.romaneios set nf_number = '12345' where id = $1`, [emittedId]);
+    const secondId = rows[0]!.id;
+    await cancelRomaneio(secondId);
+    expect(await romaneioStatus(secondId)).toBe("CANCELADO");
 
-    await asUser(db, "authenticated", gestorId);
-    await expect(cancelRomaneio(emittedId)).rejects.toThrow(/limpe o número da nf/i);
+    await confirmRomaneio(third.id);
+    expect(await romaneioStatus(third.id)).toBe("CONFIRMADO");
   });
 
-  it("bloqueia a emissão enquanto houver EXP pendente na OF", async () => {
+  it("bloqueia a confirmação enquanto houver EXP pendente na OF", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const { rows } = await db.query<{ id: string }>(
-      `select id from public.romaneios where order_id = $1 and status = 'SIMULACAO'`,
+      `select id from public.romaneios where order_id = $1 and status = 'CONFERIDO'`,
       [orderR1],
     );
     const romaneioId = rows[0]!.id;
 
     // Conferência ok, mas a raiz B (fora da carga) ainda tem EXP pendente.
-    await signConference(romaneioId);
-    await expect(emitRomaneio(romaneioId)).rejects.toThrow(/expedição pendente/i);
+    await setNfNumber(romaneioId, "999");
+    await expect(confirmRomaneio(romaneioId)).rejects.toThrow(/expedição pendente/i);
 
-    await asSuperUser(db);
-    await db.query(
-      `update public.production_processes pp set status = 'CONCLUIDO'
-         from public.processes p
-        where p.id = pp.process_id and p.code = 'EXP'
-          and pp.order_item_id = $1`,
-      [rootB],
+    await concludeExp(rootB);
+    await confirmRomaneio(romaneioId);
+    expect(await romaneioStatus(romaneioId)).toBe("CONFIRMADO");
+  });
+
+  it("bloqueia a confirmação de um romaneio sem itens", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    const orderR5 = await createOrder("OF-R05");
+    await createRootItem(orderR5, "Barrilete", 2, [{ code: "EXP", status: "CONCLUIDO" }]);
+
+    const created = await saveRomaneio({ orderId: orderR5, items: [] });
+    await signConference(created.id);
+    await setNfNumber(created.id, "42345");
+    await expect(confirmRomaneio(created.id)).rejects.toThrow(/inclua ao menos um item/i);
+
+    // Sem item não há carga: o caminho deste conferido é o cancelamento
+    // (exclusão definitiva só existe em montagem).
+    await cancelRomaneio(created.id);
+    expect(await romaneioStatus(created.id)).toBe("CANCELADO");
+  });
+});
+
+describe("RPC delete_romaneio (045) — exclusão definitiva", () => {
+  it("exclui um montado e o cancelamento não serve para montados", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    const orderR6 = await createOrder("OF-R06");
+    const rootF = await createRootItem(orderR6, "Muro fechado", 3, [
+      { code: "EXP", status: "CONCLUIDO" },
+    ]);
+    const created = await saveRomaneio({
+      orderId: orderR6,
+      items: [{ orderItemId: rootF, quantity: 3 }],
+    });
+
+    // Montado não se cancela — o caminho é a exclusão definitiva.
+    await expect(cancelRomaneio(created.id)).rejects.toThrow(
+      /em montagem são excluídos, não cancelados/i,
     );
 
+    await deleteRomaneio(created.id);
+    const { rows } = await db.query(
+      `select 1 from public.romaneios where id = $1`,
+      [created.id],
+    );
+    expect(rows).toHaveLength(0);
+
+    // A OF volta a aceitar um novo romaneio em montagem (índice único liberado).
+    const recreated = await saveRomaneio({
+      orderId: orderR6,
+      items: [{ orderItemId: rootF, quantity: 2 }],
+    });
+    expect(await romaneioStatus(recreated.id)).toBe("MONTADO");
+  });
+
+  it("bloqueia a exclusão de um CONFERIDO (o caminho é cancelar)", async () => {
     await asUser(db, "authenticated", gestorId);
-    await emitRomaneio(romaneioId);
-    expect(await romaneioStatus(romaneioId)).toBe("EMITIDO");
+
+    const orderR7 = await createOrder("OF-R07");
+    const rootG = await createRootItem(orderR7, "Guarda-corpo", 8, [
+      { code: "EXP", status: "CONCLUIDO" },
+    ]);
+    const created = await saveRomaneio({
+      orderId: orderR7,
+      items: [{ orderItemId: rootG, quantity: 4 }],
+    });
+    await signConference(created.id);
+
+    await expect(deleteRomaneio(created.id)).rejects.toThrow(
+      /somente romaneios em montagem podem ser excluídos/i,
+    );
+
+    await cancelRomaneio(created.id);
+    expect(await romaneioStatus(created.id)).toBe("CANCELADO");
+  });
+});
+
+describe("constraint de status de romaneios (042 → 045)", () => {
+  // Regressão da ordem da migração 045: o DROP do constraint antigo precisa
+  // vir ANTES da migração de dados e o ADD depois (o ADD valida as linhas
+  // existentes) — UPDATE antes do DROP viola o constraint da 042 (23514).
+  // Com a migração já aplicada, travei aqui o CONJUNTO final de status.
+  async function insertRawRomaneio(status: string): Promise<void> {
+    // OF nova por insert: o índice único de MONTADO é por OF, e a OF nova
+    // não tem itens — o insert direto não passa pelas RPCs.
+    const orderId = await createOrder(`OF-CONST-${status}`);
+    await db.query(`insert into public.romaneios (order_id, status) values ($1, $2)`, [
+      orderId,
+      status,
+    ]);
+  }
+
+  it("aceita os quatro status do novo ciclo de vida (MONTADO..CANCELADO)", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    for (const status of ["MONTADO", "CONFERIDO", "CONFIRMADO", "CANCELADO"]) {
+      await expect(insertRawRomaneio(status)).resolves.toBeUndefined();
+    }
+  });
+
+  it("rejeita os status antigos da 042 (SIMULACAO e EMITIDO)", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    for (const status of ["SIMULACAO", "EMITIDO"]) {
+      await expect(insertRawRomaneio(status)).rejects.toThrow(/romaneios_status_check/);
+    }
   });
 });

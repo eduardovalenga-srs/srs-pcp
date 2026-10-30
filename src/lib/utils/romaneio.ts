@@ -244,11 +244,11 @@ export function summarizeOfMaterialTotals(
   return { received, used, returned };
 }
 
-/** Item raiz avaliado nos gates de emissão. */
-export interface RomaneioEmissionItem {
+/** Item raiz avaliado nos gates de confirmação. */
+export interface RomaneioConfirmationItem {
   /** Quantidade total do item na OF. */
   itemQuantity: number;
-  /** Quantidade já expedida em OUTROS romaneios EMITIDOS da OF. */
+  /** Quantidade já expedida em OUTROS romaneios CONFIRMADOS da OF. */
   shippedQuantity: number;
   /** Quantidade incluída NESTE romaneio (0 = fora da carga). */
   quantity: number;
@@ -256,48 +256,50 @@ export interface RomaneioEmissionItem {
   expStatus: ProcessStatus | null;
 }
 
-export interface RomaneioEmissionInput {
+export interface RomaneioConfirmationInput {
   status: RomaneioStatus;
   orderStatus: OrderStatus;
-  conferenceAccepted: boolean;
+  /** NF de saída registrada (requisito do CONFIRMADO = NF + baixa). */
+  hasNfNumber: boolean;
   /** TODOS os itens raiz da OF — quantity = incluído neste romaneio (0 = fora). */
-  items: readonly RomaneioEmissionItem[];
+  items: readonly RomaneioConfirmationItem[];
 }
 
-export interface RomaneioEmissionResult {
-  canEmit: boolean;
-  /** Motivos que impedem a emissão (mensagens prontas para exibir). */
+export interface RomaneioConfirmationGateResult {
+  canConfirm: boolean;
+  /** Motivos que impedem a confirmação (mensagens prontas para exibir). */
   blockers: string[];
 }
 
 /**
- * Gates de emissão do romaneio (espelham a RPC `emit_romaneio`, 042) —
- * usados na tela para exibir o checklist e no serviço para a mensagem
- * amigável antes de chamar o banco:
+ * Gates de confirmação do romaneio (espelham a RPC `confirm_romaneio`,
+ * 045) — usados na tela para exibir o checklist e no serviço para a
+ * mensagem amigável antes de chamar o banco:
  *
- *  1) romaneio em SIMULAÇÃO;
+ *  1) romaneio em CONFERIDO (conferência aceita);
  *  2) OF não cancelada;
- *  3) aceite de conferência sinalizado;
+ *  3) NF de saída registrada;
  *  4) ao menos um item incluído;
  *  5) EXP de todos os itens raiz aplicáveis = CONCLUIDO;
- *  6) Σ (este + já emitidos) ≤ quantidade do item (expedição parcial).
+ *  6) Σ (este + já confirmados) ≤ quantidade do item (expedição parcial).
  */
-export function checkRomaneioEmission(
-  input: RomaneioEmissionInput,
-): RomaneioEmissionResult {
+export function checkRomaneioConfirmation(
+  input: RomaneioConfirmationInput,
+): RomaneioConfirmationGateResult {
   const blockers: string[] = [];
 
-  if (input.status === "EMITIDO") blockers.push("Romaneio já emitido.");
+  if (input.status === "CONFIRMADO") blockers.push("Romaneio já confirmado.");
   if (input.status === "CANCELADO") blockers.push("Romaneio cancelado.");
-  if (input.orderStatus === "CANCELADO") blockers.push("A OF está cancelada.");
-  if (!input.conferenceAccepted) {
-    blockers.push("Sinalize o aceite da conferência antes de emitir.");
+  if (input.status === "MONTADO") {
+    blockers.push("Conclua a conferência (aceite) antes de confirmar.");
   }
+  if (input.orderStatus === "CANCELADO") blockers.push("A OF está cancelada.");
+  if (!input.hasNfNumber) blockers.push("Registre o número da NF de saída.");
 
   const included = input.items.filter((item) => item.quantity > 0);
   if (included.length === 0) {
     blockers.push("Inclua ao menos um item no romaneio.");
-    return { canEmit: false, blockers };
+    return { canConfirm: false, blockers };
   }
 
   // Gate de produção: EXP aplicável CONCLUIDO em TODOS os itens raiz da OF
@@ -324,5 +326,5 @@ export function checkRomaneioEmission(
     );
   }
 
-  return { canEmit: blockers.length === 0, blockers };
+  return { canConfirm: blockers.length === 0, blockers };
 }

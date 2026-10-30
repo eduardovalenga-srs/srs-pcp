@@ -3,15 +3,13 @@ import { createElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { RomaneioList } from "@/components/romaneio/RomaneioList";
-import { RomaneioOrderPicker } from "@/components/romaneio/RomaneioOrderPicker";
 import {
   RomaneioActiveFilters,
   RomaneioShipmentFilter,
-  RomaneioStatusFilter,
   RomaneioTextFilter,
 } from "@/components/romaneio/RomaneioColumnHeaders";
-import { parseRomaneioCandidateFilters, parseRomaneioFilters } from "@/lib/utils/filters";
-import type { RomaneioCandidate, RomaneioSummary } from "@/lib/types/romaneio";
+import { parseRomaneioFilters } from "@/lib/utils/filters";
+import type { RomaneioSummary } from "@/lib/types/romaneio";
 
 const mocks = vi.hoisted(() => ({ pathname: "/romaneio" }));
 
@@ -57,7 +55,7 @@ function tableMarkup(markup: string): string {
   return markup.slice(start, end + "</table>".length);
 }
 
-function summary(): RomaneioSummary {
+function summary(overrides: Partial<RomaneioSummary> = {}): RomaneioSummary {
   return {
     id: "rom-1",
     number: 42,
@@ -65,34 +63,17 @@ function summary(): RomaneioSummary {
     orderCode: "OF 107482",
     customerName: "ACME",
     orderDeliveryDate: "2026-10-20",
-    status: "EMITIDO",
+    status: "CONFIRMADO",
     shipmentDate: "2026-10-25",
     carrier: "Transportadora X",
-    itemCount: 2,
-    quantityTotal: 6,
     weightTotal: 12,
     nfNumber: "12345",
     returnNfNumber: null,
     pendingReturn: false,
-    conferenceAcceptedAt: null,
+    conferenceAcceptedAt: "2026-10-25T10:00:00Z",
     emittedAt: "2026-10-26T12:00:00Z",
     createdAt: "2026-10-20T09:00:00Z",
-  };
-}
-
-function candidate(): RomaneioCandidate {
-  return {
-    orderId: "order-1",
-    code: "OF 107482",
-    type: "OF",
-    customerName: "ACME",
-    deliveryDate: "2026-10-20",
-    status: "PLANEJADO",
-    rootQuantity: 6,
-    rootWeightKg: 12,
-    shippedQuantity: 2,
-    hasSimulation: false,
-    simulationId: null,
+    ...overrides,
   };
 }
 
@@ -113,25 +94,53 @@ describe("cabeçalhos de ordenação — RomaneioList (/romaneio)", () => {
     );
     const table = tableMarkup(markup);
     expect(table).toContain('href="/romaneio?ordem=order_code&amp;direcao=asc"');
-    expect(table).toContain('href="/romaneio?ordem=status&amp;direcao=asc"');
     expect(table).toContain('aria-label="Ordenar por OF/OS"');
-    expect(table).toContain('aria-label="Ordenar por Situação"');
   });
 
-  it("cabeçalhos de OF/OS, Cliente, Situação e Saída carregam o funil de filtro", () => {
+  it("mantém só as colunas da nova listagem (sem Situação/Itens/Qtd)", () => {
+    const markup = html(
+      createElement(RomaneioList, { romaneios: [summary()], filters: parseRomaneioFilters({}) }),
+    );
+    const table = tableMarkup(markup);
+    expect(table).toContain("Peso (kg)");
+    expect(table).toContain("NF saída");
+    expect(table).toContain("NF devolução");
+    // Colunas removidas: a situação vive no badge, Itens/Qtd saíram.
+    expect(table).not.toContain('aria-label="Ordenar por Situação"');
+    expect(table).not.toContain("Ordenar por Itens");
+    expect(table).not.toContain("Ordenar por Quantidade expedida");
+  });
+
+  it("cabeçalhos de OF/OS, Cliente e Saída carregam o funil de filtro", () => {
     const markup = html(
       createElement(RomaneioList, { romaneios: [summary()], filters: parseRomaneioFilters({}) }),
     );
     const table = tableMarkup(markup);
     expect(table).toContain('aria-label="Filtrar por OF/OS"');
     expect(table).toContain('aria-label="Filtrar por cliente"');
-    expect(table).toContain('aria-label="Filtrar por situação do romaneio"');
     expect(table).toContain('aria-label="Filtrar por saída"');
     // Sem filtro ligado, nenhum funil aparece preenchido.
     expect(table).not.toContain("fill-current");
-    // Colunas sem filtro (Nº, Itens, Qtd, Peso, NFs e Ações) ficam só ordenáveis.
+    // Colunas sem filtro (Nº, Peso, NFs e Ações) ficam só ordenáveis.
     expect(table).not.toContain("Filtrar por número");
     expect(table).not.toContain("Filtrar por NF");
+  });
+
+  it("mostra o badge de situação ao lado do nº e o link de conferência", () => {
+    const markup = html(
+      createElement(RomaneioList, { romaneios: [summary()], filters: parseRomaneioFilters({}) }),
+    );
+    expect(markup).toContain("Confirmado");
+    expect(markup).toContain('href="/romaneio/rom-1/conferencia"');
+    // Romaneio cancelado não oferece a folha de conferência.
+    const cancelado = html(
+      createElement(RomaneioList, {
+        romaneios: [summary({ status: "CANCELADO" })],
+        filters: parseRomaneioFilters({}),
+      }),
+    );
+    expect(cancelado).toContain("Cancelado");
+    expect(cancelado).not.toContain('href="/romaneio/rom-1/conferencia"');
   });
 });
 
@@ -160,20 +169,6 @@ describe("filtros por coluna — listagem de romaneios", () => {
     expect(ativo).toContain("fill-current");
   });
 
-  it("situação — menu com as opções de romaneio e sinalização de ativo", () => {
-    const inativo = html(
-      createElement(RomaneioStatusFilter, { filters: parseRomaneioFilters({}) }),
-    );
-    expect(inativo).toContain('aria-label="Filtrar por situação do romaneio"');
-    expect(inativo).not.toContain("fill-current");
-
-    const ativo = html(
-      createElement(RomaneioStatusFilter, { filters: parseRomaneioFilters({ status: "EMITIDO" }) }),
-    );
-    expect(ativo).toContain('aria-label="Filtrar por situação do romaneio — filtro ativo"');
-    expect(ativo).toContain("fill-current");
-  });
-
   it("saída — período De/Até com sinalização de ativo", () => {
     const inativo = html(
       createElement(RomaneioShipmentFilter, { filters: parseRomaneioFilters({}) }),
@@ -198,7 +193,6 @@ describe("chips de filtros ativos — listagem de romaneios", () => {
       createElement(RomaneioActiveFilters, {
         filters: parseRomaneioFilters({
           q: "107482",
-          status: "SIMULACAO",
           of: "OF 107482",
           cliente: "ACME",
           saidade: "2026-10-01",
@@ -207,48 +201,16 @@ describe("chips de filtros ativos — listagem de romaneios", () => {
     );
     expect(markup).toContain("Filtros ativos:");
     expect(markup).toContain("Busca: 107482");
-    expect(markup).toContain("Situação: Simulação");
     expect(markup).toContain("OF/OS: OF 107482");
     expect(markup).toContain("Cliente: ACME");
     expect(markup).toContain("Período de saída: a partir de 01/10/2026");
     expect(markup).toContain('aria-label="Remover filtro: Cliente: ACME"');
     expect(markup).toContain("Limpar filtros");
+    // A listagem não tem mais filtro de situação.
+    expect(markup).not.toContain("Situação:");
   });
 
   it("some quando não há filtro ligado", () => {
     expect(html(createElement(RomaneioActiveFilters, { filters: parseRomaneioFilters({}) }))).toBe("");
-  });
-});
-
-describe("cabeçalhos de ordenação — RomaneioOrderPicker (/romaneio/novo)", () => {
-  it("Entrega é a coluna default (asc) e o toggle leva para desc", () => {
-    mocks.pathname = "/romaneio/novo";
-    const markup = html(
-      createElement(RomaneioOrderPicker, {
-        candidates: [candidate()],
-        filters: parseRomaneioCandidateFilters({}),
-        total: 1,
-      }),
-    );
-    const table = tableMarkup(markup);
-    expect(table).toContain('aria-sort="ascending"');
-    expect(table).toContain('aria-label="Ordenar por Entrega, atualmente crescente"');
-    expect(table).toContain('href="/romaneio/novo?direcao=desc"');
-  });
-
-  it("coluna fora da default nasce inativa", () => {
-    mocks.pathname = "/romaneio/novo";
-    const markup = html(
-      createElement(RomaneioOrderPicker, {
-        candidates: [candidate()],
-        filters: parseRomaneioCandidateFilters({}),
-        total: 1,
-      }),
-    );
-    const table = tableMarkup(markup);
-    expect(table).toContain('href="/romaneio/novo?ordem=status"');
-    expect(table).toContain('aria-label="Ordenar por Situação"');
-    expect(table).toContain('href="/romaneio/novo?ordem=weight"');
-    expect(table).toContain('aria-label="Ordenar por Peso"');
   });
 });

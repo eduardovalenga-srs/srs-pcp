@@ -2,8 +2,7 @@ import "server-only";
 
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type {
-  RomaneioCandidateFilters,
-  RomaneioCandidatesPage,
+  RomaneioCustomerOption,
   RomaneioFilters,
   RomaneioOrderItem,
   RomaneioSummary,
@@ -13,13 +12,15 @@ import type {
 import type { RomaneioNfValues, RomaneioValues } from "@/lib/validators/romaneio.schema";
 import {
   cancelRomaneioRpc,
+  confirmRomaneioRpc,
   countRomaneiosByStatus,
-  emitRomaneioRpc,
+  deleteRomaneioRpc,
   getRomaneioById,
-  listEmittedQuantityByItem,
+  listConfirmedQuantityByItem,
   listOrderMaterialLines,
-  listRomaneioCandidates,
+  listRomaneioCustomers,
   listRomaneios,
+  listRootOrderItems,
   saveRomaneioRpc,
   signRomaneioConferenceRpc,
   updateRomaneioNfNumbers,
@@ -28,7 +29,7 @@ import { toNumber } from "@/lib/utils/formatting";
 import { EXPORT_PAGE_SIZE, collectAllPages } from "@/lib/utils/collect-pages";
 import {
   allocateRomaneioMaterials,
-  checkRomaneioEmission,
+  checkRomaneioConfirmation,
   mergeRomaneioMaterialLines,
   storedMaterialLines,
   summarizeOfMaterialTotals,
@@ -41,17 +42,19 @@ export async function getRomaneiosPage(
   client: SupabaseServer,
   filters: RomaneioFilters,
 ): Promise<RomaneiosPage> {
-  const [page, simulationCount, emittedCount] = await Promise.all([
+  const [page, mountedCount, conferredCount, confirmedCount] = await Promise.all([
     listRomaneios(client, filters),
-    countRomaneiosByStatus(client, filters, "SIMULACAO"),
-    countRomaneiosByStatus(client, filters, "EMITIDO"),
+    countRomaneiosByStatus(client, filters, "MONTADO"),
+    countRomaneiosByStatus(client, filters, "CONFERIDO"),
+    countRomaneiosByStatus(client, filters, "CONFIRMADO"),
   ]);
 
   return {
     romaneios: page.rows,
     total: page.total,
-    simulationCount,
-    emittedCount,
+    mountedCount,
+    conferredCount,
+    confirmedCount,
   };
 }
 
@@ -65,19 +68,50 @@ export async function listRomaneiosForExport(
   );
 }
 
-/** Seletor de OFs candidatas em /romaneio/novo. */
-export async function getRomaneioOrderCandidates(
+/** Clientes com OFs disponíveis para romaneio + as OFs de cada um. */
+export async function getRomaneioCustomers(
   client: SupabaseServer,
-  filters: RomaneioCandidateFilters,
-): Promise<RomaneioCandidatesPage> {
-  return listRomaneioCandidates(client, filters);
+): Promise<RomaneioCustomerOption[]> {
+  return listRomaneioCustomers(client);
+}
+
+/**
+ * Itens RAIZ de uma OF com o estado de expedição — a lista que o
+ * usuário marca em /romaneio/novo antes de confirmar a criação do
+ * romaneio (quantity nasce 0 = fora da carga).
+ */
+export async function getRomaneioOrderItems(
+  client: SupabaseServer,
+  orderId: string,
+): Promise<RomaneioOrderItem[]> {
+  const [rawItems, confirmedByItem] = await Promise.all([
+    listRootOrderItems(client, orderId),
+    listConfirmedQuantityByItem(client, orderId, null),
+  ]);
+
+  return rawItems.map((item) => {
+    const exp = (item.production_processes ?? []).find(
+      (process) => process.processes?.code === "EXP",
+    );
+    return {
+      orderItemId: item.id,
+      family: item.family,
+      parentItem: item.parent_item,
+      description: item.description,
+      itemQuantity: toNumber(item.quantity) ?? 0,
+      unitWeightKg: toNumber(item.unit_weight_kg),
+      shippedQuantity: confirmedByItem.get(item.id) ?? 0,
+      expStatus: exp ? exp.status : null,
+      quantity: 0,
+    };
+  });
 }
 
 /**
  * Visão completa do romaneio para a tela de detalhe: cabeçalho, itens
- * raiz da OF com o estado de expedição (EXP + já emitido + pendência),
- * linhas de material (previsto alocado × informado) e os gates de
- * emissão.
+ * raiz da OF com o estado de expedição (EXP + já confirmado +
+ * pendência), linhas de material (previsto alocado × informado) e os
+ * gates de confirmação.
  */
 export async function getRomaneioView(
   client: SupabaseServer,
@@ -88,8 +122,8 @@ export async function getRomaneioView(
   if (!raw) return null;
 
   const orderId = raw.orders.id;
-  const [emittedByItem, ofLines] = await Promise.all([
-    listEmittedQuantityByItem(client, orderId, romaneioId),
+  const [confirmedByItem, ofLines] = await Promise.all([
+    listConfirmedQuantityByItem(client, orderId, romaneioId),
     listOrderMaterialLines(client, orderId),
   ]);
 
@@ -133,16 +167,17 @@ export async function getRomaneioView(
         description: item.description,
         itemQuantity: toNumber(item.quantity) ?? 0,
         unitWeightKg: toNumber(item.unit_weight_kg),
-        shippedQuantity: emittedByItem.get(item.id) ?? 0,
+        shippedQuantity: confirmedByItem.get(item.id) ?? 0,
         expStatus: exp ? exp.status : null,
         quantity: includedByItem.get(item.id) ?? 0,
       };
     });
 
-  // Em SIMULAÇÃO as linhas de material nascem da alocação desta carga
-  // (merge com o já informado); emitido/cancelado mostra o registro gravado.
+  // Em MONTADO as linhas de material nascem da alocação desta carga
+  // (merge com o já informado); conferido/confirmado/cancelado mostra
+  // o registro gravado.
   const allocated =
-    raw.status === "SIMULACAO"
+    raw.status === "MONTADO"
       ? allocateRomaneioMaterials({
           includedItems: [...includedByItem].map(([orderItemId, quantity]) => ({
             orderItemId,
@@ -153,14 +188,14 @@ export async function getRomaneioView(
       : [];
 
   const materials =
-    raw.status === "SIMULACAO"
+    raw.status === "MONTADO"
       ? mergeRomaneioMaterialLines(allocated, storedMaterials)
       : storedMaterialLines(storedMaterials);
 
-  const emission = checkRomaneioEmission({
+  const confirmation = checkRomaneioConfirmation({
     status: raw.status,
     orderStatus: raw.orders.status,
-    conferenceAccepted: raw.conference_accepted_at !== null,
+    hasNfNumber: Boolean(raw.nf_number && raw.nf_number.trim() !== ""),
     items: items.map((item) => ({
       itemQuantity: item.itemQuantity,
       shippedQuantity: item.shippedQuantity,
@@ -198,32 +233,35 @@ export async function getRomaneioView(
         quantityUsed: toNumber(line.quantity_used),
       })),
     ),
-    emission,
-    canEdit: raw.status === "SIMULACAO" && canEditCapability,
+    confirmation,
+    canEdit: raw.status === "MONTADO" && canEditCapability,
   };
 }
 
 /**
- * Cria uma simulação vazia para a OF (o editor de itens da tela
- * detalhe preenche o restante). A RPC garante UMA simulação por OF.
+ * Cria o romaneio da OF em /romaneio/novo — já com os itens marcados
+ * (esta remessa) e a data de saída. A RPC garante UM romaneio em
+ * montagem por OF.
  */
 export async function createRomaneio(
   client: SupabaseServer,
   orderId: string,
+  shipmentDate: string | null,
+  items: { orderItemId: string; quantity: number }[],
 ): Promise<{ id: string; number: number }> {
   return saveRomaneioRpc(client, {
     romaneioId: null,
     orderId,
-    shipmentDate: null,
+    shipmentDate,
     carrier: null,
     vehicle: null,
     notes: null,
-    items: [],
+    items: items.filter((item) => item.quantity > 0),
     materials: [],
   });
 }
 
-/** Salva cabeçalho+itens+materiais de um romaneio em SIMULAÇÃO. */
+/** Salva cabeçalho+itens+materiais de um romaneio em MONTADO. */
 export async function saveRomaneio(
   client: SupabaseServer,
   input: RomaneioValues,
@@ -244,7 +282,7 @@ export async function saveRomaneio(
   });
 }
 
-/** Sinaliza o aceite da conferência (quem/quando/observação). */
+/** Sinaliza o aceite da conferência (quem/quando/observação) — MONTADO → CONFERIDO. */
 export async function signRomaneioConference(
   client: SupabaseServer,
   romaneioId: string,
@@ -254,17 +292,30 @@ export async function signRomaneioConference(
 }
 
 /**
- * Emite o romaneio: os gates são validados NO BANCO (RPC 042) — mensagem
- * amigável sobe como exceção e o action converte em toast.
+ * Confirma o romaneio (CONFERIDO → CONFIRMADO): os gates são validados
+ * NO BANCO (RPC 045) — mensagem amigável sobe como exceção e o action
+ * converte em toast. É a confirmação que baixa os itens na pendência
+ * da OF (derivação por leitura — cancelar depois restaura sozinho).
  */
-export async function emitRomaneio(
+export async function confirmRomaneio(
   client: SupabaseServer,
   romaneioId: string,
 ): Promise<void> {
-  await emitRomaneioRpc(client, romaneioId);
+  await confirmRomaneioRpc(client, romaneioId);
 }
 
-/** Cancela o romaneio (bloqueado quando já há NF de saída registrada). */
+/** Exclusão DEFINITIVA — só permitida em romaneios em MONTADO (045). */
+export async function deleteRomaneio(
+  client: SupabaseServer,
+  romaneioId: string,
+): Promise<void> {
+  await deleteRomaneioRpc(client, romaneioId);
+}
+
+/**
+ * Cancela o romaneio (CONFERIDO/CONFIRMADO) — a baixa derivada se
+ * restaura sozinha porque o romaneio sai do Σ de CONFIRMADOS.
+ */
 export async function cancelRomaneio(
   client: SupabaseServer,
   romaneioId: string,

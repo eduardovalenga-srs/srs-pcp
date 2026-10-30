@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ClipboardCheck } from "lucide-react";
 
 import type { RomaneioFilters, RomaneioSummary } from "@/lib/types/romaneio";
 import { romaneioQueryString } from "@/lib/utils/filters";
 import { formatDate } from "@/lib/utils/dates";
-import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
+import { formatWeight } from "@/lib/utils/formatting";
 import { SortLink, type SortState } from "@/components/shared/SortLink";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,6 @@ import { RomaneioStatusBadge } from "@/components/romaneio/RomaneioStatusBadge";
 import {
   RomaneioColumnHeader,
   RomaneioShipmentFilter,
-  RomaneioStatusFilter,
   RomaneioTextFilter,
 } from "@/components/romaneio/RomaneioColumnHeaders";
 
@@ -69,7 +68,7 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
       <div className="hidden overflow-x-auto rounded border bg-card lg:block">
         <table className="w-full caption-bottom text-sm">
           <caption className="sr-only">
-            Romaneios de expedição, com OF/OS, cliente, situação, saída, quantidades e números de NF.
+            Romaneios de expedição, com OF/OS, cliente, situação, saída, peso e números de NF.
           </caption>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
@@ -106,14 +105,6 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
                   }
                 />
               </th>
-              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("status")}>
-                <RomaneioColumnHeader
-                  label="Situação"
-                  columnId="status"
-                  filters={filters}
-                  filter={<RomaneioStatusFilter filters={filters} />}
-                />
-              </th>
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("shipment_date")}>
                 <RomaneioColumnHeader
                   label="Saída"
@@ -122,12 +113,6 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
                   filters={filters}
                   filter={<RomaneioShipmentFilter filters={filters} />}
                 />
-              </th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold" aria-sort={ariaSort("item_count")}>
-                {sortable("Itens", "Itens", "item_count")}
-              </th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold" aria-sort={ariaSort("quantity_total")}>
-                {sortable("Qtd", "Quantidade expedida", "quantity_total")}
               </th>
               <th scope="col" className="px-3 py-2 text-right font-semibold" aria-sort={ariaSort("weight_total")}>
                 {sortable("Peso (kg)", "Peso total", "weight_total")}
@@ -146,7 +131,15 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
           <tbody>
             {romaneios.map((romaneio) => (
               <tr key={romaneio.id} className="border-b last:border-0 hover:bg-muted/30">
-                <td className="px-3 py-2 font-medium tabular-nums">#{romaneio.number}</td>
+                <td className="px-3 py-2">
+                  <span className="flex flex-wrap items-center gap-1">
+                    <span className="font-medium tabular-nums">#{romaneio.number}</span>
+                    <RomaneioStatusBadge status={romaneio.status} />
+                    {romaneio.pendingReturn && !romaneio.returnNfNumber ? (
+                      <ReturnPendingBadge />
+                    ) : null}
+                  </span>
+                </td>
                 <td className="px-3 py-2">
                   <span className="font-medium tabular-nums">{romaneio.orderCode}</span>
                 </td>
@@ -155,20 +148,8 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
                     {romaneio.customerName || "—"}
                   </span>
                 </td>
-                <td className="px-3 py-2">
-                  <span className="flex flex-wrap items-center gap-1">
-                    <RomaneioStatusBadge status={romaneio.status} />
-                    {romaneio.pendingReturn && !romaneio.returnNfNumber ? (
-                      <ReturnPendingBadge />
-                    ) : null}
-                  </span>
-                </td>
                 <td className="whitespace-nowrap px-3 py-2 tabular-nums">
                   {formatDate(romaneio.shipmentDate)}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{romaneio.itemCount}</td>
-                <td className="px-3 py-2 text-right tabular-nums">
-                  {formatQuantity(romaneio.quantityTotal)}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {formatWeight(romaneio.weightTotal)}
@@ -180,7 +161,18 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
                   {romaneio.returnNfNumber || "—"}
                 </td>
                 <td className="px-3 py-2">
-                  <div className="flex items-center justify-end">
+                  <div className="flex items-center justify-end gap-1.5">
+                    {romaneio.status !== "CANCELADO" ? (
+                      <Button type="button" variant="ghost" size="sm" asChild>
+                        <Link
+                          href={`/romaneio/${romaneio.id}/conferencia`}
+                          title="Folha de conferência da carga (imprimível)"
+                        >
+                          <ClipboardCheck className="h-4 w-4" aria-hidden />
+                          Conferência
+                        </Link>
+                      </Button>
+                    ) : null}
                     <Button type="button" variant="outline" size="sm" asChild>
                       <Link href={`/romaneio/${romaneio.id}`}>
                         Abrir
@@ -222,14 +214,6 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
                 <dd className="tabular-nums">{formatDate(romaneio.shipmentDate)}</dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">Itens</dt>
-                <dd className="tabular-nums">{romaneio.itemCount}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Qtd</dt>
-                <dd className="tabular-nums">{formatQuantity(romaneio.quantityTotal)}</dd>
-              </div>
-              <div>
                 <dt className="text-xs text-muted-foreground">Peso (kg)</dt>
                 <dd className="tabular-nums">{formatWeight(romaneio.weightTotal)}</dd>
               </div>
@@ -239,12 +223,22 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
               <p className="text-xs text-muted-foreground tabular-nums">
                 NF saída: {romaneio.nfNumber || "—"} · NF dev.: {romaneio.returnNfNumber || "—"}
               </p>
-              <Button type="button" variant="outline" size="sm" asChild>
-                <Link href={`/romaneio/${romaneio.id}`}>
-                  Abrir
-                  <ArrowRight className="h-4 w-4" aria-hidden />
-                </Link>
-              </Button>
+              <span className="flex items-center gap-1.5">
+                {romaneio.status !== "CANCELADO" ? (
+                  <Button type="button" variant="ghost" size="sm" asChild>
+                    <Link href={`/romaneio/${romaneio.id}/conferencia`}>
+                      <ClipboardCheck className="h-4 w-4" aria-hidden />
+                      Conferência
+                    </Link>
+                  </Button>
+                ) : null}
+                <Button type="button" variant="outline" size="sm" asChild>
+                  <Link href={`/romaneio/${romaneio.id}`}>
+                    Abrir
+                    <ArrowRight className="h-4 w-4" aria-hidden />
+                  </Link>
+                </Button>
+              </span>
             </footer>
           </li>
         ))}

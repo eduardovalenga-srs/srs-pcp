@@ -77,6 +77,7 @@ cp .env.example .env.local
 #    supabase/migrations/041_filtered_overdue_expedition_totals.sql
 #    supabase/migrations/042_romaneio.sql
 #    supabase/migrations/043_column_sorting.sql
+#    supabase/migrations/044_romaneio_customers.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -127,8 +128,9 @@ src/
       pedidos/              CRUD de pedidos
         [id]/               detalhes da OF (itens pai + filhos aninhados, processos e MP)
         [id]/editar/        formulário de edição
-      romaneio/             romaneio de expedição (SIMULACAO → EMITIDO → CANCELADO)
-        novo/               seletor de OFs candidatas (uma simulação aberta por OF)
+      romaneio/             romaneio de expedição (MONTADO → CONFERIDO → CONFIRMADO → CANCELADO)
+        novo/               seletor em cascata cliente → OFs + data de saída + itens da remessa (um rascunho por OF)
+        [id]/conferencia/   folha de conferência imprimível da carga
         [id]/               detalhe: itens da carga, devolução de MP, conferência, NFs
       dashboard/            KPIs, janelas de entrega, carga por processo
       importacao/           assistente de importação (Excel, listas de peças ou PDF da A1)
@@ -149,7 +151,7 @@ src/
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..043 (ordem obrigatória)
+  migrations/               001..044 (ordem obrigatória)
   seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
@@ -596,11 +598,11 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   - **Fábrica 2 / Gestão** — `Seq.`, **OF/OS**, **Cliente**, **Qtd.**, **Peso**, **Entrega**,
     **Atrasado** e colunas de processo; a **DP** (data de proposta) é calculada no banco
     via `add_business_days` (migração 043);
-  - **Romaneio** (lista e seletor de OFs em `/romaneio/novo`) — nº, OF/OS, Cliente,
-    Situação, Saída, Itens, Qtd., Peso, NF saída/devolução (lista); OF/OS, Cliente, Entrega,
-    Situação, Qtd., Peso, Já expedida (seletor);
+  - **Romaneio** (lista em `/romaneio`) — nº + situação (badge), OF/OS, Cliente, Saída,
+    Peso, NF saída/devolução; em `/romaneio/novo` o seletor em cascata
+    (cliente → OFs do cliente, com filtro por digitação) substitui a tabela;
   Defaults preservados (zero mudança visual sem clique): F1 = `seq` asc; F2/Gestão = `seq`/
-  `delivery_date` asc; Romaneio lista = nº desc; seletor = entrega asc.
+  `delivery_date` asc; Romaneio lista = nº desc.
 
 - **Resumo com três números**: os cards **OFs**, **Atrasados** e
   **Expedição** ocupam duas colunas cada e reúnem contagem, **Qtd. total**
@@ -630,46 +632,69 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
 - **Histórico**: toda mutação de produção gera linha em `production_events`;
   o histórico é somente inserção (nunca é apagado).
 
-## Romaneio de expedição (migração 042)
+## Romaneio de expedição (migrações 042 e 045)
 
 - **O que é**: a tela `/romaneio` organiza a expedição **por OF** — monta a carga (itens +
   quantidades), auxilia a emissão da NF (registro dos números, a nota sai no emissor
-  externo) e registra a **devolução de matéria-prima não utilizada**. Fluxo por romaneio:
-  `SIMULACAO → EMITIDO → CANCELADO`.
-- **Simulação livre, uma por OF**: em `/romaneio/novo` o seletor lista OFs não canceladas
-  com itens raiz e mostra a expedição já emitida; cada OF tem **no máximo UM rascunho
-  aberto** (índice único parcial `(order_id) WHERE status = 'SIMULACAO'`, migração 042) e
-  **múltiplos romaneios emitidos** (expedição parcial em cargas sucessivas). Em simulação
+  externo) e registra a **devolução de matéria-prima não utilizada**. Fluxo por romaneio
+  (045 — o cenário de "simulação" saiu do produto):
+  `MONTADO → CONFERIDO → CONFIRMADO` (+ `CANCELADO`, terminal).
+- **Montagem em /romaneio/novo**: o seletor em cascata mostra primeiro os **clientes com OFs
+  disponíveis** e, ao escolher um, as **OFs daquele cliente** (filtro por digitação nos dois
+  campos; OFs canceladas, sem itens raiz ou totalmente expedidas ficam de fora, e as OFs já
+  com rascunho aparecem com o selo "Romaneio aberto"). A **data de saída é obrigatória**;
+  "Listar itens" carrega os itens raiz da OF (com EXP e já expedido) e o usuário **marca as
+  quantidades desta remessa**; "Confirmar romaneio" cria o romaneio **já com os itens**
+  (status MONTADO) e abre a tela de detalhe. OF com rascunho existente vira "Abrir romaneio
+  existente" (a data vigente do rascunho é preservada). Cada OF tem **no máximo UM romaneio
+  em montagem** (índice único parcial `(order_id) WHERE status = 'MONTADO'`, migração 045) e
+  **múltiplos romaneios confirmados** (expedição parcial em cargas sucessivas). Em montagem
   dá para montar a carga mesmo com itens não concluídos — é rascunho.
-- **Emissão** (RPC `emit_romaneio`, validada NO BANCO): exige (1) romaneio em simulação,
-  (2) OF não cancelada, (3) **aceite de conferência sinalizado na própria tela do romaneio**
-  (quem/quando/observação — painel dentro de `/romaneio/[id]`, sem processo novo no
-  catálogo), (4) ao menos um item incluído, (5) **EXP = CONCLUIDO em TODOS os itens raiz
-  aplicáveis da OF** (inclusive os fora da carga) e (6) **Σ (este + já emitidos) ≤
-  quantidade do item**. Emitido trava cabeçalho/itens/materiais — só os números de NF
-  continuam editáveis. Os gates aparecem como checklist na tela (`checkRomaneioEmission`,
+- **Conferência com folha impressa**: a ação **Conferência** da lista (e o painel do detalhe)
+  abre `/romaneio/[id]/conferencia` — folha **imprimível** (`window.print()`, estilos
+  `print:`) com SÓ os itens selecionados (com quadrinho para marcar a mão) e a lista de
+  devolução de matéria-prima, pensada para o check da carga no caminhão. "Sinalizar aceite"
+  (também na folha ou no detalhe) registra **quem/quando/observação** e move o romaneio para
+  **CONFERIDO** (RPC `sign_romaneio_conference`; re-sinalizar em um conferido atualiza o
+  aceite). Conferido trava cabeçalho/itens/materiais — só os números de NF continuam
+  editáveis.
+- **Confirmação** (RPC `confirm_romaneio`, validada NO BANCO): exige (1) romaneio em
+  CONFERIDO, (2) OF não cancelada, (3) **NF de saída registrada**, (4) ao menos um item
+  incluído, (5) **EXP = CONCLUIDO em TODOS os itens raiz aplicáveis da OF** (inclusive os
+  fora da carga) e (6) **Σ (este + já confirmados) ≤ quantidade do item**. Confirmar é o
+  momento da **BAIXA**: as quantidades passam a contar como expedidas na pendência de
+  expedição da OF. Os gates aparecem como checklist na tela (`checkRomaneioConfirmation`,
   espelho puro da RPC, em `lib/utils/romaneio.ts`).
+- **Baixa derivada, cancelamento reversível**: a expedição **nunca decrementa
+  `order_items.quantity`** (o campo é o PLANEJADO, lido por todos os relatórios de produção)
+  — o expedido é **derivado a cada leitura** como Σ dos itens de romaneios CONFIRMADOS.
+  Cancelar um CONFIRMADO o exclui do somatório e a pendência se restaura **sozinha** em todo
+  o sistema, sem contador persistido que possa divergir.
 - **Devolução de MP**: saldo = **recebida do cliente − utilizada na produção**, por material
   (descrição + unidade). A alocação do "previsto" a cada carga é **proporcional**
   (`ratio = qtd nesta carga ÷ qtd total do item raiz`, materiais do raiz e de todos os
-  seus filhos × ratio — `allocateRomaneioMaterials`). Em simulação a lista mostra o merge
-  do alocado fresco com o já informado; ao emitir/cancelar o registro **congela** (só o
-  gravado). O rodapé soma a OF inteira (Σ de todos os romaneios não cancelados). A **NF de
-  devolução** só entra com a NF de saída e todas as linhas com recebida/utilizada preenchidas.
-- **Cancelamento**: bloqueado quando há **NF de saída registrada**; ao cancelar, as
-  quantidades voltam para a pendência de expedição da OF (o histórico é mantido).
+  seus filhos × ratio — `allocateRomaneioMaterials`). Em montagem a lista mostra o merge
+  do alocado fresco com o já informado; conferido/confirmado/cancelado o registro
+  **congela** (só o gravado). O rodapé soma a OF inteira (Σ de todos os romaneios não
+  cancelados). A **NF de devolução** só entra com a NF de saída e todas as linhas com
+  recebida/utilizada preenchidas.
+- **Exclusão × cancelamento**: MONTADO (antes da conferência) pode ser **excluído
+  definitivamente** (RPC `delete_romaneio` — sem registro no histórico; o número não
+  retorna); CONFERIDO/CONFIRMADO só **cancelam** (RPC `cancel_romaneio` — mantém o histórico
+  e reverte a baixa derivada). Não há mais o bloqueio de cancelamento por NF de saída.
 - **Escrita**: sempre pelas Server Actions de `lib/actions/romaneio.actions.ts` →
   serviço → RPCs transacionais `save_romaneio` / `sign_romaneio_conference` /
-  `emit_romaneio` / `cancel_romaneio` (plpgsql `security invoker`, mesmas portas de
-  escrita do padrão `replace_item_materials`/`apply_of_import`); gravação direta de NF por
-  UPDATE no repositório. RLS ADMIN/GESTOR para escrita (OPERADOR só lê).
+  `confirm_romaneio` / `delete_romaneio` / `cancel_romaneio` (plpgsql `security invoker`,
+  mesmas portas de escrita do padrão `replace_item_materials`/`apply_of_import`); gravação
+  direta de NF por UPDATE no repositório. RLS ADMIN/GESTOR para escrita (OPERADOR só lê).
 - **Exportação**: `GET /api/export/romaneio` devolve a **lista filtrada inteira** (mesmas
   colunas da tela) e, com `?id=<uuid>`, o **documento do romaneio** (cabeçalho da carga,
   itens e devolução com o Σ da OF inteira) — botões em `/romaneio` e em `/romaneio/[id]`.
 - **Conhecidos/v1 aceitos**: reimportar a OF (cascade) apaga as linhas do romaneio;
-  emissão simultânea de dois usuários na mesma OF não tem trava além do índice único de
-  simulação; materiais congelam ao emitir (edição posterior exige cancelar/reemitir); não
-  há controle de estoque — é um documento de expedição, não inventário.
+  confirmação simultânea de dois usuários na mesma OF não tem trava além do índice único de
+  montagem + o teto validado na RPC; materiais congelam ao conferir (edição posterior exige
+  excluir/cancelar e remontar); não há controle de estoque — é um documento de expedição,
+  não inventário.
 
 ## Gestão de usuários
 

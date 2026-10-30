@@ -233,8 +233,8 @@ export function pedidosSheet(
 
 /**
  * Romaneio — listagem (RomaneioList): Nº, OF/OS, Cliente, Situação,
- * Saída, Itens, Qtd, Peso, NF saída, NF devolução e o marcador de saldo
- * a devolver (mesmas colunas da tela, mesma ordem do servidor).
+ * Saída, Peso, NF saída, NF devolução e o marcador de saldo a devolver
+ * (mesmas colunas da tela, mesma ordem do servidor).
  */
 export function romaneiosListSheet(
   romaneios: readonly RomaneioSummary[],
@@ -245,8 +245,6 @@ export function romaneiosListSheet(
     "Cliente",
     "Situação",
     "Saída",
-    "Itens",
-    "Qtd",
     "Peso (kg)",
     "NF saída",
     "NF devolução",
@@ -258,8 +256,6 @@ export function romaneiosListSheet(
     text(romaneio.customerName),
     ROMANEIO_STATUS_LABELS[romaneio.status],
     dateCell(romaneio.shipmentDate),
-    romaneio.itemCount,
-    number(romaneio.quantityTotal),
     number(romaneio.weightTotal),
     text(romaneio.nfNumber),
     text(romaneio.returnNfNumber),
@@ -286,7 +282,7 @@ export function romaneioDocumentSheet(view: RomaneioView): ExportSheet {
     "NF saída",
     "NF devolução",
     "Conferência",
-    "Emitido em",
+    "Confirmado em",
   ];
 
   const rows: ExportCell[][] = [];

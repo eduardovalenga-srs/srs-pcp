@@ -80,13 +80,12 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
     );
   }
 
-  const { romaneios, total, simulationCount, emittedCount } = data;
+  const { romaneios, total, mountedCount, conferredCount, confirmedCount } = data;
   const pendingReturnCount = romaneios.filter(
     (romaneio) => romaneio.pendingReturn && !romaneio.returnNfNumber,
   ).length;
   const hasFilters =
     filters.search !== "" ||
-    filters.status !== "ALL" ||
     filters.orderCode !== "" ||
     filters.customer !== "" ||
     filters.shipmentFrom !== null ||
@@ -116,9 +115,10 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
       />
 
       <div className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <SummaryCard label="Simulações abertas" value={simulationCount} />
-          <SummaryCard label="Emitidos" value={emittedCount} />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard label="Montados" value={mountedCount} hint="Aguardando conferência" />
+          <SummaryCard label="Conferidos" value={conferredCount} hint="Prontos para confirmar" />
+          <SummaryCard label="Confirmados" value={confirmedCount} hint="Itens baixados na OF" />
           <SummaryCard
             label="Com saldo a devolver"
             value={pendingReturnCount}

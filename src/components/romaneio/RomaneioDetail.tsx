@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Loader2, Save, Send, Trash2 } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, Loader2, Printer, Save, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
   cancelRomaneioAction,
-  emitRomaneioAction,
+  confirmRomaneioAction,
+  deleteRomaneioAction,
   saveRomaneioAction,
   saveRomaneioNfAction,
   signRomaneioConferenceAction,
@@ -90,8 +92,9 @@ function initialMaterials(view: RomaneioView): MaterialLineState[] {
 /**
  * Detalhe do romaneio: cabeçalho da carga, itens (raiz da OF) com a
  * quantidade desta carga, devolução de matéria-prima (previsto ×
- * informado), painel de conferência, números de NF e as ações
- * salvar/emitir/cancelar.
+ * informado), painel de conferência, números de NF e as ações do ciclo
+ * de vida — MONTADO edita/exclui, CONFERIDO confirma (baixa), e
+ * CONFIRMADO pode ser cancelado (a baixa se restaura sozinha).
  */
 export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps) {
   const router = useRouter();
@@ -107,16 +110,17 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
     nfNumber: view.nfNumber ?? "",
     returnNfNumber: view.returnNfNumber ?? "",
   });
-  const [emitOpen, setEmitOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   // Última visão do servidor já aplicada ao formulário (ver ajuste abaixo).
   const [syncedView, setSyncedView] = useState<RomaneioView>(view);
 
   // Ressincroniza o formulário quando o servidor envia uma visão nova
-  // (salvar/emitir/cancelar chamam router.refresh()) — ajuste durante a
-  // renderização, o mesmo padrão dos filtros de listagem. Editar sem salvar
-  // e receber um refresh de fora descarta o rascunho local: o formulário
-  // nunca fica divergente do gravado.
+  // (salvar/confirmar/excluir/cancelar chamam router.refresh()) — ajuste
+  // durante a renderização, o mesmo padrão dos filtros de listagem. Editar
+  // sem salvar e receber um refresh de fora descarta o rascunho local: o
+  // formulário nunca fica divergente do gravado.
   if (syncedView !== view) {
     setSyncedView(view);
     setHeader(initialHeader(view));
@@ -127,6 +131,9 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
 
   const canEdit = view.canEdit;
   const canEditNf = canEditCapability && view.status !== "CANCELADO";
+  const isMounted = view.status === "MONTADO";
+  const isConferred = view.status === "CONFERIDO";
+  const canCancel = canEditCapability && (isConferred || view.status === "CONFIRMADO");
 
   const run = async (key: string, task: () => Promise<void>) => {
     if (busy) return;
@@ -203,16 +210,28 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
       router.refresh();
     });
 
-  const handleEmit = () =>
-    run("emit", async () => {
-      const result = await emitRomaneioAction(view.id);
+  const handleConfirm = () =>
+    run("confirm", async () => {
+      const result = await confirmRomaneioAction(view.id);
       if (!result.success) {
         toast.error(result.message);
         return;
       }
       toast.success(result.message);
-      setEmitOpen(false);
+      setConfirmOpen(false);
       router.refresh();
+    });
+
+  const handleDelete = () =>
+    run("delete", async () => {
+      const result = await deleteRomaneioAction(view.id);
+      if (!result.success) {
+        toast.error(result.message);
+        return;
+      }
+      toast.success(result.message);
+      setDeleteOpen(false);
+      router.push("/romaneio");
     });
 
   const handleCancel = () =>
@@ -253,7 +272,7 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
 
   return (
     <div className="space-y-3">
-      {/* Situação + pré-requisitos de emissão */}
+      {/* Situação + pré-requisitos de confirmação */}
       <section aria-label="Situação do romaneio" className="rounded border bg-card p-3">
         <div className="flex flex-wrap items-center gap-2">
           <RomaneioStatusBadge status={view.status} />
@@ -287,19 +306,19 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
           </div>
         </dl>
 
-        {view.status === "SIMULACAO" ? (
-          view.emission.canEmit ? (
+        {isMounted || isConferred ? (
+          view.confirmation.canConfirm ? (
             <p className="mt-3 rounded border border-status-done-bg bg-status-done/10 px-3 py-2 text-sm text-status-done">
-              Pronto para emitir — todos os pré-requisitos atendidos.
+              Pronto para confirmar — todos os pré-requisitos atendidos.
             </p>
           ) : (
             <div className="mt-3 rounded border border-status-progress-bg bg-status-progress/10 px-3 py-2">
               <p className="flex items-center gap-1.5 text-sm font-medium text-status-progress">
                 <AlertTriangle className="h-4 w-4" aria-hidden />
-                Para emitir, falta:
+                Para confirmar, falta:
               </p>
               <ul className="mt-1 list-inside list-disc space-y-0.5 text-sm text-muted-foreground">
-                {view.emission.blockers.map((blocker) => (
+                {view.confirmation.blockers.map((blocker) => (
                   <li key={blocker}>{blocker}</li>
                 ))}
               </ul>
@@ -314,7 +333,7 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
                 view.conferenceAcceptedByName ? ` por ${view.conferenceAcceptedByName}` : ""
               }`
             : ""}
-          {view.emittedAt ? ` · Emitido em ${formatDateTime(view.emittedAt)}` : ""}
+          {view.emittedAt ? ` · Confirmado em ${formatDateTime(view.emittedAt)}` : ""}
         </p>
       </section>
 
@@ -453,44 +472,56 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
             {view.conferenceNotes ? (
               <p className="text-muted-foreground">Obs.: {view.conferenceNotes}</p>
             ) : null}
-            {canEdit ? (
-              <p className="text-xs text-muted-foreground">
-                A conferência foi sinalizada — ajustes nos itens travam a emissão até revalidar o
-                aceite. Salve e sinalize novamente se precisar alterar.
-              </p>
-            ) : null}
-          </div>
-        ) : canEdit ? (
-          <div className="mt-2 space-y-2">
-            <div className="space-y-1">
-              <Label htmlFor="romaneio-conferencia-obs" className="text-xs text-muted-foreground">
-                Observação do aceite (opcional)
-              </Label>
-              <Textarea
-                id="romaneio-conferencia-obs"
-                value={conferenceNotes}
-                maxLength={500}
-                rows={2}
-                onChange={(event) => setConferenceNotes(event.target.value)}
-                placeholder="Ex.: carga conferida com o cliente, avarias inexistentes…"
-              />
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              disabled={busy !== null}
-              onClick={() => void handleSignConference()}
-            >
-              {busy === "conference" ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : null}
-              Sinalizar aceite da conferência
-            </Button>
           </div>
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">
-            Aceite ainda não sinalizado — quem monta o romaneio registra o aceite na edição.
+            Aceite ainda não sinalizado — imprima a folha de conferência e registre o aceite
+            nela.
           </p>
+        )}
+
+        {!isMounted && !isConferred ? null : (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="sm" asChild>
+              <Link href={`/romaneio/${view.id}/conferencia`}>
+                <Printer className="h-4 w-4" aria-hidden />
+                Abrir folha de conferência
+              </Link>
+            </Button>
+            {canEdit ? (
+              <div className="flex flex-1 flex-wrap items-end gap-2">
+                <div className="min-w-52 flex-1 space-y-1">
+                  <Label
+                    htmlFor="romaneio-conferencia-obs"
+                    className="text-xs text-muted-foreground"
+                  >
+                    Observação do aceite (opcional)
+                  </Label>
+                  <Textarea
+                    id="romaneio-conferencia-obs"
+                    value={conferenceNotes}
+                    maxLength={500}
+                    rows={1}
+                    onChange={(event) => setConferenceNotes(event.target.value)}
+                    placeholder="Ex.: carga conferida com o cliente, avarias inexistentes…"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy !== null}
+                  onClick={() => void handleSignConference()}
+                >
+                  {busy === "conference" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <ClipboardCheck className="h-4 w-4" aria-hidden />
+                  )}
+                  Sinalizar aceite
+                </Button>
+              </div>
+            ) : null}
+          </div>
         )}
       </section>
 
@@ -498,7 +529,8 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
       <section aria-label="Notas fiscais" className="rounded border bg-card p-3">
         <h2 className="text-sm font-semibold">Notas fiscais</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          O sistema só registra os números — a emissão acontece no emissor externo.
+          O sistema só registra os números — a emissão acontece no emissor externo. A NF de
+          saída é exigida para confirmar o romaneio.
         </p>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <div className="space-y-1">
@@ -552,7 +584,7 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
       </section>
 
       {/* Ações */}
-      {canEdit || (canEditCapability && view.status !== "CANCELADO") ? (
+      {canEdit || isConferred || canCancel ? (
         <section
           aria-label="Ações do romaneio"
           className="flex flex-wrap items-center justify-end gap-2"
@@ -574,25 +606,40 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
               <Button
                 type="button"
                 variant="outline"
-                disabled={!view.emission.canEmit || busy !== null}
-                title={
-                  view.emission.canEmit
-                    ? "Trava o romaneio e libera o registro das NFs"
-                    : view.emission.blockers[0]
-                }
-                onClick={() => setEmitOpen(true)}
+                disabled={busy !== null}
+                onClick={() => setDeleteOpen(true)}
               >
-                {busy === "emit" ? (
+                {busy === "delete" ? (
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                 ) : (
-                  <Send className="h-4 w-4" aria-hidden />
+                  <Trash2 className="h-4 w-4" aria-hidden />
                 )}
-                Emitir romaneio
+                Excluir
               </Button>
             </>
           ) : null}
 
-          {canEditCapability && view.status !== "CANCELADO" ? (
+          {canEditCapability && isConferred ? (
+            <Button
+              type="button"
+              disabled={!view.confirmation.canConfirm || busy !== null}
+              title={
+                view.confirmation.canConfirm
+                  ? "Registra a NF como saída e baixa os itens na pendência da OF"
+                  : view.confirmation.blockers[0]
+              }
+              onClick={() => setConfirmOpen(true)}
+            >
+              {busy === "confirm" ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <Send className="h-4 w-4" aria-hidden />
+              )}
+              Confirmar romaneio
+            </Button>
+          ) : null}
+
+          {canCancel ? (
             <Button
               type="button"
               variant="destructive"
@@ -610,30 +657,61 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
         </section>
       ) : null}
 
-      {/* Confirmação de emissão */}
-      <Dialog open={emitOpen} onOpenChange={(nextOpen) => !busy && setEmitOpen(nextOpen)}>
+      {/* Confirmação de confirmação (baixa) */}
+      <Dialog open={confirmOpen} onOpenChange={(nextOpen) => !busy && setConfirmOpen(nextOpen)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Emitir romaneio nº {view.number}</DialogTitle>
+            <DialogTitle>Confirmar romaneio nº {view.number}</DialogTitle>
             <DialogDescription>
-              A emissão trava cabeçalho, itens e materiais deste romaneio — só os números de NF
-              continuam editáveis. As quantidades passam a contar na pendência de expedição da OF{" "}
-              {view.orderCode}. Confirma?
+              A confirmação registra a NF {view.nfNumber || ""} como saída e BAIXA as quantidades
+              na pendência de expedição da OF {view.orderCode}. Depois disso cabeçalho, itens e
+              materiais ficam travados — só os números de NF continuam editáveis, e cancelar
+              depois devolve as quantidades à OF. Confirma?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setEmitOpen(false)} disabled={busy !== null}>
+            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)} disabled={busy !== null}>
               Voltar
             </Button>
             <Button
               type="button"
               disabled={busy !== null}
-              onClick={() => void handleEmit()}
+              onClick={() => void handleConfirm()}
             >
-              {busy === "emit" ? (
+              {busy === "confirm" ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               ) : null}
-              {busy === "emit" ? "Emitindo…" : "Emitir"}
+              {busy === "confirm" ? "Confirmando…" : "Confirmar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmação de exclusão (só MONTADO) */}
+      <Dialog open={deleteOpen} onOpenChange={(nextOpen) => !busy && setDeleteOpen(nextOpen)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Excluir romaneio nº {view.number}</DialogTitle>
+            <DialogDescription>
+              A exclusão é DEFINITIVA — itens, materiais e o próprio romaneio saem do sistema sem
+              registro no histórico (o número não retorna). Use o cancelamento para romaneios já
+              conferidos ou confirmados. Confirma?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)} disabled={busy !== null}>
+              Voltar
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busy !== null}
+              onClick={() => void handleDelete()}
+            >
+              {busy === "delete" ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : null}
+              {busy === "delete" ? "Excluindo…" : "Excluir"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -645,9 +723,11 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
           <DialogHeader>
             <DialogTitle>Cancelar romaneio nº {view.number}</DialogTitle>
             <DialogDescription>
-              O cancelamento libera as quantidades expedidas deste romaneio na pendência da OF{" "}
-              {view.orderCode} e mantém o registro no histórico. Bloqueado quando já há NF de
-              saída registrada. Confirma?
+              {view.status === "CONFIRMADO"
+                ? "Cancelar um romaneio confirmado DEVOLVE as quantidades à pendência de expedição da OF " +
+                  view.orderCode +
+                  " (a baixa é desfeita automaticamente) e mantém o registro no histórico. Confirma?"
+                : "O cancelamento mantém o registro no histórico e libera o romaneio em montagem que esta OF pode vir a ter. Confirma?"}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

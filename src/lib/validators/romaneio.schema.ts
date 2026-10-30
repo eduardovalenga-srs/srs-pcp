@@ -47,8 +47,9 @@ export const romaneioMaterialSchema = z
   });
 
 /**
- * Cabeçalho + itens + materiais de um romaneio em SIMULAÇÃO.
- * `id` presente = atualização de rascunho aberto; ausente = criação.
+ * Cabeçalho + itens + materiais de um romaneio em MONTADO.
+ * `id` presente = atualização de um romaneio existente; ausente =
+ * criação (em /romaneio/novo já nasce com os itens desta remessa).
  */
 export const romaneioSchema = z
   .object({

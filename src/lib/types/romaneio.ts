@@ -13,10 +13,6 @@ export interface RomaneioSummary {
   status: RomaneioStatus;
   shipmentDate: string | null;
   carrier: string | null;
-  /** Nº de itens incluídos no romaneio. */
-  itemCount: number;
-  /** Σ das quantidades expedidas neste romaneio. */
-  quantityTotal: number;
   /** Peso total (kg) = Σ (qtd × peso unit.) dos itens; null quando sem peso. */
   weightTotal: number | null;
   nfNumber: string | null;
@@ -24,6 +20,7 @@ export interface RomaneioSummary {
   /** Alguma linha tem saldo de devolução sem NF de devolução registrada. */
   pendingReturn: boolean;
   conferenceAcceptedAt: string | null;
+  /** Quando o romaneio foi CONFIRMADO (coluna emitted_at). */
   emittedAt: string | null;
   createdAt: string;
 }
@@ -32,7 +29,6 @@ export interface RomaneioSummary {
 export interface RomaneioFilters {
   /** Busca genérica (nº do romaneio, OF/OS ou cliente). */
   search: string;
-  status: RomaneioStatus | "ALL";
   /** Coluna OF/OS por "contém". */
   orderCode: string;
   /** Coluna Cliente por "contém". */
@@ -50,10 +46,12 @@ export interface RomaneioFilters {
 export interface RomaneiosPage {
   romaneios: RomaneioSummary[];
   total: number;
-  /** Contagem de SIMULAÇÕES com os mesmos filtros (cartão de resumo). */
-  simulationCount: number;
-  /** Contagem de EMITIDOS com os mesmos filtros (cartão de resumo). */
-  emittedCount: number;
+  /** Contagem de MONTADOS com os mesmos filtros (cartão de resumo). */
+  mountedCount: number;
+  /** Contagem de CONFERIDOS com os mesmos filtros (cartão de resumo). */
+  conferredCount: number;
+  /** Contagem de CONFIRMADOS com os mesmos filtros (cartão de resumo). */
+  confirmedCount: number;
 }
 
 /**
@@ -69,7 +67,7 @@ export interface RomaneioOrderItem {
   itemQuantity: number;
   /** Peso unitário (kg) — coluna derivada da OF (023). */
   unitWeightKg: number | null;
-  /** Quantidade já expedida em OUTROS romaneios EMITIDOS da OF. */
+  /** Quantidade já expedida em OUTROS romaneios CONFIRMADOS da OF. */
   shippedQuantity: number;
   /** Situação do processo EXP do item (null = o item não tem linha de EXP). */
   expStatus: ProcessStatus | null;
@@ -98,10 +96,10 @@ export interface RomaneioOfMaterialTotals {
   returned: number;
 }
 
-/** Pré-requisitos de emissão (gates) — exibidos como checklist na tela. */
-export interface RomaneioEmissionCheck {
-  canEmit: boolean;
-  /** Motivos que impedem a emissão (mensagens prontas para exibir). */
+/** Pré-requisitos de confirmação (gates) — exibidos como checklist na tela. */
+export interface RomaneioConfirmationCheck {
+  canConfirm: boolean;
+  /** Motivos que impedem a confirmação (mensagens prontas para exibir). */
   blockers: string[];
 }
 
@@ -127,15 +125,15 @@ export interface RomaneioView {
   nfNumber: string | null;
   returnNfNumber: string | null;
   createdAt: string;
-  /** Itens raiz da OF com o estado de expedição (editável só em simulação). */
+  /** Itens raiz da OF com o estado de expedição (editável só em MONTADO). */
   items: RomaneioOrderItem[];
-  /** Linhas de material (editáveis só em simulação). */
+  /** Linhas de material (editáveis só em MONTADO). */
   materials: RomaneioMaterialLine[];
   /** Σ da OF inteira entre romaneios não cancelados. */
   ofMaterialTotals: RomaneioOfMaterialTotals;
-  /** Gates de emissão vigentes. */
-  emission: RomaneioEmissionCheck;
-  /** Edição liberada (simulação + capacidade romaneio.edit do perfil). */
+  /** Gates de confirmação vigentes. */
+  confirmation: RomaneioConfirmationCheck;
+  /** Edição liberada (montado + capacidade romaneio.edit do perfil). */
   canEdit: boolean;
 }
 
@@ -151,25 +149,22 @@ export interface RomaneioCandidate {
   rootQuantity: number;
   /** Peso total (kg) dos itens raiz quando todos têm peso unitário. */
   rootWeightKg: number | null;
-  /** Quantidade já expedida (Σ de romaneios EMITIDOS da OF). */
+  /** Quantidade já expedida (Σ de romaneios CONFIRMADOS da OF). */
   shippedQuantity: number;
-  /** Já existe simulação aberta para esta OF (bloqueia nova simulação). */
-  hasSimulation: boolean;
-  /** Id da simulação aberta, quando houver — permite abrir o rascunho. */
-  simulationId: string | null;
+  /** Já existe um romaneio em MONTADO para esta OF (abre o existente). */
+  hasOpenRomaneio: boolean;
+  /** Id do romaneio em MONTADO, quando houver — permite abrir o rascunho. */
+  openRomaneioId: string | null;
 }
 
-/** Filtros do seletor de OFs em /romaneio/novo. */
-export interface RomaneioCandidateFilters {
-  search: string;
-  /** 043: chave de ordenação (whitelist fechada da RPC de candidatos). */
-  sort: string;
-  sortDir: "asc" | "desc";
-  page: number;
-  pageSize: number;
-}
-
-export interface RomaneioCandidatesPage {
-  candidates: RomaneioCandidate[];
-  total: number;
+/**
+ * Grupo do seletor em cascata de /romaneio/novo: um cliente e as OFs
+ * disponíveis dele. `customerName: null` = bucket "Cliente não informado".
+ */
+export interface RomaneioCustomerOption {
+  customerName: string | null;
+  /** Quantidade de OFs disponíveis (resumo exibido no item do dropdown). */
+  ofCount: number;
+  /** OFs do cliente, ordenadas por data de entrega (ASC, vazias no fim). */
+  ofs: RomaneioCandidate[];
 }

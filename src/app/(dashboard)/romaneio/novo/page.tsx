@@ -5,19 +5,18 @@ import { ArrowLeft } from "lucide-react";
 import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { getRomaneioOrderCandidates } from "@/lib/services/romaneio.service";
-import type { RomaneioCandidatesPage } from "@/lib/types/romaneio";
-import { parseRomaneioCandidateFilters } from "@/lib/utils/filters";
+import { getRomaneioCustomers } from "@/lib/services/romaneio.service";
+import type { RomaneioCustomerOption } from "@/lib/types/romaneio";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
-import { RomaneioOrderPicker } from "@/components/romaneio/RomaneioOrderPicker";
+import { RomaneioNewForm } from "@/components/romaneio/RomaneioNewForm";
 
 export const metadata = { title: "Novo romaneio" };
 
-export default async function NovoRomaneioPage({ searchParams }: PageProps<"/romaneio/novo">) {
+export default async function NovoRomaneioPage() {
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");
 
@@ -43,12 +42,10 @@ export default async function NovoRomaneioPage({ searchParams }: PageProps<"/rom
     );
   }
 
-  const filters = parseRomaneioCandidateFilters(await searchParams);
-
-  let data: RomaneioCandidatesPage;
+  let customers: RomaneioCustomerOption[];
   try {
     const client = await createClient();
-    data = await getRomaneioOrderCandidates(client, filters);
+    customers = await getRomaneioCustomers(client);
   } catch (error) {
     return (
       <>
@@ -65,31 +62,21 @@ export default async function NovoRomaneioPage({ searchParams }: PageProps<"/rom
     );
   }
 
-  const hasSearch = filters.search !== "";
-
   return (
     <>
       <Header
         title="Novo romaneio"
-        description="Escolha a OF que sai nesta carga — uma simulação aberta por OF."
+        description="Escolha o cliente, a OF e a data de saída — um romaneio em montagem por OF."
         actions={backAction}
       />
 
-      {data.candidates.length === 0 ? (
+      {customers.length === 0 ? (
         <EmptyState
           title="Nenhuma OF disponível"
-          description={
-            hasSearch
-              ? "Ajuste a busca para encontrar a OF que você procura."
-              : "Não há OFs abertas para expedir (canceladas, sem itens ou totalmente expedidas ficam fora)."
-          }
+          description="Não há OFs abertas para expedir (canceladas, sem itens ou totalmente expedidas ficam fora)."
         />
       ) : (
-        <RomaneioOrderPicker
-          candidates={data.candidates}
-          filters={filters}
-          total={data.total}
-        />
+        <RomaneioNewForm customers={customers} />
       )}
     </>
   );

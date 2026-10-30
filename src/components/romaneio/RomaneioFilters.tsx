@@ -5,20 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { ROMANEIO_STATUSES, ROMANEIO_STATUS_LABELS, type RomaneioStatus } from "@/lib/constants/romaneio";
 import { SEARCH_DEBOUNCE_MS } from "@/lib/constants/pagination";
 import type { RomaneioFilters as RomaneioFilterValues } from "@/lib/types/romaneio";
 import { normalizeDeliveryPeriod, romaneioQueryString } from "@/lib/utils/filters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 interface RomaneioFiltersProps {
   filters: RomaneioFilterValues;
@@ -26,8 +18,8 @@ interface RomaneioFiltersProps {
 
 /**
  * Barra de filtros da listagem de romaneios no MOBILE (nos cards não há
- * cabeçalho de coluna): busca, situação, OF, cliente e saída. No desktop
- * os filtros ficam nos cabeçalhos das colunas (RomaneioColumnHeaders).
+ * cabeçalho de coluna): busca, OF, cliente e saída. No desktop os
+ * filtros ficam nos cabeçalhos das colunas (RomaneioColumnHeaders).
  */
 export function RomaneioFilters({ filters }: RomaneioFiltersProps) {
   const router = useRouter();
@@ -87,7 +79,6 @@ export function RomaneioFilters({ filters }: RomaneioFiltersProps) {
 
   const hasFilters =
     filters.search !== "" ||
-    filters.status !== "ALL" ||
     filters.orderCode !== "" ||
     filters.customer !== "" ||
     filters.shipmentFrom !== null ||
@@ -122,30 +113,6 @@ export function RomaneioFilters({ filters }: RomaneioFiltersProps) {
               autoComplete="off"
             />
           </div>
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor="romaneio-status" className="text-xs text-muted-foreground">
-            Situação
-          </Label>
-          <Select
-            value={filters.status}
-            onValueChange={(value) =>
-              apply({ status: value as RomaneioStatus | "ALL", search: search.trim() })
-            }
-          >
-            <SelectTrigger id="romaneio-status" className="w-full">
-              <SelectValue placeholder="Todas as situações" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">Todas as situações</SelectItem>
-              {ROMANEIO_STATUSES.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {ROMANEIO_STATUS_LABELS[status]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
 
         <div className="space-y-1">

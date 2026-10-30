@@ -4,8 +4,9 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 const ROMANEIO_STATUS_VARIANTS: Record<RomaneioStatus, BadgeProps["variant"]> = {
-  SIMULACAO: "warning",
-  EMITIDO: "success",
+  MONTADO: "warning",
+  CONFERIDO: "secondary",
+  CONFIRMADO: "success",
   CANCELADO: "destructive",
 };
 

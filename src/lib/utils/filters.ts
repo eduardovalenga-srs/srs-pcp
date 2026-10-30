@@ -1,10 +1,9 @@
 import { DELIVERY_FILTERS, DELIVERY_LABELS, PRODUCTION_PAGE_SIZE, PRODUCTION_PAGE_SIZE_OPTIONS, MAX_PAGE_SIZE, ORDERS_PAGE_SIZE, CHILD_ITEMS_PAGE_SIZE, ROMANEIO_PAGE_SIZE, type DeliveryFilter } from "@/lib/constants/pagination";
 import { ORDER_STATUSES, ORDER_STATUS_LABELS, type OrderStatus } from "@/lib/constants/orders";
 import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, type ProcessStatus } from "@/lib/constants/production";
-import { ROMANEIO_STATUSES, ROMANEIO_STATUS_LABELS, type RomaneioStatus } from "@/lib/constants/romaneio";
 import type { ChildItemFilters, OrderFilters } from "@/lib/types/order";
 import type { ProductionFilters } from "@/lib/types/production";
-import type { RomaneioCandidateFilters, RomaneioFilters } from "@/lib/types/romaneio";
+import type { RomaneioFilters } from "@/lib/types/romaneio";
 import { formatDate, isValidISODate } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight, toNumber } from "@/lib/utils/formatting";
 
@@ -78,10 +77,7 @@ export const ROMANEIO_SORT_KEYS = [
   "number",
   "order_code",
   "customer",
-  "status",
   "shipment_date",
-  "item_count",
-  "quantity_total",
   "weight_total",
   "nf_number",
   "return_nf_number",
@@ -94,27 +90,6 @@ export const DEFAULT_ROMANEIO_SORT_DIR: "asc" | "desc" = "desc";
 
 export function isRomaneioSortableColumn(value: string): value is RomaneioSortKey {
   return (ROMANEIO_SORT_KEYS as readonly string[]).includes(value);
-}
-
-/**
- * 043: chaves de ordenação do seletor de OFs de /romaneio/novo.
- * `delivery_date` é o default (asc, nulls last) — a ordem de antes.
- */
-export const ROMANEIO_CANDIDATE_SORT_KEYS = [
-  "order_code",
-  "customer",
-  "delivery_date",
-  "status",
-  "quantity",
-  "weight",
-  "shipped",
-] as const;
-export type RomaneioCandidateSortKey = (typeof ROMANEIO_CANDIDATE_SORT_KEYS)[number];
-
-export const DEFAULT_ROMANEIO_CANDIDATE_SORT: RomaneioCandidateSortKey = "delivery_date";
-
-export function isRomaneioCandidateSortableColumn(value: string): value is RomaneioCandidateSortKey {
-  return (ROMANEIO_CANDIDATE_SORT_KEYS as readonly string[]).includes(value);
 }
 
 /** Extrai o primeiro valor de um parâmetro de busca. */
@@ -397,13 +372,10 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
  * Lê os filtros da listagem de romaneios de expedição a partir da URL.
  * `q` busca genérica (nº do romaneio, OF/OS ou cliente); `saida*` filtra
  * o período da data de saída (mesmas convenções das telas de entrega).
+ * A coluna Situação não tem filtro: a situação vive no badge ao lado do nº.
  */
 export function parseRomaneioFilters(params: SearchParamsRecord): RomaneioFilters {
   const search = firstValue(params.q).trim();
-  const statusRaw = firstValue(params.status).toUpperCase();
-  const status = (ROMANEIO_STATUSES as readonly string[]).includes(statusRaw)
-    ? (statusRaw as RomaneioStatus)
-    : "ALL";
 
   // 043: ordenação por coluna (whitelist fechada — sem código de processo).
   const sortRaw = firstValue(params.ordem).toLowerCase();
@@ -420,7 +392,6 @@ export function parseRomaneioFilters(params: SearchParamsRecord): RomaneioFilter
 
   return {
     search,
-    status,
     orderCode: textParam(params, "of"),
     customer: textParam(params, "cliente"),
     shipmentFrom: dateParam(params, "saidade"),
@@ -440,7 +411,6 @@ export function romaneioQueryString(
   const next = { ...filters, ...overrides };
   return toSearchParams({
     q: next.search || undefined,
-    status: next.status === "ALL" ? undefined : next.status,
     of: next.orderCode || undefined,
     cliente: next.customer || undefined,
     saidade: next.shipmentFrom || undefined,
@@ -450,49 +420,6 @@ export function romaneioQueryString(
     // no default, "asc" sobrevive sozinho (`?direcao=asc` reparseia na
     // chave padrão), senão a coluna ativa nunca conseguiria inverter.
     direcao: next.sortDir === DEFAULT_ROMANEIO_SORT_DIR ? undefined : next.sortDir,
-    pagina: next.page === 1 ? undefined : next.page,
-    porpagina: next.pageSize === ROMANEIO_PAGE_SIZE ? undefined : next.pageSize,
-  });
-}
-
-/** Lê os filtros do seletor de OFs em /romaneio/novo a partir da URL. */
-export function parseRomaneioCandidateFilters(
-  params: SearchParamsRecord,
-): RomaneioCandidateFilters {
-  // 043: ordenação por coluna (whitelist fechada).
-  const sortRaw = firstValue(params.ordem).toLowerCase();
-  const sort = isRomaneioCandidateSortableColumn(sortRaw)
-    ? sortRaw
-    : DEFAULT_ROMANEIO_CANDIDATE_SORT;
-  const sortDirRaw = firstValue(params.direcao).toLowerCase();
-  const sortDir: "asc" | "desc" = sortDirRaw === "desc" ? "desc" : "asc";
-
-  const pageRaw = Number.parseInt(firstValue(params.pagina), 10);
-  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
-
-  const pageSizeRaw = Number.parseInt(firstValue(params.porpagina), 10);
-  const pageSize = clampPageSize(pageSizeRaw, ROMANEIO_PAGE_SIZE);
-
-  return {
-    search: firstValue(params.q).trim().slice(0, MAX_COLUMN_FILTER_LENGTH),
-    sort,
-    sortDir,
-    page,
-    pageSize,
-  };
-}
-
-/** Monta a query string do seletor de OFs (defaults omitidos). */
-export function romaneioCandidateQueryString(
-  filters: RomaneioCandidateFilters,
-  overrides: Partial<RomaneioCandidateFilters> = {},
-): string {
-  const next = { ...filters, ...overrides };
-  return toSearchParams({
-    q: next.search || undefined,
-    ordem: next.sort === DEFAULT_ROMANEIO_CANDIDATE_SORT ? undefined : next.sort,
-    // `direcao` só sobrevive quando difere do default da tela (asc).
-    direcao: next.sortDir === "asc" ? undefined : next.sortDir,
     pagina: next.page === 1 ? undefined : next.page,
     porpagina: next.pageSize === ROMANEIO_PAGE_SIZE ? undefined : next.pageSize,
   });
@@ -845,7 +772,7 @@ export function activeFilterChips(filters: ProductionFilters): ActiveFilterChip[
 }
 
 export interface RomaneioFilterChip {
-  key: "search" | "status" | "orderCode" | "customer" | "shipmentPeriod";
+  key: "search" | "orderCode" | "customer" | "shipmentPeriod";
   label: string;
   /** Como desligar só este filtro, mantendo os demais. */
   clear: Partial<RomaneioFilters>;
@@ -853,22 +780,14 @@ export interface RomaneioFilterChip {
 
 /**
  * Chips de "filtros ativos" da listagem de romaneios — um chip por filtro
- * ligado (busca, situação e filtros de coluna), com o ajuste exato para
- * removê-lo individualmente.
+ * ligado (busca e filtros de coluna), com o ajuste exato para removê-lo
+ * individualmente.
  */
 export function romaneioFilterChips(filters: RomaneioFilters): RomaneioFilterChip[] {
   const chips: RomaneioFilterChip[] = [];
 
   if (filters.search) {
     chips.push({ key: "search", label: `Busca: ${filters.search}`, clear: { search: "" } });
-  }
-
-  if (filters.status !== "ALL") {
-    chips.push({
-      key: "status",
-      label: `Situação: ${ROMANEIO_STATUS_LABELS[filters.status]}`,
-      clear: { status: "ALL" },
-    });
   }
 
   if (filters.orderCode) {

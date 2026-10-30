@@ -1,11 +1,11 @@
 import type { SupabaseServer } from "@/lib/supabase/types";
-import type { Json } from "@/lib/types/database";
+import type { Json, RomaneioCustomerRow } from "@/lib/types/database";
 import type { OrderStatus, OrderType } from "@/lib/constants/orders";
 import type { ProcessStatus } from "@/lib/constants/production";
 import type { RomaneioStatus } from "@/lib/constants/romaneio";
 import type {
   RomaneioCandidate,
-  RomaneioCandidateFilters,
+  RomaneioCustomerOption,
   RomaneioFilters,
   RomaneioSummary,
 } from "@/lib/types/romaneio";
@@ -100,20 +100,40 @@ interface RawRomaneiosPageRow {
   created_at: string;
 }
 
-/** Linha crua de `get_romaneio_candidates` (RPC 043). */
-interface RawRomaneioCandidateRow {
-  total_count: number | string;
+/**
+ * Linha crua de `get_romaneio_candidates` (RPC 043/045) e de cada OF embutida
+ * no `ofs` jsonb de `get_romaneio_customers` (044/045) — sem o agregado.
+ */
+interface RawRomaneioCandidate {
   order_id: string;
   code: string;
   type: string;
-  customer_name: string | null;
+  /** Ausente nas OFs embutidas no `ofs` do 044 (o cliente já agrupa). */
+  customer_name?: string | null;
   delivery_date: string | null;
   status: string;
   root_quantity: number | string;
   root_weight_kg: number | string | null;
   shipped_quantity: number | string;
-  has_simulation: boolean;
-  simulation_id: string | null;
+  has_open: boolean;
+  open_romaneio_id: string | null;
+}
+
+/** Mapeia a linha crua (RPC 043 ou OF embutida no 044) para o tipo da tela. */
+function mapCandidate(row: RawRomaneioCandidate): RomaneioCandidate {
+  return {
+    orderId: row.order_id,
+    code: row.code,
+    type: row.type as OrderType,
+    customerName: row.customer_name || null,
+    deliveryDate: row.delivery_date,
+    status: row.status as OrderStatus,
+    rootQuantity: toNumber(row.root_quantity) ?? 0,
+    rootWeightKg: toNumber(row.root_weight_kg),
+    shippedQuantity: toNumber(row.shipped_quantity) ?? 0,
+    hasOpenRomaneio: row.has_open,
+    openRomaneioId: row.open_romaneio_id,
+  };
 }
 
 /**
@@ -155,6 +175,8 @@ function applyRomaneioFilters<T>(
   query: T,
   filters: RomaneioFilters,
   searchOrderIds: readonly string[],
+  /** Situação aplicada no count (o filtro de status não existe mais na URL). */
+  status: RomaneioStatus | null,
 ): T {
   const builder = query as unknown as {
     or: (filter: string) => unknown;
@@ -185,8 +207,8 @@ function applyRomaneioFilters<T>(
       builder.eq("id", EMPTY_UUID);
     }
   }
-  if (filters.status !== "ALL") {
-    builder.eq("status", filters.status);
+  if (status) {
+    builder.eq("status", status);
   }
   const code = escapeFilterTerm(filters.orderCode);
   if (code) {
@@ -217,7 +239,8 @@ export async function listRomaneios(
 ): Promise<{ rows: RomaneioSummary[]; total: number }> {
   const { data, error } = await client.rpc("get_romaneios_page", {
     p_search: escapeFilterTerm(filters.search) || null,
-    p_status: filters.status === "ALL" ? null : filters.status,
+    // A listagem não tem mais filtro de situação (a RPC aceita null).
+    p_status: null,
     p_order_code: escapeFilterTerm(filters.orderCode) || null,
     p_customer: escapeFilterTerm(filters.customer) || null,
     p_shipment_from: filters.shipmentFrom || null,
@@ -236,7 +259,7 @@ export async function listRomaneios(
 
 /**
  * Contagem por situação com os mesmos filtros da lista (cartões de
- * resumo): o status pedido SUBSTITUI o filtro de status vigente.
+ * resumo): a situação pedida entra como filtro extra.
  */
 export async function countRomaneiosByStatus(
   client: SupabaseServer,
@@ -248,8 +271,9 @@ export async function countRomaneiosByStatus(
   const searchOrderIds = await resolveSearchOrderIds(client, filters);
   const { count, error } = await applyRomaneioFilters(
     client.from("romaneios").select("id, orders ( id )", { count: "exact", head: true }),
-    { ...filters, status },
+    filters,
     searchOrderIds,
+    status,
   );
   assertOk(error, "Não foi possível contar os romaneios");
   return count ?? 0;
@@ -267,8 +291,6 @@ function mapRomaneioSummary(row: RawRomaneiosPageRow): RomaneioSummary {
     status: row.status as RomaneioStatus,
     shipmentDate: row.shipment_date,
     carrier: row.carrier,
-    itemCount: toNumber(row.item_count) ?? 0,
-    quantityTotal: toNumber(row.quantity_total) ?? 0,
     weightTotal: toNumber(row.weight_total),
     nfNumber: row.nf_number,
     returnNfNumber: row.return_nf_number,
@@ -312,11 +334,11 @@ export async function getRomaneioById(
 }
 
 /**
- * Quantidade já EXPEDIDA por item (Σ de romaneios EMITIDOS da OF,
+ * Quantidade já EXPEDIDA por item (Σ de romaneios CONFIRMADOS da OF,
  * excluindo um romaneio específico) — base da pendência de expedição
- * parcial.
+ * parcial (a "baixa" é derivada, nunca gravada).
  */
-export async function listEmittedQuantityByItem(
+export async function listConfirmedQuantityByItem(
   client: SupabaseServer,
   orderId: string,
   excludeRomaneioId: string | null,
@@ -326,13 +348,13 @@ export async function listEmittedQuantityByItem(
     .select(
       "order_item_id, quantity, romaneios!inner ( status, order_id )",
     )
-    .eq("romaneios.status", "EMITIDO")
+    .eq("romaneios.status", "CONFIRMADO")
     .eq("romaneios.order_id", orderId);
   if (excludeRomaneioId) {
     query = query.neq("romaneio_id", excludeRomaneioId);
   }
   const { data, error } = await query;
-  assertOk(error, "Não foi possível calcular a expedição já emitida");
+  assertOk(error, "Não foi possível calcular a expedição já confirmada");
 
   const totals = new Map<string, number>();
   for (const row of (data ?? []) as { order_item_id: string; quantity: number | string }[]) {
@@ -366,41 +388,53 @@ export async function listOrderMaterialLines(
 }
 
 /**
- * OFs candidatas a virar romaneio: não canceladas e com ao menos um
- * item raiz. RPC `get_romaneio_candidates` (043) — agregados (qtd/peso
- * raiz, Σ já expedido, simulação aberta) e a ordenação da coluna
- * escolhida na URL saem prontos do banco.
+ * Seletor em cascata de /romaneio/novo: clientes com OFs disponíveis,
+ * cada um com a lista das suas OFs (RPC `get_romaneio_customers`, 044).
+ * OFs totalmente expedidas ficam de fora; cliente vazio vira um bucket
+ * único com `customerName: null`.
  */
-export async function listRomaneioCandidates(
+export async function listRomaneioCustomers(
   client: SupabaseServer,
-  filters: RomaneioCandidateFilters,
-): Promise<{ candidates: RomaneioCandidate[]; total: number }> {
-  const { data, error } = await client.rpc("get_romaneio_candidates", {
-    p_search: escapeFilterTerm(filters.search) || null,
-    p_sort: filters.sort,
-    p_sort_dir: filters.sortDir,
-    p_offset: (filters.page - 1) * filters.pageSize,
-    p_limit: filters.pageSize,
-  });
-  assertOk(error, "Não foi possível carregar as OFs");
+): Promise<RomaneioCustomerOption[]> {
+  const { data, error } = await client.rpc("get_romaneio_customers");
+  assertOk(error, "Não foi possível carregar os clientes");
 
-  const rows = (data ?? []) as RawRomaneioCandidateRow[];
-  const total = rows.length > 0 ? toNumber(rows[0].total_count) ?? 0 : 0;
-  const candidates = rows.map((row): RomaneioCandidate => ({
-    orderId: row.order_id,
-    code: row.code,
-    type: row.type as OrderType,
+  return ((data ?? []) as RomaneioCustomerRow[]).map((row) => ({
     customerName: row.customer_name || null,
-    deliveryDate: row.delivery_date,
-    status: row.status as OrderStatus,
-    rootQuantity: toNumber(row.root_quantity) ?? 0,
-    rootWeightKg: toNumber(row.root_weight_kg),
-    shippedQuantity: toNumber(row.shipped_quantity) ?? 0,
-    hasSimulation: row.has_simulation,
-    simulationId: row.simulation_id,
+    ofCount: toNumber(row.of_count) ?? 0,
+    ofs: (row.ofs ?? []).map(mapCandidate),
   }));
+}
 
-  return { candidates, total };
+/** Item RAIZ da OF com processos — insumo da seleção de itens de /romaneio/novo. */
+export interface RawRootOrderItem {
+  id: string;
+  family: string | null;
+  parent_item: string | null;
+  description: string;
+  quantity: number | string;
+  unit_weight_kg: number | string | null;
+  production_processes: { status: ProcessStatus; processes: { code: string } | null }[];
+}
+
+/**
+ * Itens RAIZ de uma OF (com o processo EXP) — alimenta a seleção de
+ * itens da remessa em /romaneio/novo antes de criar o romaneio.
+ */
+export async function listRootOrderItems(
+  client: SupabaseServer,
+  orderId: string,
+): Promise<RawRootOrderItem[]> {
+  const { data, error } = await client
+    .from("order_items")
+    .select(
+      `id, family, parent_item, description, quantity, unit_weight_kg,
+       production_processes ( status, processes ( code ) )`,
+    )
+    .eq("order_id", orderId)
+    .is("parent_order_item_id", null);
+  assertOk(error, "Não foi possível carregar os itens da OF");
+  return (data ?? []) as RawRootOrderItem[];
 }
 
 // ---------------------------------------------------------------------------
@@ -418,7 +452,7 @@ export interface SaveRomaneioRpcInput {
   materials: RomaneioMaterialValues[];
 }
 
-/** Cria/atualiza um romaneio em SIMULAÇÃO (cabeçalho+itens+materiais). */
+/** Cria/atualiza um romaneio em MONTADO (cabeçalho+itens+materiais). */
 export async function saveRomaneioRpc(
   client: SupabaseServer,
   input: SaveRomaneioRpcInput,
@@ -438,7 +472,7 @@ export async function saveRomaneioRpc(
   return { id: result?.id ?? "", number: Number(result?.number ?? 0) };
 }
 
-/** Sinaliza o aceite da conferência (quem/quando/observação). */
+/** Sinaliza o aceite da conferência (quem/quando/observação) — MONTADO → CONFERIDO. */
 export async function signRomaneioConferenceRpc(
   client: SupabaseServer,
   romaneioId: string,
@@ -451,16 +485,29 @@ export async function signRomaneioConferenceRpc(
   assertOk(error, "Não foi possível sinalizar a conferência");
 }
 
-/** Valida os gates de emissão e trava o romaneio (EMITIDO). */
-export async function emitRomaneioRpc(
+/**
+ * Confirma o romaneio (CONFERIDO → CONFIRMADO): os gates são validados
+ * NO BANCO (RPC 045) — a baixa na pendência da OF é derivada a partir
+ * dos CONFIRMADOS, então este é o momento em que os itens saem.
+ */
+export async function confirmRomaneioRpc(
   client: SupabaseServer,
   romaneioId: string,
 ): Promise<void> {
-  const { error } = await client.rpc("emit_romaneio", { p_romaneio_id: romaneioId });
-  assertOk(error, "Não foi possível emitir o romaneio");
+  const { error } = await client.rpc("confirm_romaneio", { p_romaneio_id: romaneioId });
+  assertOk(error, "Não foi possível confirmar o romaneio");
 }
 
-/** Cancela o romaneio (bloqueado com NF de saída registrada). */
+/** Exclusão DEFINITIVA — só permitida em romaneios MONTADOS (045). */
+export async function deleteRomaneioRpc(
+  client: SupabaseServer,
+  romaneioId: string,
+): Promise<void> {
+  const { error } = await client.rpc("delete_romaneio", { p_romaneio_id: romaneioId });
+  assertOk(error, "Não foi possível excluir o romaneio");
+}
+
+/** Cancela o romaneio (CONFERIDO/CONFIRMADO — reverte a baixa derivada). */
 export async function cancelRomaneioRpc(
   client: SupabaseServer,
   romaneioId: string,

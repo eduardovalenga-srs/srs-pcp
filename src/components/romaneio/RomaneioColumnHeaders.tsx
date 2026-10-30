@@ -4,17 +4,11 @@ import type { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { X } from "lucide-react";
 
-import {
-  ROMANEIO_STATUSES,
-  ROMANEIO_STATUS_LABELS,
-  type RomaneioStatus,
-} from "@/lib/constants/romaneio";
 import type { RomaneioFilters } from "@/lib/types/romaneio";
 import { romaneioFilterChips, romaneioQueryString } from "@/lib/utils/filters";
 import { truncate } from "@/lib/utils/formatting";
 import {
   DeliveryPeriodPopover,
-  FilterMenu,
   TextColumnFilter,
 } from "@/components/shared/column-filters";
 import { SortLink as SharedSortLink } from "@/components/shared/SortLink";
@@ -118,28 +112,6 @@ export function RomaneioTextFilter({ filters, field, column, context }: Romaneio
       column={column}
       context={context}
       onApply={(value) => apply({ [field]: value } as Partial<RomaneioFilters>)}
-    />
-  );
-}
-
-/** Filtro da coluna Situação — menu de situações do romaneio. */
-export function RomaneioStatusFilter({ filters }: { filters: RomaneioFilters }) {
-  const apply = useApplyRomaneioFilters(filters);
-  const active = filters.status !== "ALL";
-
-  return (
-    <FilterMenu
-      context="situação do romaneio"
-      value={filters.status}
-      active={active}
-      options={[
-        { value: "ALL", label: "Todas as situações" },
-        ...ROMANEIO_STATUSES.map((status) => ({
-          value: status,
-          label: ROMANEIO_STATUS_LABELS[status],
-        })),
-      ]}
-      onValueChange={(next) => apply({ status: next as RomaneioStatus | "ALL" })}
     />
   );
 }
