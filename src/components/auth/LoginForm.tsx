@@ -19,8 +19,14 @@ import { cn } from "@/lib/utils";
 const INITIAL_LOGIN: AuthFormState = { error: null };
 const INITIAL_FORGOT: ForgotPasswordState = { error: null, message: null };
 
-/** "Lembrar-me" guarda só o e-mail no navegador — nunca a senha. */
-const REMEMBER_EMAIL_KEY = "imperatriz:email";
+/**
+ * "Lembrar-me" guarda e-mail + senha no sessionStorage — o registro some
+ * quando o navegador fecha (nunca fica no disco como o localStorage eterno
+ * da versão anterior, cuja chave também é apagada abaixo no mount).
+ */
+const REMEMBER_SESSION_KEY = "imperatriz:credenciais";
+/** Chave antiga (só e-mail, localStorage) — apagada na limpeza do mount. */
+const LEGACY_REMEMBER_EMAIL_KEY = "imperatriz:email";
 
 /** Tokens visuais do layout Imperatriz (azul-marinho + laranja). */
 const inputClass =
@@ -31,6 +37,7 @@ const submitClass =
 export function LoginForm() {
   const [mode, setMode] = useState<"login" | "forgot">("login");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loginState, loginFormAction, isPending] = useActionState(loginAction, INITIAL_LOGIN);
@@ -39,27 +46,46 @@ export function LoginForm() {
     INITIAL_FORGOT,
   );
 
-  // "Lembrar-me": pré-preenche o e-mail salvo na entrada anterior. O prefill
-  // roda pós-hidratação via timer: setState síncrono no corpo do effect é
-  // vedado (set-state-in-effect) e valor no primeiro render quebraria a
-  // hidratação do SSR.
+  // "Lembrar-me": pré-preenche e-mail e senha salvos na entrada anterior.
+  // O prefill roda pós-hidratação via timer: setState síncrono no corpo do
+  // effect é vedado (set-state-in-effect) e valor no primeiro render quebraria
+  // a hidratação do SSR. A chave antiga (só e-mail, localStorage eterno) não
+  // vale mais e sai do navegador nesta primeira visita.
   useEffect(() => {
-    const saved = window.localStorage.getItem(REMEMBER_EMAIL_KEY);
+    window.localStorage.removeItem(LEGACY_REMEMBER_EMAIL_KEY);
+    const saved = window.sessionStorage.getItem(REMEMBER_SESSION_KEY);
     if (!saved) return undefined;
+    let credentials: { email?: string; password?: string } | null = null;
+    try {
+      credentials = JSON.parse(saved) as { email?: string; password?: string };
+    } catch {
+      // Registro corrompido: descarta em vez de quebrar o login.
+      window.sessionStorage.removeItem(REMEMBER_SESSION_KEY);
+      return undefined;
+    }
+    const savedEmail = credentials?.email;
+    if (!savedEmail) return undefined;
+    const savedPassword = credentials?.password ?? "";
     const timer = window.setTimeout(() => {
-      setEmail(saved);
+      setEmail(savedEmail);
+      setPassword(savedPassword);
       setRemember(true);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
 
   const submitLogin = (formData: FormData) => {
-    // O sucesso redireciona (desmonta o form) — gravamos no envio.
+    // O sucesso redireciona (desmonta o form) — gravamos no envio. A senha
+    // só sai do navegador ao fechar o navegador (sessionStorage) ou ao
+    // desmarcar "Lembrar-me".
     const value = email.trim();
     if (remember && value) {
-      window.localStorage.setItem(REMEMBER_EMAIL_KEY, value);
+      window.sessionStorage.setItem(
+        REMEMBER_SESSION_KEY,
+        JSON.stringify({ email: value, password }),
+      );
     } else {
-      window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
+      window.sessionStorage.removeItem(REMEMBER_SESSION_KEY);
     }
     // Marca o fluxo: o forced re-auth não deve derrubar a sessão recém-criada.
     requestSkipForcedReauth();
@@ -145,6 +171,8 @@ export function LoginForm() {
             autoComplete="current-password"
             placeholder="Senha"
             required
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
             className={cn(inputClass, "pr-11")}
           />
           <Button
