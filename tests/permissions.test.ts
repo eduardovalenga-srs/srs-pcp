@@ -101,7 +101,7 @@ describe("matriz de permissões (item 40)", () => {
       "menu.rh",
       "rh.view",
       "menu.fabrica1",
-      // Romaneio: consulta pela URL (sem menu) — a montagem é de ADMIN/GESTOR.
+      // Romaneio: consulta pela URL (sem menu) — a criação é de ADMIN/GESTOR.
       "romaneio.view",
     ];
     const denied: Capability[] = [
@@ -209,7 +209,7 @@ describe("matriz de permissões (item 40)", () => {
     expect(can("OPERADOR", "fabrica2.view")).toBe(false);
     expect(can("VISUALIZADOR", "fabrica2.view")).toBe(false);
 
-    // Romaneio (expedição): ADMIN/GESTOR montam e emitem; VISUALIZADOR
+    // Romaneio (expedição): ADMIN/GESTOR criam e confirmam; VISUALIZADOR
     // consulta pelo menu; OPERADOR só pela URL (view sem menu).
     expect(can("ADMIN", "menu.romaneio")).toBe(true);
     expect(can("GESTOR", "menu.romaneio")).toBe(true);

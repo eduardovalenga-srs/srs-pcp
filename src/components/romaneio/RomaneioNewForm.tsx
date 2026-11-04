@@ -55,7 +55,7 @@ export function orderComboboxOptions(ofs: readonly RomaneioCandidate[]): Combobo
 
 /**
  * Gate do botão de listar itens (ou abrir o romaneio já existente):
- * cliente + OF + data de saída. A OF com romaneio em montagem
+ * cliente + OF + data de saída. A OF com romaneio em aberto
  * dispensa a data — o rascunho aberto já tem a data vigente.
  */
 export function canGenerateRomaneio(
@@ -102,7 +102,7 @@ interface RomaneioNewFormProps {
 /**
  * /romaneio/novo: seletor em cascata (cliente → OFs do cliente) + data de
  * saída obrigatória. "Listar itens" carrega os itens raiz da OF e "Confirmar
- * romaneio" cria o romaneio em MONTADO já com as quantidades desta remessa;
+ * romaneio" cria o romaneio em ABERTO já com as quantidades desta remessa;
  * a OF com romaneio aberto leva direto ao rascunho existente.
  */
 export function RomaneioNewForm({ customers }: RomaneioNewFormProps) {
@@ -253,7 +253,7 @@ export function RomaneioNewForm({ customers }: RomaneioNewFormProps) {
           <div className="space-y-1 text-sm text-muted-foreground">
             <p id="romaneio-novo-saida-ajuda">
               {openingExisting
-                ? "Esta OF já tem um romaneio em montagem — o botão abre o rascunho existente."
+                ? "Esta OF já tem um romaneio em aberto — o botão abre o rascunho existente."
                 : "Liste os itens da OF e marque as quantidades desta remessa."}
             </p>
             {selectedOf ? (
@@ -276,7 +276,7 @@ export function RomaneioNewForm({ customers }: RomaneioNewFormProps) {
                 ) : null}
               </p>
             ) : (
-              <p>Selecione o cliente e a OF — um romaneio em montagem por OF.</p>
+              <p>Selecione o cliente e a OF — um romaneio em aberto por OF.</p>
             )}
           </div>
 

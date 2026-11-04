@@ -7,7 +7,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getRomaneiosPage } from "@/lib/services/romaneio.service";
 import type { RomaneiosPage } from "@/lib/types/romaneio";
-import { parseRomaneioFilters } from "@/lib/utils/filters";
+import { hasRomaneioFilters, parseRomaneioFilters } from "@/lib/utils/filters";
 import { pluralize } from "@/lib/utils/formatting";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -80,16 +80,11 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
     );
   }
 
-  const { romaneios, total, mountedCount, conferredCount, confirmedCount } = data;
+  const { romaneios, total, openCount, conferredCount, confirmedCount } = data;
   const pendingReturnCount = romaneios.filter(
     (romaneio) => romaneio.pendingReturn && !romaneio.returnNfNumber,
   ).length;
-  const hasFilters =
-    filters.search !== "" ||
-    filters.orderCode !== "" ||
-    filters.customer !== "" ||
-    filters.shipmentFrom !== null ||
-    filters.shipmentTo !== null;
+  const hasFilters = hasRomaneioFilters(filters);
 
   return (
     <>
@@ -116,7 +111,7 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
 
       <div className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard label="Montados" value={mountedCount} hint="Aguardando conferência" />
+          <SummaryCard label="Abertos" value={openCount} hint="Aguardando conferência" />
           <SummaryCard label="Conferidos" value={conferredCount} hint="Prontos para confirmar" />
           <SummaryCard label="Confirmados" value={confirmedCount} hint="Itens baixados na OF" />
           <SummaryCard

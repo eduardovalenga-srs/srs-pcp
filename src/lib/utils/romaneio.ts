@@ -290,7 +290,7 @@ export function checkRomaneioConfirmation(
 
   if (input.status === "CONFIRMADO") blockers.push("Romaneio já confirmado.");
   if (input.status === "CANCELADO") blockers.push("Romaneio cancelado.");
-  if (input.status === "MONTADO") {
+  if (input.status === "ABERTO") {
     blockers.push("Conclua a conferência (aceite) antes de confirmar.");
   }
   if (input.orderStatus === "CANCELADO") blockers.push("A OF está cancelada.");

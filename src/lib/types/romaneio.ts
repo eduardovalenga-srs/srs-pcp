@@ -29,6 +29,8 @@ export interface RomaneioSummary {
 export interface RomaneioFilters {
   /** Busca genérica (nº do romaneio, OF/OS ou cliente). */
   search: string;
+  /** Coluna Situação (ALL = sem filtro — os cartões fazem o breakdown). */
+  status: RomaneioStatus | "ALL";
   /** Coluna OF/OS por "contém". */
   orderCode: string;
   /** Coluna Cliente por "contém". */
@@ -36,6 +38,16 @@ export interface RomaneioFilters {
   /** Período da data de saída (inclusivo, lados opcionais). */
   shipmentFrom: string | null;
   shipmentTo: string | null;
+  /** Coluna Nº — faixa inclusiva (lados opcionais). */
+  numberFrom: number | null;
+  numberTo: number | null;
+  /** Coluna Peso (kg) — faixa inclusiva (lados opcionais). */
+  weightFrom: number | null;
+  weightTo: number | null;
+  /** Coluna NF saída por "contém". */
+  nfNumber: string;
+  /** Coluna NF devolução por "contém". */
+  returnNfNumber: string;
   /** 043: chave de ordenação (whitelist fechada da RPC de listagem). */
   sort: string;
   sortDir: "asc" | "desc";
@@ -46,8 +58,8 @@ export interface RomaneioFilters {
 export interface RomaneiosPage {
   romaneios: RomaneioSummary[];
   total: number;
-  /** Contagem de MONTADOS com os mesmos filtros (cartão de resumo). */
-  mountedCount: number;
+  /** Contagem de ROMANEIOS ABERTOS com os mesmos filtros (cartão de resumo). */
+  openCount: number;
   /** Contagem de CONFERIDOS com os mesmos filtros (cartão de resumo). */
   conferredCount: number;
   /** Contagem de CONFIRMADOS com os mesmos filtros (cartão de resumo). */
@@ -73,6 +85,8 @@ export interface RomaneioOrderItem {
   expStatus: ProcessStatus | null;
   /** Quantidade incluída NESTE romaneio (0 = item fora da carga). */
   quantity: number;
+  /** Item marcado como conferido na ficha (048) — true só se incluído. */
+  conferenceChecked: boolean;
 }
 
 /** Linha de material da devolução (exibida no editor). */
@@ -125,15 +139,15 @@ export interface RomaneioView {
   nfNumber: string | null;
   returnNfNumber: string | null;
   createdAt: string;
-  /** Itens raiz da OF com o estado de expedição (editável só em MONTADO). */
+  /** Itens raiz da OF com o estado de expedição (editável só em ABERTO). */
   items: RomaneioOrderItem[];
-  /** Linhas de material (editáveis só em MONTADO). */
+  /** Linhas de material (editáveis só em ABERTO). */
   materials: RomaneioMaterialLine[];
   /** Σ da OF inteira entre romaneios não cancelados. */
   ofMaterialTotals: RomaneioOfMaterialTotals;
   /** Gates de confirmação vigentes. */
   confirmation: RomaneioConfirmationCheck;
-  /** Edição liberada (montado + capacidade romaneio.edit do perfil). */
+  /** Edição liberada (aberto + capacidade romaneio.edit do perfil). */
   canEdit: boolean;
 }
 
@@ -151,9 +165,9 @@ export interface RomaneioCandidate {
   rootWeightKg: number | null;
   /** Quantidade já expedida (Σ de romaneios CONFIRMADOS da OF). */
   shippedQuantity: number;
-  /** Já existe um romaneio em MONTADO para esta OF (abre o existente). */
+  /** Já existe um romaneio em ABERTO para esta OF (abre o existente). */
   hasOpenRomaneio: boolean;
-  /** Id do romaneio em MONTADO, quando houver — permite abrir o rascunho. */
+  /** Id do romaneio em ABERTO, quando houver — permite abrir o rascunho. */
   openRomaneioId: string | null;
 }
 

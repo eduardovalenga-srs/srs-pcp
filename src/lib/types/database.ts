@@ -257,7 +257,7 @@ export type ProductionOrderRowRecord = {
   >;
 };
 
-export type RomaneioStatusValue = "MONTADO" | "CONFERIDO" | "CONFIRMADO" | "CANCELADO";
+export type RomaneioStatusValue = "ABERTO" | "CONFERIDO" | "CONFIRMADO" | "CANCELADO";
 
 export type RomaneioRow = {
   id: string;
@@ -325,6 +325,14 @@ export type RomaneioPageRow = {
   created_at: string;
 };
 
+/** Linha retornada pela RPC get_romaneio_summary (047) — 1 linha sempre. */
+export type RomaneioSummaryRow = {
+  total_count: number;
+  open_count: number;
+  conferred_count: number;
+  confirmed_count: number;
+};
+
 /** Linha retornada pela RPC get_romaneio_candidates (043/045). */
 export type RomaneioCandidateRow = {
   total_count: number;
@@ -337,9 +345,9 @@ export type RomaneioCandidateRow = {
   root_quantity: number | string;
   root_weight_kg: number | string | null;
   shipped_quantity: number | string;
-  /** Já existe um romaneio em MONTADO para esta OF. */
+  /** Já existe um romaneio em ABERTO para esta OF. */
   has_open: boolean;
-  /** Id do romaneio em MONTADO, quando houver. */
+  /** Id do romaneio em ABERTO, quando houver. */
   open_romaneio_id: string | null;
 };
 
@@ -880,7 +888,7 @@ export type Database = {
         Returns: number;
       };
       save_romaneio: {
-        // cria/atualiza romaneio em MONTADO (cabeçalho+itens+materiais numa transação — 042/045)
+        // cria/atualiza romaneio em ABERTO (cabeçalho+itens+materiais numa transação — 042/045/046)
         Args: {
           p_romaneio_id: string | null;
           p_order_id: string;
@@ -893,9 +901,15 @@ export type Database = {
         };
         Returns: { id: string; number: number };
       };
-      sign_romaneio_conference: {
-        // sinaliza o aceite da conferência e move p/ CONFERIDO (quem/quando/obs) — 042/045
-        Args: { p_romaneio_id: string; p_notes: string | null };
+      save_romaneio_conference: {
+        // ficha como formulário: marcação por item + materiais + observação; p_sign conclui (ABERTO → CONFERIDO) — 048
+        Args: {
+          p_romaneio_id: string;
+          p_notes: string | null;
+          p_checked_item_ids: string[];
+          p_materials: Json;
+          p_sign: boolean;
+        };
         Returns: undefined;
       };
       confirm_romaneio: {
@@ -904,7 +918,7 @@ export type Database = {
         Returns: undefined;
       };
       delete_romaneio: {
-        // exclusão DEFINITIVA — só romaneios em MONTADO (045)
+        // exclusão DEFINITIVA — só romaneios em ABERTO (045/046)
         Args: { p_romaneio_id: string };
         Returns: undefined;
       };
@@ -937,7 +951,8 @@ export type Database = {
         };
       };
       get_romaneios_page: {
-        // listagem de romaneios com ordenação por coluna (043)
+        // listagem de romaneios com ordenação por coluna (043) e
+        // filtros de TODAS as colunas (047)
         Args: {
           p_search?: string | null;
           p_status?: string | null;
@@ -945,12 +960,37 @@ export type Database = {
           p_customer?: string | null;
           p_shipment_from?: string | null;
           p_shipment_to?: string | null;
+          p_number_from?: number | null;
+          p_number_to?: number | null;
+          p_weight_min?: number | null;
+          p_weight_max?: number | null;
+          p_nf_number?: string | null;
+          p_return_nf?: string | null;
           p_sort?: string | null;
           p_sort_dir?: string | null;
           p_offset?: number | null;
           p_limit?: number | null;
         };
         Returns: RomaneioPageRow[];
+      };
+      get_romaneio_summary: {
+        // contagens dos cartões de resumo com os mesmos filtros da
+        // listagem (047) — 1 linha sempre
+        Args: {
+          p_search?: string | null;
+          p_status?: string | null;
+          p_order_code?: string | null;
+          p_customer?: string | null;
+          p_shipment_from?: string | null;
+          p_shipment_to?: string | null;
+          p_number_from?: number | null;
+          p_number_to?: number | null;
+          p_weight_min?: number | null;
+          p_weight_max?: number | null;
+          p_nf_number?: string | null;
+          p_return_nf?: string | null;
+        };
+        Returns: RomaneioSummaryRow[];
       };
       get_romaneio_candidates: {
         // seletor de OFs candidatas com ordenação (043)

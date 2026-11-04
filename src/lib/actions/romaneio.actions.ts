@@ -12,8 +12,8 @@ import {
   deleteRomaneio,
   getRomaneioOrderItems,
   saveRomaneio,
+  saveRomaneioConference,
   saveRomaneioNfNumbers,
-  signRomaneioConference,
 } from "@/lib/services/romaneio.service";
 import type { RomaneioOrderItem } from "@/lib/types/romaneio";
 import { errorMessage } from "@/lib/utils/supabase-result";
@@ -140,7 +140,7 @@ export async function getRomaneioOrderItemsAction(
   }
 }
 
-/** Salva cabeçalho+itens+materiais de um romaneio em MONTADO. */
+/** Salva cabeçalho+itens+materiais de um romaneio em ABERTO. */
 export async function saveRomaneioAction(input: unknown): Promise<RomaneioActionResult> {
   try {
     await requireCapability("romaneio.edit");
@@ -163,30 +163,33 @@ export async function saveRomaneioAction(input: unknown): Promise<RomaneioAction
   }
 }
 
-/** Sinaliza o aceite da conferência (quem/quando/observação) — CONFERIDO. */
-export async function signRomaneioConferenceAction(
-  romaneioId: string,
-  notes: unknown,
+/**
+ * Salva a ficha de conferência como formulário (048): marcação por
+ * item, quantidades de material e observação. `sign` conclui a
+ * conferência (ABERTO → CONFERIDO) — rascunho mantém o status.
+ */
+export async function saveRomaneioConferenceAction(
+  input: unknown,
 ): Promise<RomaneioActionResult> {
   try {
     await requireCapability("romaneio.edit");
-    const parsedId = romaneioIdSchema.safeParse(romaneioId);
-    if (!parsedId.success) return failure("Romaneio inválido.");
-    const parsedNotes = romaneioConferenceSchema.safeParse({ notes });
-    if (!parsedNotes.success) return failure(firstZodMessage(parsedNotes.error));
+    const parsed = romaneioConferenceSchema.safeParse(input);
+    if (!parsed.success) return failure(firstZodMessage(parsed.error));
 
     const client = await createClient();
-    await signRomaneioConference(client, parsedId.data, parsedNotes.data.notes);
+    await saveRomaneioConference(client, parsed.data);
 
-    revalidateRomaneio(parsedId.data);
+    revalidateRomaneio(parsed.data.romaneioId);
     return {
       success: true,
-      message: "Aceite da conferência sinalizado.",
-      romaneioId: parsedId.data,
+      message: parsed.data.sign
+        ? "Conferência marcada como concluída."
+        : "Rascunho da conferência salvo.",
+      romaneioId: parsed.data.romaneioId,
       number: null,
     };
   } catch (error) {
-    console.error("[signRomaneioConferenceAction]", error);
+    console.error("[saveRomaneioConferenceAction]", error);
     return failure(errorMessage(error));
   }
 }
@@ -218,7 +221,7 @@ export async function confirmRomaneioAction(romaneioId: string): Promise<Romanei
   }
 }
 
-/** Exclui DEFINITIVAMENTE um romaneio em MONTADO (antes da conferência). */
+/** Exclui DEFINITIVAMENTE um romaneio em ABERTO (antes da conferência). */
 export async function deleteRomaneioAction(romaneioId: string): Promise<RomaneioActionResult> {
   try {
     await requireCapability("romaneio.edit");

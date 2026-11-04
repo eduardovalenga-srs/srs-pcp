@@ -1,21 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { ArrowRight, ClipboardCheck } from "lucide-react";
 
 import type { RomaneioFilters, RomaneioSummary } from "@/lib/types/romaneio";
-import { romaneioQueryString } from "@/lib/utils/filters";
 import { formatDate } from "@/lib/utils/dates";
 import { formatWeight } from "@/lib/utils/formatting";
-import { SortLink, type SortState } from "@/components/shared/SortLink";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RomaneioStatusBadge } from "@/components/romaneio/RomaneioStatusBadge";
 import {
   RomaneioColumnHeader,
+  RomaneioNumberFilter,
   RomaneioShipmentFilter,
+  RomaneioStatusFilter,
   RomaneioTextFilter,
+  RomaneioWeightFilter,
 } from "@/components/romaneio/RomaneioColumnHeaders";
 
 interface RomaneioListProps {
@@ -35,26 +35,10 @@ function ReturnPendingBadge() {
 
 /** Listagem de romaneios: tabela no desktop (lg+) e cards no mobile. */
 export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
-  const pathname = usePathname();
-
   // 043: servidor decide a ordem via URL (?ordem=&direcao=) — a lista
-  // nunca ordena no client (a paginação é server-side). Os cabeçalhos
-  // com filtro combinam ordenação + funil no mesmo espaço (padrão das
-  // demais telas de lista); os demais ficam só ordenáveis.
-  const buildHref = (next: SortState) => {
-    const query = romaneioQueryString({ ...filters, ...next, page: 1 });
-    return query ? `${pathname}?${query}` : pathname;
-  };
-  const sortable = (label: string, fullName: string, columnId: string) => (
-    <SortLink
-      label={label}
-      fullName={fullName}
-      columnId={columnId}
-      sort={filters.sort}
-      sortDir={filters.sortDir}
-      buildHref={buildHref}
-    />
-  );
+  // nunca ordena no client (a paginação é server-side). Todos os
+  // cabeçalhos combinam ordenação + filtro no mesmo espaço (Romaneio
+  // ColumnHeader), padrão das demais telas de lista.
   const ariaSort = (columnId: string): "ascending" | "descending" | undefined =>
     filters.sort === columnId
       ? filters.sortDir === "asc"
@@ -68,12 +52,27 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
       <div className="hidden overflow-x-auto rounded border bg-card lg:block">
         <table className="w-full caption-bottom text-sm">
           <caption className="sr-only">
-            Romaneios de expedição, com OF/OS, cliente, situação, saída, peso e números de NF.
+            Romaneios de expedição, com número, situação, OF/OS, cliente, data de saída, peso e
+            números de NF — cada coluna é ordenável e filtrável.
           </caption>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("number")}>
-                {sortable("Nº", "Número", "number")}
+                <RomaneioColumnHeader
+                  label="Nº"
+                  fullLabel="Número"
+                  columnId="number"
+                  filters={filters}
+                  filter={<RomaneioNumberFilter filters={filters} />}
+                />
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("status")}>
+                <RomaneioColumnHeader
+                  label="Situação"
+                  columnId="status"
+                  filters={filters}
+                  filter={<RomaneioStatusFilter filters={filters} />}
+                />
               </th>
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("order_code")}>
                 <RomaneioColumnHeader
@@ -115,13 +114,45 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
                 />
               </th>
               <th scope="col" className="px-3 py-2 text-right font-semibold" aria-sort={ariaSort("weight_total")}>
-                {sortable("Peso (kg)", "Peso total", "weight_total")}
+                <RomaneioColumnHeader
+                  label="Peso (kg)"
+                  fullLabel="Peso total"
+                  columnId="weight_total"
+                  filters={filters}
+                  filter={<RomaneioWeightFilter filters={filters} />}
+                />
               </th>
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("nf_number")}>
-                {sortable("NF saída", "NF de saída", "nf_number")}
+                <RomaneioColumnHeader
+                  label="NF saída"
+                  fullLabel="NF de saída"
+                  columnId="nf_number"
+                  filters={filters}
+                  filter={
+                    <RomaneioTextFilter
+                      filters={filters}
+                      field="nfNumber"
+                      column="NF saída"
+                      context="NF de saída"
+                    />
+                  }
+                />
               </th>
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("return_nf_number")}>
-                {sortable("NF devolução", "NF de devolução", "return_nf_number")}
+                <RomaneioColumnHeader
+                  label="NF devolução"
+                  fullLabel="NF de devolução"
+                  columnId="return_nf_number"
+                  filters={filters}
+                  filter={
+                    <RomaneioTextFilter
+                      filters={filters}
+                      field="returnNfNumber"
+                      column="NF devolução"
+                      context="NF de devolução"
+                    />
+                  }
+                />
               </th>
               <th scope="col" className="px-3 py-2 text-right font-semibold">
                 Ações
@@ -132,8 +163,10 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
             {romaneios.map((romaneio) => (
               <tr key={romaneio.id} className="border-b last:border-0 hover:bg-muted/30">
                 <td className="px-3 py-2">
+                  <span className="font-medium tabular-nums">#{romaneio.number}</span>
+                </td>
+                <td className="px-3 py-2">
                   <span className="flex flex-wrap items-center gap-1">
-                    <span className="font-medium tabular-nums">#{romaneio.number}</span>
                     <RomaneioStatusBadge status={romaneio.status} />
                     {romaneio.pendingReturn && !romaneio.returnNfNumber ? (
                       <ReturnPendingBadge />

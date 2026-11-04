@@ -4,11 +4,14 @@ import type { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { X } from "lucide-react";
 
+import { ROMANEIO_STATUSES, ROMANEIO_STATUS_LABELS, type RomaneioStatus } from "@/lib/constants/romaneio";
 import type { RomaneioFilters } from "@/lib/types/romaneio";
 import { romaneioFilterChips, romaneioQueryString } from "@/lib/utils/filters";
 import { truncate } from "@/lib/utils/formatting";
 import {
   DeliveryPeriodPopover,
+  FilterMenu,
+  NumericRangeFilter,
   TextColumnFilter,
 } from "@/components/shared/column-filters";
 import { SortLink as SharedSortLink } from "@/components/shared/SortLink";
@@ -92,7 +95,7 @@ export function RomaneioColumnHeader({
 }
 
 /** Colunas de texto com filtro "contém" (valor parcial, sem diferenciar maiúsculas). */
-export type RomaneioTextFilterField = "orderCode" | "customer";
+export type RomaneioTextFilterField = "orderCode" | "customer" | "nfNumber" | "returnNfNumber";
 
 interface RomaneioTextFilterProps {
   filters: RomaneioFilters;
@@ -129,6 +132,65 @@ export function RomaneioShipmentFilter({ filters }: { filters: RomaneioFilters }
       idPrefix="romaneio-coluna-saida"
       context="saída"
       onApply={(from, to) => apply({ shipmentFrom: from, shipmentTo: to })}
+    />
+  );
+}
+
+/**
+ * Filtro da coluna Situação — menu com as quatro situações (047).
+ * "Todas as situações" limpa o filtro; os cartões de resumo continuam
+ * mostrando o breakdown por situação mesmo com a lista filtrada.
+ */
+export function RomaneioStatusFilter({ filters }: { filters: RomaneioFilters }) {
+  const apply = useApplyRomaneioFilters(filters);
+  const active = filters.status !== "ALL";
+
+  return (
+    <FilterMenu
+      context="situação do romaneio"
+      value={filters.status}
+      active={active}
+      options={[
+        { value: "ALL", label: "Todas as situações" },
+        ...ROMANEIO_STATUSES.map((status) => ({
+          value: status,
+          label: ROMANEIO_STATUS_LABELS[status],
+        })),
+      ]}
+      onValueChange={(next) => apply({ status: next as RomaneioStatus | "ALL" })}
+    />
+  );
+}
+
+/** Filtro da coluna Nº — faixa inclusiva De/Até (lados opcionais). */
+export function RomaneioNumberFilter({ filters }: { filters: RomaneioFilters }) {
+  const apply = useApplyRomaneioFilters(filters);
+
+  return (
+    <NumericRangeFilter
+      context="número do romaneio"
+      column="Nº"
+      min={filters.numberFrom}
+      max={filters.numberTo}
+      idPrefix="romaneio-coluna-numero"
+      onApply={(min, max) => apply({ numberFrom: min, numberTo: max })}
+    />
+  );
+}
+
+/** Filtro da coluna Peso (kg) — faixa inclusiva De/Até (lados opcionais). */
+export function RomaneioWeightFilter({ filters }: { filters: RomaneioFilters }) {
+  const apply = useApplyRomaneioFilters(filters);
+
+  return (
+    <NumericRangeFilter
+      context="peso total"
+      column="Peso (kg)"
+      min={filters.weightFrom}
+      max={filters.weightTo}
+      idPrefix="romaneio-coluna-peso"
+      step="0.001"
+      onApply={(min, max) => apply({ weightFrom: min, weightTo: max })}
     />
   );
 }

@@ -47,7 +47,7 @@ export const romaneioMaterialSchema = z
   });
 
 /**
- * Cabeçalho + itens + materiais de um romaneio em MONTADO.
+ * Cabeçalho + itens + materiais de um romaneio em ABERTO.
  * `id` presente = atualização de um romaneio existente; ausente =
  * criação (em /romaneio/novo já nasce com os itens desta remessa).
  */
@@ -101,9 +101,21 @@ export const romaneioNfSchema = z
     }
   });
 
-/** Aceite de conferência sinalizado na tela do romaneio (quem/quando/obs). */
+/**
+ * Ficha de conferência como formulário (048): marcação por item,
+ * recebida/utilizada dos materiais e observação — rascunho ou
+ * conclusão (sign) numa ação só.
+ */
 export const romaneioConferenceSchema = z.object({
+  romaneioId: z.string().trim().min(1, "Romaneio inválido"),
   notes: nullableText(500),
+  checkedItemIds: z
+    .array(z.string().trim().min(1, "Item inválido"))
+    .max(500, "Máximo de 500 itens por romaneio"),
+  materials: z
+    .array(romaneioMaterialSchema)
+    .max(200, "Máximo de 200 linhas de material por romaneio"),
+  sign: z.boolean(),
 });
 
 /** Payload digitado no formulário (quantidades ainda como texto/número). */
@@ -114,3 +126,4 @@ export type RomaneioValues = z.output<typeof romaneioSchema>;
 export type RomaneioItemValues = z.output<typeof romaneioItemSchema>;
 export type RomaneioMaterialValues = z.output<typeof romaneioMaterialSchema>;
 export type RomaneioNfValues = z.output<typeof romaneioNfSchema>;
+export type RomaneioConferenceValues = z.output<typeof romaneioConferenceSchema>;

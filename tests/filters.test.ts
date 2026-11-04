@@ -4,6 +4,7 @@ import {
   activeFilterChips,
   childItemFilterChips,
   childItemQueryString,
+  hasRomaneioFilters,
   isSortableColumn,
   isValidProcessSort,
   normalizeDeliveryPeriod,
@@ -11,9 +12,17 @@ import {
   parseChildItemFilters,
   parseOrderFilters,
   parseProductionFilters,
+  parseRomaneioFilters,
   productionQueryString,
+  romaneioFilterChips,
+  romaneioQueryString,
 } from "@/lib/utils/filters";
-import { PRODUCTION_PAGE_SIZE, ORDERS_PAGE_SIZE, CHILD_ITEMS_PAGE_SIZE } from "@/lib/constants/pagination";
+import {
+  CHILD_ITEMS_PAGE_SIZE,
+  ORDERS_PAGE_SIZE,
+  PRODUCTION_PAGE_SIZE,
+  ROMANEIO_PAGE_SIZE,
+} from "@/lib/constants/pagination";
 
 describe("parseProductionFilters", () => {
   it("aplica os valores padrão quando a URL está vazia", () => {
@@ -665,5 +674,134 @@ describe("normalizeDeliveryPeriod (rascunho do input de data)", () => {
       to: "2026-10-15",
       error: null,
     });
+  });
+});
+
+describe("parseRomaneioFilters (047 — filtros em todas as colunas)", () => {
+  it("aplica os valores padrão quando a URL está vazia", () => {
+    expect(parseRomaneioFilters({})).toEqual({
+      search: "",
+      status: "ALL",
+      orderCode: "",
+      customer: "",
+      shipmentFrom: null,
+      shipmentTo: null,
+      numberFrom: null,
+      numberTo: null,
+      weightFrom: null,
+      weightTo: null,
+      nfNumber: "",
+      returnNfNumber: "",
+      sort: "number",
+      sortDir: "desc",
+      page: 1,
+      pageSize: ROMANEIO_PAGE_SIZE,
+    });
+  });
+
+  it("lê os filtros de coluna novos e valida a situação", () => {
+    const filters = parseRomaneioFilters({
+      situacao: "conferido",
+      numerode: "10",
+      numeroate: "99",
+      pesode: "1.5",
+      pesoate: "80",
+      nfsaida: " 12345 ",
+      nfdev: "9876",
+    });
+    expect(filters.status).toBe("CONFERIDO");
+    expect(filters.numberFrom).toBe(10);
+    expect(filters.numberTo).toBe(99);
+    expect(filters.weightFrom).toBe(1.5);
+    expect(filters.weightTo).toBe(80);
+    expect(filters.nfNumber).toBe("12345");
+    expect(filters.returnNfNumber).toBe("9876");
+
+    // Situação fora da whitelist e números impossíveis caem no padrão.
+    const invalid = parseRomaneioFilters({ situacao: "HACK", numerode: "-5", pesoate: "abc" });
+    expect(invalid.status).toBe("ALL");
+    expect(invalid.numberFrom).toBeNull();
+    expect(invalid.weightTo).toBeNull();
+  });
+
+  it("monta a query string com as chaves novas e faz o roundtrip", () => {
+    const filters = parseRomaneioFilters({
+      situacao: "ABERTO",
+      numerode: "10",
+      numeroate: "99",
+      pesode: "1.5",
+      pesoate: "80",
+      nfsaida: "12345",
+      nfdev: "9876",
+    });
+    const params = new URLSearchParams(romaneioQueryString(filters));
+    expect(params.get("situacao")).toBe("ABERTO");
+    expect(params.get("numerode")).toBe("10");
+    expect(params.get("numeroate")).toBe("99");
+    expect(params.get("pesode")).toBe("1.5");
+    expect(params.get("pesoate")).toBe("80");
+    expect(params.get("nfsaida")).toBe("12345");
+    expect(params.get("nfdev")).toBe("9876");
+    expect(parseRomaneioFilters(Object.fromEntries(params))).toEqual(filters);
+
+    // Padrões continuam omitidos.
+    expect(romaneioQueryString(parseRomaneioFilters({}))).toBe("");
+  });
+
+  it("ordena pela coluna Situação (whitelist com a chave status)", () => {
+    const filters = parseRomaneioFilters({ ordem: "status", direcao: "asc" });
+    expect(filters.sort).toBe("status");
+    expect(filters.sortDir).toBe("asc");
+    // Chave de fora da whitelist cai no default da tela.
+    expect(parseRomaneioFilters({ ordem: "processo" }).sort).toBe("number");
+  });
+});
+
+describe("romaneioFilterChips + hasRomaneioFilters (047)", () => {
+  it("gera um chip por filtro ligado, com a remoção individual", () => {
+    const chips = romaneioFilterChips(
+      parseRomaneioFilters({
+        q: "107482",
+        situacao: "ABERTO",
+        numerode: "10",
+        numeroate: "99",
+        pesode: "1.5",
+        nfsaida: "12345",
+        nfdev: "9876",
+      }),
+    );
+    expect(chips.map((chip) => chip.key)).toEqual([
+      "search",
+      "status",
+      "number",
+      "weight",
+      "nfNumber",
+      "returnNfNumber",
+    ]);
+    expect(chips[1]?.label).toBe("Situação: Aberto");
+    expect(chips[1]?.clear).toEqual({ status: "ALL" });
+    expect(chips[2]?.label).toBe("Nº: #10 – #99");
+    expect(chips[3]?.label).toBe("Peso: ≥ 1,5");
+    expect(chips[4]?.label).toBe("NF saída: 12345");
+    expect(chips[5]?.label).toBe("NF devolução: 9876");
+    expect(romaneioFilterChips(parseRomaneioFilters({}))).toEqual([]);
+  });
+
+  it("hasRomaneioFilters cobre todos os campos (nada de filtro órfão)", () => {
+    expect(hasRomaneioFilters(parseRomaneioFilters({}))).toBe(false);
+    expect(hasRomaneioFilters(parseRomaneioFilters({ q: "x" }))).toBe(true);
+    expect(hasRomaneioFilters(parseRomaneioFilters({ situacao: "ABERTO" }))).toBe(true);
+    expect(hasRomaneioFilters(parseRomaneioFilters({ of: "OF-1" }))).toBe(true);
+    expect(hasRomaneioFilters(parseRomaneioFilters({ cliente: "ACME" }))).toBe(true);
+    expect(hasRomaneioFilters(parseRomaneioFilters({ saidade: "2026-10-01" }))).toBe(true);
+    expect(hasRomaneioFilters(parseRomaneioFilters({ saidaate: "2026-10-01" }))).toBe(true);
+    expect(hasRomaneioFilters(parseRomaneioFilters({ numerode: "10" }))).toBe(true);
+    expect(hasRomaneioFilters(parseRomaneioFilters({ numeroate: "99" }))).toBe(true);
+    expect(hasRomaneioFilters(parseRomaneioFilters({ pesode: "1.5" }))).toBe(true);
+    expect(hasRomaneioFilters(parseRomaneioFilters({ pesoate: "80" }))).toBe(true);
+    expect(hasRomaneioFilters(parseRomaneioFilters({ nfsaida: "12345" }))).toBe(true);
+    expect(hasRomaneioFilters(parseRomaneioFilters({ nfdev: "9876" }))).toBe(true);
+    // Ordenação e paginação NÃO são filtro.
+    expect(hasRomaneioFilters(parseRomaneioFilters({ ordem: "status", pagina: "3" }))).toBe(false);
   });
 });

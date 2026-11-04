@@ -4,6 +4,7 @@ import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, type ProcessStatus } from "@/l
 import type { ChildItemFilters, OrderFilters } from "@/lib/types/order";
 import type { ProductionFilters } from "@/lib/types/production";
 import type { RomaneioFilters } from "@/lib/types/romaneio";
+import { ROMANEIO_STATUSES, ROMANEIO_STATUS_LABELS, type RomaneioStatus } from "@/lib/constants/romaneio";
 import { formatDate, isValidISODate } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight, toNumber } from "@/lib/utils/formatting";
 
@@ -75,6 +76,7 @@ export function isChildItemSortableColumn(value: string): value is ChildItemSort
  */
 export const ROMANEIO_SORT_KEYS = [
   "number",
+  "status",
   "order_code",
   "customer",
   "shipment_date",
@@ -372,7 +374,8 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
  * Lê os filtros da listagem de romaneios de expedição a partir da URL.
  * `q` busca genérica (nº do romaneio, OF/OS ou cliente); `saida*` filtra
  * o período da data de saída (mesmas convenções das telas de entrega).
- * A coluna Situação não tem filtro: a situação vive no badge ao lado do nº.
+ * As demais chaves são os filtros de coluna (047): situação, faixa de
+ * nº, faixa de peso e os dois números de NF.
  */
 export function parseRomaneioFilters(params: SearchParamsRecord): RomaneioFilters {
   const search = firstValue(params.q).trim();
@@ -390,12 +393,24 @@ export function parseRomaneioFilters(params: SearchParamsRecord): RomaneioFilter
   const pageSizeRaw = Number.parseInt(firstValue(params.porpagina), 10);
   const pageSize = clampPageSize(pageSizeRaw, ROMANEIO_PAGE_SIZE);
 
+  const statusRaw = firstValue(params.situacao).toUpperCase();
+  const status = (ROMANEIO_STATUSES as readonly string[]).includes(statusRaw)
+    ? (statusRaw as RomaneioStatus)
+    : "ALL";
+
   return {
     search,
+    status,
     orderCode: textParam(params, "of"),
     customer: textParam(params, "cliente"),
     shipmentFrom: dateParam(params, "saidade"),
     shipmentTo: dateParam(params, "saidaate"),
+    numberFrom: numberParam(params, "numerode"),
+    numberTo: numberParam(params, "numeroate"),
+    weightFrom: numberParam(params, "pesode"),
+    weightTo: numberParam(params, "pesoate"),
+    nfNumber: textParam(params, "nfsaida"),
+    returnNfNumber: textParam(params, "nfdev"),
     sort,
     sortDir,
     page,
@@ -411,10 +426,17 @@ export function romaneioQueryString(
   const next = { ...filters, ...overrides };
   return toSearchParams({
     q: next.search || undefined,
+    situacao: next.status === "ALL" ? undefined : next.status,
     of: next.orderCode || undefined,
     cliente: next.customer || undefined,
     saidade: next.shipmentFrom || undefined,
     saidaate: next.shipmentTo || undefined,
+    numerode: next.numberFrom ?? undefined,
+    numeroate: next.numberTo ?? undefined,
+    pesode: next.weightFrom ?? undefined,
+    pesoate: next.weightTo ?? undefined,
+    nfsaida: next.nfNumber || undefined,
+    nfdev: next.returnNfNumber || undefined,
     ordem: next.sort === DEFAULT_ROMANEIO_SORT ? undefined : next.sort,
     // `direcao` só sobrevive quando difere do default da tela (desc) —
     // no default, "asc" sobrevive sozinho (`?direcao=asc` reparseia na
@@ -423,6 +445,28 @@ export function romaneioQueryString(
     pagina: next.page === 1 ? undefined : next.page,
     porpagina: next.pageSize === ROMANEIO_PAGE_SIZE ? undefined : next.pageSize,
   });
+}
+
+/**
+ * Algum filtro de coluna/busca ligado na listagem de romaneios — muda o
+ * texto do estado vazio e habilita o "Limpar filtros" (mesma fonte nas
+ * duas telas: desktop e barra mobile).
+ */
+export function hasRomaneioFilters(filters: RomaneioFilters): boolean {
+  return (
+    filters.search !== "" ||
+    filters.status !== "ALL" ||
+    filters.orderCode !== "" ||
+    filters.customer !== "" ||
+    filters.shipmentFrom !== null ||
+    filters.shipmentTo !== null ||
+    filters.numberFrom !== null ||
+    filters.numberTo !== null ||
+    filters.weightFrom !== null ||
+    filters.weightTo !== null ||
+    filters.nfNumber !== "" ||
+    filters.returnNfNumber !== ""
+  );
 }
 
 type PartialParams = Record<string, string | number | undefined>;
@@ -772,7 +816,16 @@ export function activeFilterChips(filters: ProductionFilters): ActiveFilterChip[
 }
 
 export interface RomaneioFilterChip {
-  key: "search" | "orderCode" | "customer" | "shipmentPeriod";
+  key:
+    | "search"
+    | "status"
+    | "orderCode"
+    | "customer"
+    | "shipmentPeriod"
+    | "number"
+    | "weight"
+    | "nfNumber"
+    | "returnNfNumber";
   label: string;
   /** Como desligar só este filtro, mantendo os demais. */
   clear: Partial<RomaneioFilters>;
@@ -790,6 +843,14 @@ export function romaneioFilterChips(filters: RomaneioFilters): RomaneioFilterChi
     chips.push({ key: "search", label: `Busca: ${filters.search}`, clear: { search: "" } });
   }
 
+  if (filters.status !== "ALL") {
+    chips.push({
+      key: "status",
+      label: `Situação: ${ROMANEIO_STATUS_LABELS[filters.status]}`,
+      clear: { status: "ALL" },
+    });
+  }
+
   if (filters.orderCode) {
     chips.push({ key: "orderCode", label: `OF/OS: ${filters.orderCode}`, clear: { orderCode: "" } });
   }
@@ -803,6 +864,34 @@ export function romaneioFilterChips(filters: RomaneioFilters): RomaneioFilterChi
       key: "shipmentPeriod",
       label: shipmentPeriodLabel(filters.shipmentFrom, filters.shipmentTo),
       clear: { shipmentFrom: null, shipmentTo: null },
+    });
+  }
+
+  if (filters.numberFrom !== null || filters.numberTo !== null) {
+    chips.push({
+      key: "number",
+      label: rangeChipLabel("Nº", filters.numberFrom, filters.numberTo, (value) => `#${value}`),
+      clear: { numberFrom: null, numberTo: null },
+    });
+  }
+
+  if (filters.weightFrom !== null || filters.weightTo !== null) {
+    chips.push({
+      key: "weight",
+      label: rangeChipLabel("Peso", filters.weightFrom, filters.weightTo, formatWeight),
+      clear: { weightFrom: null, weightTo: null },
+    });
+  }
+
+  if (filters.nfNumber) {
+    chips.push({ key: "nfNumber", label: `NF saída: ${filters.nfNumber}`, clear: { nfNumber: "" } });
+  }
+
+  if (filters.returnNfNumber) {
+    chips.push({
+      key: "returnNfNumber",
+      label: `NF devolução: ${filters.returnNfNumber}`,
+      clear: { returnNfNumber: "" },
     });
   }
 

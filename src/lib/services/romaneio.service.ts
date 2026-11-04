@@ -9,20 +9,24 @@ import type {
   RomaneiosPage,
   RomaneioView,
 } from "@/lib/types/romaneio";
-import type { RomaneioNfValues, RomaneioValues } from "@/lib/validators/romaneio.schema";
+import type {
+  RomaneioConferenceValues,
+  RomaneioNfValues,
+  RomaneioValues,
+} from "@/lib/validators/romaneio.schema";
 import {
   cancelRomaneioRpc,
   confirmRomaneioRpc,
-  countRomaneiosByStatus,
   deleteRomaneioRpc,
   getRomaneioById,
+  getRomaneioSummary,
   listConfirmedQuantityByItem,
   listOrderMaterialLines,
   listRomaneioCustomers,
   listRomaneios,
   listRootOrderItems,
+  saveRomaneioConferenceRpc,
   saveRomaneioRpc,
-  signRomaneioConferenceRpc,
   updateRomaneioNfNumbers,
 } from "@/lib/repositories/romaneio.repository";
 import { toNumber } from "@/lib/utils/formatting";
@@ -37,24 +41,25 @@ import {
   type StoredMaterialLine,
 } from "@/lib/utils/romaneio";
 
-/** Lista paginada de romaneios + cartões de resumo por situação. */
+/** Lista paginada de romaneios + cartões de resumo por situação (047). */
 export async function getRomaneiosPage(
   client: SupabaseServer,
   filters: RomaneioFilters,
 ): Promise<RomaneiosPage> {
-  const [page, mountedCount, conferredCount, confirmedCount] = await Promise.all([
+  // O resumo roda na MESMA RPC de filtros da lista: os cartões batem
+  // com o total da paginação (inclusive no filtro de peso, que é
+  // agregado e o PostgREST não alcança).
+  const [page, summary] = await Promise.all([
     listRomaneios(client, filters),
-    countRomaneiosByStatus(client, filters, "MONTADO"),
-    countRomaneiosByStatus(client, filters, "CONFERIDO"),
-    countRomaneiosByStatus(client, filters, "CONFIRMADO"),
+    getRomaneioSummary(client, filters),
   ]);
 
   return {
     romaneios: page.rows,
-    total: page.total,
-    mountedCount,
-    conferredCount,
-    confirmedCount,
+    total: summary.total,
+    openCount: summary.open,
+    conferredCount: summary.conferred,
+    confirmedCount: summary.confirmed,
   };
 }
 
@@ -103,6 +108,7 @@ export async function getRomaneioOrderItems(
       shippedQuantity: confirmedByItem.get(item.id) ?? 0,
       expStatus: exp ? exp.status : null,
       quantity: 0,
+      conferenceChecked: false,
     };
   });
 }
@@ -149,8 +155,10 @@ export async function getRomaneioView(
   }));
 
   const includedByItem = new Map<string, number>();
+  const checkedByItem = new Set<string>();
   for (const item of raw.romaneio_items ?? []) {
     includedByItem.set(item.order_item_id, toNumber(item.quantity) ?? 0);
+    if (item.conference_checked) checkedByItem.add(item.order_item_id);
   }
 
   // Itens RAIZ da OF (o EXP mora no pai — itens filhos ficam de fora).
@@ -170,14 +178,15 @@ export async function getRomaneioView(
         shippedQuantity: confirmedByItem.get(item.id) ?? 0,
         expStatus: exp ? exp.status : null,
         quantity: includedByItem.get(item.id) ?? 0,
+        conferenceChecked: checkedByItem.has(item.id),
       };
     });
 
-  // Em MONTADO as linhas de material nascem da alocação desta carga
+  // Em ABERTO as linhas de material nascem da alocação desta carga
   // (merge com o já informado); conferido/confirmado/cancelado mostra
   // o registro gravado.
   const allocated =
-    raw.status === "MONTADO"
+    raw.status === "ABERTO"
       ? allocateRomaneioMaterials({
           includedItems: [...includedByItem].map(([orderItemId, quantity]) => ({
             orderItemId,
@@ -188,7 +197,7 @@ export async function getRomaneioView(
       : [];
 
   const materials =
-    raw.status === "MONTADO"
+    raw.status === "ABERTO"
       ? mergeRomaneioMaterialLines(allocated, storedMaterials)
       : storedMaterialLines(storedMaterials);
 
@@ -234,14 +243,14 @@ export async function getRomaneioView(
       })),
     ),
     confirmation,
-    canEdit: raw.status === "MONTADO" && canEditCapability,
+    canEdit: raw.status === "ABERTO" && canEditCapability,
   };
 }
 
 /**
  * Cria o romaneio da OF em /romaneio/novo — já com os itens marcados
  * (esta remessa) e a data de saída. A RPC garante UM romaneio em
- * montagem por OF.
+ * aberto por OF.
  */
 export async function createRomaneio(
   client: SupabaseServer,
@@ -261,7 +270,7 @@ export async function createRomaneio(
   });
 }
 
-/** Salva cabeçalho+itens+materiais de um romaneio em MONTADO. */
+/** Salva cabeçalho+itens+materiais de um romaneio em ABERTO. */
 export async function saveRomaneio(
   client: SupabaseServer,
   input: RomaneioValues,
@@ -282,13 +291,27 @@ export async function saveRomaneio(
   });
 }
 
-/** Sinaliza o aceite da conferência (quem/quando/observação) — MONTADO → CONFERIDO. */
-export async function signRomaneioConference(
+/**
+ * Salva a ficha de conferência como formulário (048): marcação por
+ * item, recebida/utilizada dos materiais e observação. `sign` conclui
+ * a conferência (ABERTO → CONFERIDO) — no banco, tudo numa transação.
+ */
+export async function saveRomaneioConference(
   client: SupabaseServer,
-  romaneioId: string,
-  notes: string | null,
+  input: RomaneioConferenceValues,
 ): Promise<void> {
-  await signRomaneioConferenceRpc(client, romaneioId, notes);
+  await saveRomaneioConferenceRpc(client, {
+    romaneioId: input.romaneioId,
+    notes: input.notes,
+    checkedItemIds: input.checkedItemIds,
+    materials: input.materials.map((material) => ({
+      description: material.description,
+      unit: material.unit,
+      quantityReceived: material.quantityReceived,
+      quantityUsed: material.quantityUsed,
+    })),
+    sign: input.sign,
+  });
 }
 
 /**
@@ -304,7 +327,7 @@ export async function confirmRomaneio(
   await confirmRomaneioRpc(client, romaneioId);
 }
 
-/** Exclusão DEFINITIVA — só permitida em romaneios em MONTADO (045). */
+/** Exclusão DEFINITIVA — só permitida em romaneios em ABERTO (045/046). */
 export async function deleteRomaneio(
   client: SupabaseServer,
   romaneioId: string,

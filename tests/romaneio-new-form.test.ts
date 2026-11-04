@@ -85,6 +85,7 @@ function orderItem(overrides: Partial<RomaneioOrderItem> = {}): RomaneioOrderIte
     shippedQuantity: 2,
     expStatus: "CONCLUIDO",
     quantity: 0,
+    conferenceChecked: false,
     ...overrides,
   };
 }
@@ -157,7 +158,7 @@ describe("gate do botão Listar itens", () => {
     expect(canGenerateRomaneio(of(), "2026-10-30")).toBe(true);
   });
 
-  it("com romaneio em montagem dispensa a data (o rascunho já existe)", () => {
+  it("com romaneio em aberto dispensa a data (o rascunho já existe)", () => {
     expect(canGenerateRomaneio(of({ hasOpenRomaneio: true, openRomaneioId: "rom-1" }), "")).toBe(
       true,
     );

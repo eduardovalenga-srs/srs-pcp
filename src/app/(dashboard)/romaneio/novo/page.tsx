@@ -37,7 +37,7 @@ export default async function NovoRomaneioPage() {
           description="Monte a carga de expedição a partir de uma OF."
           actions={backAction}
         />
-        <AccessDenied message="Seu perfil não pode montar romaneios de expedição." />
+        <AccessDenied message="Seu perfil não pode criar romaneios de expedição." />
       </>
     );
   }
@@ -66,7 +66,7 @@ export default async function NovoRomaneioPage() {
     <>
       <Header
         title="Novo romaneio"
-        description="Escolha o cliente, a OF e a data de saída — um romaneio em montagem por OF."
+        description="Escolha o cliente, a OF e a data de saída — um romaneio em aberto por OF."
         actions={backAction}
       />
 

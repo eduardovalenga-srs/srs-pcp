@@ -23,6 +23,8 @@ function toNumber(value: number | string | null | undefined): number | null {
 interface RawRomaneioItem {
   order_item_id: string;
   quantity: number | string;
+  /** Marcação de conferência da ficha (048). */
+  conference_checked: boolean;
 }
 
 /** Linha crua de `romaneio_materials`. */
@@ -137,114 +139,39 @@ function mapCandidate(row: RawRomaneioCandidate): RomaneioCandidate {
 }
 
 /**
- * Teto de IDs de OF resolvidos na busca genérica — mesmo limite de
- * 1000 linhas por resposta do Supabase usado na varredura de exports.
+ * Argumentos de filtro compartilhados pelas RPCs de listagem (047):
+ * `get_romaneios_page` recebe estes + paginação/ordenação e
+ * `get_romaneio_summary` recebe só estes — os dois enxergam os mesmos
+ * filtros, então os cartões batem com o total da lista.
  */
-const SEARCH_ORDER_IDS_LIMIT = 1000;
-
-/** UUID impossível para forçar resultado vazio (nada casou na busca). */
-const EMPTY_UUID = "00000000-0000-0000-0000-000000000000";
-
-/**
- * Resolve os IDs de OF cujo código ou cliente casam com a busca genérica.
- *
- * A busca da listagem precisa cruzar `romaneios` × `orders`, mas o
- * PostgREST NÃO aceita paths embutidos dentro de `or=(...)` (PGRST100
- * "failed to parse logic tree" — só condições de coluna de topo), então o
- * cruzamento vira consulta prévia e o match entra como `order_id.in.(...)`
- * (coluna de topo de romaneios).
- */
-async function resolveSearchOrderIds(
-  client: SupabaseServer,
-  filters: RomaneioFilters,
-): Promise<string[]> {
-  const term = escapeFilterTerm(filters.search);
-  if (!term) return [];
-
-  const { data, error } = await client
-    .from("orders")
-    .select("id")
-    .or(`code.ilike.%${term}%,customer_name.ilike.%${term}%`)
-    .limit(SEARCH_ORDER_IDS_LIMIT);
-  assertOk(error, "Não foi possível carregar os romaneios");
-  return (data ?? []).map((row) => (row as { id: string }).id);
-}
-
-/** Aplica os filtros da listagem em qualquer query builder de romaneios. */
-function applyRomaneioFilters<T>(
-  query: T,
-  filters: RomaneioFilters,
-  searchOrderIds: readonly string[],
-  /** Situação aplicada no count (o filtro de status não existe mais na URL). */
-  status: RomaneioStatus | null,
-): T {
-  const builder = query as unknown as {
-    or: (filter: string) => unknown;
-    eq: (column: string, value: string) => unknown;
-    ilike: (column: string, value: string) => unknown;
-    gte: (column: string, value: string) => unknown;
-    lte: (column: string, value: string) => unknown;
+function romaneioFilterArgs(filters: RomaneioFilters) {
+  return {
+    p_search: escapeFilterTerm(filters.search) || null,
+    p_status: filters.status === "ALL" ? null : filters.status,
+    p_order_code: escapeFilterTerm(filters.orderCode) || null,
+    p_customer: escapeFilterTerm(filters.customer) || null,
+    p_shipment_from: filters.shipmentFrom || null,
+    p_shipment_to: filters.shipmentTo || null,
+    p_number_from: filters.numberFrom,
+    p_number_to: filters.numberTo,
+    p_weight_min: filters.weightFrom,
+    p_weight_max: filters.weightTo,
+    p_nf_number: filters.nfNumber.trim() || null,
+    p_return_nf: filters.returnNfNumber.trim() || null,
   };
-  // Busca genérica: nº do romaneio (bigint — só quando o termo é numérico,
-  // senão o PostgREST não casa o cast) OU OF que casou na consulta prévia.
-  // Só colunas de topo — ver resolveSearchOrderIds (PGRST100).
-  const term = escapeFilterTerm(filters.search);
-  if (term) {
-    const conditions: string[] = [];
-    if (/^\d{1,18}$/.test(term)) {
-      conditions.push(`number.eq.${term}`);
-    }
-    if (searchOrderIds.length > 0) {
-      // Dentro de or=(...) a condição usa ponto (field.op.valor), não a
-      // sintaxe de query param (field=op.valor) — senão o PostgREST responde
-      // 400 PGRST100 "failed to parse logic tree".
-      conditions.push(`order_id.in.(${searchOrderIds.join(",")})`);
-    }
-    if (conditions.length > 0) {
-      builder.or(conditions.join(","));
-    } else {
-      // Nenhuma OF casou com o texto: resultado vazio garantido.
-      builder.eq("id", EMPTY_UUID);
-    }
-  }
-  if (status) {
-    builder.eq("status", status);
-  }
-  const code = escapeFilterTerm(filters.orderCode);
-  if (code) {
-    builder.ilike("orders.code", `%${code}%`);
-  }
-  const customer = escapeFilterTerm(filters.customer);
-  if (customer) {
-    builder.ilike("orders.customer_name", `%${customer}%`);
-  }
-  if (filters.shipmentFrom) {
-    builder.gte("shipment_date", filters.shipmentFrom);
-  }
-  if (filters.shipmentTo) {
-    builder.lte("shipment_date", filters.shipmentTo);
-  }
-  return query;
 }
 
 /**
- * Lista paginada de romaneios — RPC `get_romaneios_page` (043): filtros,
- * ordenação da coluna escolhida na URL e os agregados (Qtd/Peso/pendência
- * de devolução) computados no banco. Os cartões por situação continuam
- * em PostgREST (`countRomaneiosByStatus`).
+ * Lista paginada de romaneios — RPC `get_romaneios_page` (043/047):
+ * filtros de coluna, ordenação da coluna escolhida na URL e os agregados
+ * (Qtd/Peso/pendência de devolução) computados no banco.
  */
 export async function listRomaneios(
   client: SupabaseServer,
   filters: RomaneioFilters,
 ): Promise<{ rows: RomaneioSummary[]; total: number }> {
   const { data, error } = await client.rpc("get_romaneios_page", {
-    p_search: escapeFilterTerm(filters.search) || null,
-    // A listagem não tem mais filtro de situação (a RPC aceita null).
-    p_status: null,
-    p_order_code: escapeFilterTerm(filters.orderCode) || null,
-    p_customer: escapeFilterTerm(filters.customer) || null,
-    p_shipment_from: filters.shipmentFrom || null,
-    p_shipment_to: filters.shipmentTo || null,
+    ...romaneioFilterArgs(filters),
     p_sort: filters.sort,
     p_sort_dir: filters.sortDir,
     p_offset: (filters.page - 1) * filters.pageSize,
@@ -257,26 +184,45 @@ export async function listRomaneios(
   return { rows: rows.map(mapRomaneioSummary), total };
 }
 
+/** Contagens dos cartões de resumo (047). */
+export interface RomaneioSummaryCounts {
+  /** Total com os filtros vigentes — respeita a situação filtrada. */
+  total: number;
+  /** Romaneios em aberto (breakdown por situação). */
+  open: number;
+  conferred: number;
+  confirmed: number;
+}
+
+/** Linha crua da RPC `get_romaneio_summary` (047). */
+interface RawRomaneioSummaryRow {
+  total_count: number | string;
+  open_count: number | string;
+  conferred_count: number | string;
+  confirmed_count: number | string;
+}
+
 /**
- * Contagem por situação com os mesmos filtros da lista (cartões de
- * resumo): a situação pedida entra como filtro extra.
+ * Contagens dos cartões Abertos/Conferidos/Confirmados — RPC
+ * `get_romaneio_summary` (047): os MESMOS filtros da listagem (inclusive
+ * a faixa de peso, que é agregado e o PostgREST não alcança). Os três
+ * contadores são o breakdown por situação (ignoram a situação filtrada);
+ * `total` respeita — é o mesmo total da paginação.
  */
-export async function countRomaneiosByStatus(
+export async function getRomaneioSummary(
   client: SupabaseServer,
   filters: RomaneioFilters,
-  status: RomaneioStatus,
-): Promise<number> {
-  // Mesma regra do countQuery de listRomaneios: o embed `orders` precisa
-  // estar no select para os filtros por path embutido passarem (PGRST108).
-  const searchOrderIds = await resolveSearchOrderIds(client, filters);
-  const { count, error } = await applyRomaneioFilters(
-    client.from("romaneios").select("id, orders ( id )", { count: "exact", head: true }),
-    filters,
-    searchOrderIds,
-    status,
-  );
+): Promise<RomaneioSummaryCounts> {
+  const { data, error } = await client.rpc("get_romaneio_summary", romaneioFilterArgs(filters));
   assertOk(error, "Não foi possível contar os romaneios");
-  return count ?? 0;
+
+  const row = ((data ?? []) as RawRomaneioSummaryRow[])[0];
+  return {
+    total: toNumber(row?.total_count) ?? 0,
+    open: toNumber(row?.open_count) ?? 0,
+    conferred: toNumber(row?.conferred_count) ?? 0,
+    confirmed: toNumber(row?.confirmed_count) ?? 0,
+  };
 }
 
 /** Converte a linha da RPC `get_romaneios_page` no resumo da tela/export. */
@@ -323,7 +269,7 @@ export async function getRomaneioById(
            production_processes ( status, processes ( code ) )
          )
        ),
-       romaneio_items ( order_item_id, quantity ),
+       romaneio_items ( order_item_id, quantity, conference_checked ),
        romaneio_materials ( description, unit, quantity_planned, quantity_received, quantity_used )`,
     )
     .eq("id", romaneioId)
@@ -452,7 +398,7 @@ export interface SaveRomaneioRpcInput {
   materials: RomaneioMaterialValues[];
 }
 
-/** Cria/atualiza um romaneio em MONTADO (cabeçalho+itens+materiais). */
+/** Cria/atualiza um romaneio em ABERTO (cabeçalho+itens+materiais). */
 export async function saveRomaneioRpc(
   client: SupabaseServer,
   input: SaveRomaneioRpcInput,
@@ -472,17 +418,33 @@ export async function saveRomaneioRpc(
   return { id: result?.id ?? "", number: Number(result?.number ?? 0) };
 }
 
-/** Sinaliza o aceite da conferência (quem/quando/observação) — MONTADO → CONFERIDO. */
-export async function signRomaneioConferenceRpc(
+/** Grava a conferência na ficha (048): marcação + materiais + obs. */
+export interface SaveRomaneioConferenceRpcInput {
+  romaneioId: string;
+  notes: string | null;
+  checkedItemIds: string[];
+  materials: { description: string; unit: string; quantityReceived: number | null; quantityUsed: number | null }[];
+  /** true = conclui (ABERTO → CONFERIDO); false = rascunho. */
+  sign: boolean;
+}
+
+/**
+ * Salva a ficha de conferência como formulário — RPC 048. Rascunho e
+ * concluir são a MESMA transação no banco (ou grava tudo, ou nada);
+ * somente romaneios em ABERTO aceitam escrita.
+ */
+export async function saveRomaneioConferenceRpc(
   client: SupabaseServer,
-  romaneioId: string,
-  notes: string | null,
+  input: SaveRomaneioConferenceRpcInput,
 ): Promise<void> {
-  const { error } = await client.rpc("sign_romaneio_conference", {
-    p_romaneio_id: romaneioId,
-    p_notes: notes,
+  const { error } = await client.rpc("save_romaneio_conference", {
+    p_romaneio_id: input.romaneioId,
+    p_notes: input.notes,
+    p_checked_item_ids: input.checkedItemIds,
+    p_materials: input.materials as unknown as Json,
+    p_sign: input.sign,
   });
-  assertOk(error, "Não foi possível sinalizar a conferência");
+  assertOk(error, "Não foi possível salvar a conferência");
 }
 
 /**
@@ -498,7 +460,7 @@ export async function confirmRomaneioRpc(
   assertOk(error, "Não foi possível confirmar o romaneio");
 }
 
-/** Exclusão DEFINITIVA — só permitida em romaneios MONTADOS (045). */
+/** Exclusão DEFINITIVA — só permitida em romaneios ABERTOS (045/046). */
 export async function deleteRomaneioRpc(
   client: SupabaseServer,
   romaneioId: string,

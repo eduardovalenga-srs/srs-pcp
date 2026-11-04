@@ -84,7 +84,7 @@ export default async function RomaneioConferenciaPage({
       />
       <RomaneioConferenceSheet
         view={view}
-        canSign={can(sessionUser.role, "romaneio.edit")}
+        canEdit={can(sessionUser.role, "romaneio.edit")}
       />
     </>
   );

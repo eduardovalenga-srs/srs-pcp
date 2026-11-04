@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ClipboardCheck, Loader2, Printer, Save, Send, Trash2 } from "lucide-react";
+import { AlertTriangle, Loader2, Printer, Save, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -12,7 +12,6 @@ import {
   deleteRomaneioAction,
   saveRomaneioAction,
   saveRomaneioNfAction,
-  signRomaneioConferenceAction,
 } from "@/lib/actions/romaneio.actions";
 import type { RomaneioView } from "@/lib/types/romaneio";
 import { formatDate, formatDateTime } from "@/lib/utils/dates";
@@ -37,6 +36,7 @@ import {
   RomaneioMaterialsEditor,
   type MaterialLineState,
 } from "@/components/romaneio/RomaneioMaterialsEditor";
+import { RomaneioItemsWeightTable } from "@/components/romaneio/RomaneioItemsWeightTable";
 
 interface RomaneioDetailProps {
   view: RomaneioView;
@@ -91,10 +91,11 @@ function initialMaterials(view: RomaneioView): MaterialLineState[] {
 
 /**
  * Detalhe do romaneio: cabeçalho da carga, itens (raiz da OF) com a
- * quantidade desta carga, devolução de matéria-prima (previsto ×
- * informado), painel de conferência, números de NF e as ações do ciclo
- * de vida — MONTADO edita/exclui, CONFERIDO confirma (baixa), e
- * CONFIRMADO pode ser cancelado (a baixa se restaura sozinha).
+ * quantidade desta carga, devolução de matéria-prima (somente leitura
+ * — o lançamento é na ficha), painel de conferência (leitura + link
+ * para a ficha), números de NF e as ações do ciclo de vida — ABERTO
+ * edita/exclui, CONFERIDO confirma (baixa), e CONFIRMADO pode ser
+ * cancelado (a baixa se restaura sozinha).
  */
 export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps) {
   const router = useRouter();
@@ -105,7 +106,6 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
     initialQuantities(view),
   );
   const [materials, setMaterials] = useState<MaterialLineState[]>(() => initialMaterials(view));
-  const [conferenceNotes, setConferenceNotes] = useState("");
   const [nf, setNf] = useState({
     nfNumber: view.nfNumber ?? "",
     returnNfNumber: view.returnNfNumber ?? "",
@@ -131,7 +131,7 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
 
   const canEdit = view.canEdit;
   const canEditNf = canEditCapability && view.status !== "CANCELADO";
-  const isMounted = view.status === "MONTADO";
+  const isOpen = view.status === "ABERTO";
   const isConferred = view.status === "CONFERIDO";
   const canCancel = canEditCapability && (isConferred || view.status === "CONFIRMADO");
 
@@ -195,21 +195,6 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
       router.refresh();
     });
 
-  const handleSignConference = () =>
-    run("conference", async () => {
-      const result = await signRomaneioConferenceAction(
-        view.id,
-        conferenceNotes.trim() || null,
-      );
-      if (!result.success) {
-        toast.error(result.message);
-        return;
-      }
-      toast.success(result.message);
-      setConferenceNotes("");
-      router.refresh();
-    });
-
   const handleConfirm = () =>
     run("confirm", async () => {
       const result = await confirmRomaneioAction(view.id);
@@ -264,6 +249,8 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
     (sum, item) => sum + item.quantity,
     0,
   );
+  const includedItems = view.items.filter((item) => item.quantity > 0);
+  const conferidosCount = includedItems.filter((item) => item.conferenceChecked).length;
   const weightTotal = view.items.reduce(
     (sum, item) => sum + (item.unitWeightKg === null ? 0 : item.unitWeightKg * item.quantity),
     0,
@@ -306,7 +293,7 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
           </div>
         </dl>
 
-        {isMounted || isConferred ? (
+        {isOpen || isConferred ? (
           view.confirmation.canConfirm ? (
             <p className="mt-3 rounded border border-status-done-bg bg-status-done/10 px-3 py-2 text-sm text-status-done">
               Pronto para confirmar — todos os pré-requisitos atendidos.
@@ -427,9 +414,14 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
         />
       </section>
 
-      {/* Devolução de matéria-prima */}
+      {/* Devolução de matéria-prima — lançamento é na ficha (048) */}
       <section aria-label="Devolução de matéria-prima" className="space-y-3">
-        <h2 className="text-sm font-semibold">Devolução de matéria-prima</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Devolução de matéria-prima</h2>
+          <p className="text-xs text-muted-foreground">
+            As quantidades são lançadas na ficha de conferência — aqui são somente leitura.
+          </p>
+        </div>
         {materials.length === 0 ? (
           <p className="rounded border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
             Nenhum material alocado para os itens desta carga. Inclua itens com matéria-prima e
@@ -438,7 +430,7 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
         ) : (
           <RomaneioMaterialsEditor
             materials={materials}
-            canEdit={canEdit}
+            canEdit={false}
             ofTotals={view.ofMaterialTotals}
             onFieldChange={(index, field, value) =>
               setMaterials((current) =>
@@ -449,9 +441,14 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
             }
           />
         )}
+
+        <RomaneioItemsWeightTable
+          items={view.items}
+          className="overflow-x-auto rounded border bg-card print:rounded-none print:border-0 print:bg-transparent"
+        />
       </section>
 
-      {/* Conferência */}
+      {/* Conferência — leitura; o lançamento é na ficha (048) */}
       <section aria-label="Conferência" className="rounded border bg-card p-3">
         <h2 className="text-sm font-semibold">Conferência</h2>
         {view.conferenceAcceptedAt ? (
@@ -475,52 +472,23 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
           </div>
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">
-            Aceite ainda não sinalizado — imprima a folha de conferência e registre o aceite
-            nela.
+            A conferência é feita na ficha: marque os itens, lance a devolução e salve o rascunho
+            ou conclua a conferência por lá.
           </p>
         )}
 
-        {!isMounted && !isConferred ? null : (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+        <p className="mt-2 text-sm text-muted-foreground tabular-nums">
+          Itens marcados como conferidos: {conferidosCount} de {includedItems.length}.
+        </p>
+
+        {!isOpen && !isConferred ? null : (
+          <div className="mt-3">
             <Button type="button" variant="outline" size="sm" asChild>
               <Link href={`/romaneio/${view.id}/conferencia`}>
                 <Printer className="h-4 w-4" aria-hidden />
-                Abrir folha de conferência
+                Abrir ficha de conferência
               </Link>
             </Button>
-            {canEdit ? (
-              <div className="flex flex-1 flex-wrap items-end gap-2">
-                <div className="min-w-52 flex-1 space-y-1">
-                  <Label
-                    htmlFor="romaneio-conferencia-obs"
-                    className="text-xs text-muted-foreground"
-                  >
-                    Observação do aceite (opcional)
-                  </Label>
-                  <Textarea
-                    id="romaneio-conferencia-obs"
-                    value={conferenceNotes}
-                    maxLength={500}
-                    rows={1}
-                    onChange={(event) => setConferenceNotes(event.target.value)}
-                    placeholder="Ex.: carga conferida com o cliente, avarias inexistentes…"
-                  />
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={busy !== null}
-                  onClick={() => void handleSignConference()}
-                >
-                  {busy === "conference" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  ) : (
-                    <ClipboardCheck className="h-4 w-4" aria-hidden />
-                  )}
-                  Sinalizar aceite
-                </Button>
-              </div>
-            ) : null}
           </div>
         )}
       </section>
@@ -687,7 +655,7 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
         </DialogContent>
       </Dialog>
 
-      {/* Confirmação de exclusão (só MONTADO) */}
+      {/* Confirmação de exclusão (só ABERTO) */}
       <Dialog open={deleteOpen} onOpenChange={(nextOpen) => !busy && setDeleteOpen(nextOpen)}>
         <DialogContent>
           <DialogHeader>
@@ -727,7 +695,7 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
                 ? "Cancelar um romaneio confirmado DEVOLVE as quantidades à pendência de expedição da OF " +
                   view.orderCode +
                   " (a baixa é desfeita automaticamente) e mantém o registro no histórico. Confirma?"
-                : "O cancelamento mantém o registro no histórico e libera o romaneio em montagem que esta OF pode vir a ter. Confirma?"}
+                : "O cancelamento mantém o registro no histórico e libera o romaneio em aberto que esta OF pode vir a ter. Confirma?"}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

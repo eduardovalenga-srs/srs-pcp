@@ -127,7 +127,44 @@ async function saveRomaneio(params: SaveParams): Promise<{ id: string; number: n
 }
 
 async function signConference(romaneioId: string, notes: string | null = null): Promise<void> {
-  await db.query(`select public.sign_romaneio_conference($1::uuid, $2::text)`, [romaneioId, notes]);
+  const { rows } = await db.query<{ id: string }>(
+    `select order_item_id as id from public.romaneio_items where romaneio_id = $1`,
+    [romaneioId],
+  );
+  await saveRomaneioConference({
+    romaneioId,
+    notes,
+    checkedItemIds: rows.map((row) => row.id),
+    sign: true,
+  });
+}
+
+interface ConferenceParams {
+  romaneioId: string;
+  notes?: string | null;
+  checkedItemIds?: string[];
+  materials?: {
+    description: string;
+    unit: string;
+    quantityReceived?: number | null;
+    quantityUsed?: number | null;
+  }[];
+  /** true = conclui (ABERTO → CONFERIDO); false = rascunho. */
+  sign?: boolean;
+}
+
+/** Grava a ficha de conferência como formulário (RPC 048). */
+async function saveRomaneioConference(params: ConferenceParams): Promise<void> {
+  await db.query(
+    `select public.save_romaneio_conference($1::uuid, $2::text, $3::uuid[], $4::jsonb, $5::boolean)`,
+    [
+      params.romaneioId,
+      params.notes ?? null,
+      params.checkedItemIds ?? [],
+      JSON.stringify(params.materials ?? []),
+      params.sign ?? false,
+    ],
+  );
 }
 
 async function confirmRomaneio(romaneioId: string): Promise<void> {
@@ -343,9 +380,9 @@ describe("regras puras do romaneio", () => {
     expect(materialReturnQuantity(null, 4)).toBeNull();
   });
 
-  it("lista os gates de confirmação que faltam (montagem, NF, EXP pendente, teto)", () => {
+  it("lista os gates de confirmação que faltam (aberto, NF, EXP pendente, teto)", () => {
     const result = checkRomaneioConfirmation({
-      status: "MONTADO",
+      status: "ABERTO",
       orderStatus: "EM_PRODUCAO",
       hasNfNumber: false,
       items: [
@@ -379,8 +416,8 @@ describe("regras puras do romaneio", () => {
   });
 });
 
-describe("RPC save_romaneio (042/045)", () => {
-  it("cria um romaneio em montagem por OF e bloqueia o segundo", async () => {
+describe("RPC save_romaneio (042/045/046)", () => {
+  it("cria um romaneio em aberto por OF e bloqueia o segundo", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const created = await saveRomaneio({
@@ -398,11 +435,11 @@ describe("RPC save_romaneio (042/045)", () => {
     });
     expect(created.id).toBeTruthy();
     expect(Number(created.number)).toBeGreaterThan(0);
-    expect(await romaneioStatus(created.id)).toBe("MONTADO");
+    expect(await romaneioStatus(created.id)).toBe("ABERTO");
 
     await expect(
       saveRomaneio({ orderId: orderR1, items: [{ orderItemId: rootB, quantity: 1 }] }),
-    ).rejects.toThrow(/já existe um romaneio em montagem/i);
+    ).rejects.toThrow(/já existe um romaneio em aberto/i);
   });
 
   it("rejeita item fora da OF, item filho e quantidade acima do item", async () => {
@@ -415,7 +452,7 @@ describe("RPC save_romaneio (042/045)", () => {
 
     // Item FILHO (016): a carga expede só os itens RAIZ da OF.
     const { rows } = await db.query<{ id: string }>(
-      `select id from public.romaneios where order_id = $1 and status = 'MONTADO'`,
+      `select id from public.romaneios where order_id = $1 and status = 'ABERTO'`,
       [orderR1],
     );
     await expect(
@@ -454,11 +491,11 @@ describe("RPC save_romaneio (042/045)", () => {
     ).rejects.toThrow(/utilizada não pode exceder a recebida/i);
   });
 
-  it("substitui itens e materiais do rascunho (edição de montado)", async () => {
+  it("substitui itens e materiais do rascunho (edição em aberto)", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const { rows } = await db.query<{ id: string }>(
-      `select id from public.romaneios where order_id = $1 and status = 'MONTADO'`,
+      `select id from public.romaneios where order_id = $1 and status = 'ABERTO'`,
       [orderR1],
     );
     const romaneioId = rows[0]!.id;
@@ -497,7 +534,7 @@ describe("RPC save_romaneio (042/045)", () => {
     await asUser(db, "authenticated", gestorId);
 
     const { rows } = await db.query<{ id: string }>(
-      `select id from public.romaneios where order_id = $1 and status = 'MONTADO'`,
+      `select id from public.romaneios where order_id = $1 and status = 'ABERTO'`,
       [orderR1],
     );
     const romaneioId = rows[0]!.id;
@@ -525,17 +562,118 @@ describe("RPC save_romaneio (042/045)", () => {
   });
 });
 
-describe("RPC sign_romaneio_conference (045) — aceite da conferência", () => {
-  it("move o montado para CONFERIDO e registra quem/quando/obs", async () => {
+describe("RPC save_romaneio_conference (048) — ficha como formulário", () => {
+  it("rascunho grava marcação, materiais e observação sem mudar o status", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const { rows } = await db.query<{ id: string }>(
-      `select id from public.romaneios where order_id = $1 and status = 'MONTADO'`,
+      `select id from public.romaneios where order_id = $1 and status = 'ABERTO'`,
       [orderR1],
     );
     const romaneioId = rows[0]!.id;
 
-    await signConference(romaneioId, "Carga conferida com o cliente.");
+    // Recarrega a linha de material do rascunho (a lista foi zerada antes).
+    await saveRomaneio({
+      romaneioId,
+      orderId: orderR1,
+      items: [{ orderItemId: rootA, quantity: 10 }],
+      materials: [{ description: "Chapa aço 3mm", unit: "KG", quantityPlanned: 20 }],
+    });
+
+    await saveRomaneioConference({
+      romaneioId,
+      notes: "Rascunho: carga conferida parcialmente.",
+      checkedItemIds: [rootA],
+      materials: [
+        { description: "Chapa aço 3mm", unit: "KG", quantityReceived: 18, quantityUsed: 15 },
+      ],
+      sign: false,
+    });
+
+    // Continua em ABERTO — o rascunho não sinaliza o aceite.
+    expect(await romaneioStatus(romaneioId)).toBe("ABERTO");
+
+    const { rows: items } = await db.query<{ conference_checked: boolean }>(
+      `select conference_checked from public.romaneio_items where romaneio_id = $1`,
+      [romaneioId],
+    );
+    expect(items).toEqual([{ conference_checked: true }]);
+
+    const { rows: materials } = await db.query<{
+      quantity_received: number | string;
+      quantity_used: number | string;
+    }>(
+      `select quantity_received, quantity_used
+         from public.romaneio_materials where romaneio_id = $1`,
+      [romaneioId],
+    );
+    expect(Number(materials[0]!.quantity_received)).toBe(18);
+    expect(Number(materials[0]!.quantity_used)).toBe(15);
+
+    const { rows: header } = await db.query<{
+      conference_notes: string | null;
+      conference_accepted_at: string | null;
+    }>(
+      `select conference_notes, conference_accepted_at from public.romaneios where id = $1`,
+      [romaneioId],
+    );
+    expect(header[0]!.conference_notes).toBe("Rascunho: carga conferida parcialmente.");
+    expect(header[0]!.conference_accepted_at).toBeNull();
+  });
+
+  it("recusa concluir com item pendente e recusa utilizado acima de recebido", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    const { rows } = await db.query<{ id: string }>(
+      `select id from public.romaneios where order_id = $1 and status = 'ABERTO'`,
+      [orderR1],
+    );
+    const romaneioId = rows[0]!.id;
+
+    await expect(
+      saveRomaneioConference({ romaneioId, checkedItemIds: [], sign: true }),
+    ).rejects.toThrow(/marque todos os itens como conferidos/i);
+    expect(await romaneioStatus(romaneioId)).toBe("ABERTO");
+
+    await expect(
+      saveRomaneioConference({
+        romaneioId,
+        checkedItemIds: [rootA],
+        materials: [
+          { description: "Chapa aço 3mm", unit: "KG", quantityReceived: 10, quantityUsed: 12 },
+        ],
+        sign: false,
+      }),
+    ).rejects.toThrow(/utilizada não pode exceder a recebida/i);
+
+    // Transação única: a falha não gravou nada (material segue 18/15).
+    const { rows: materials } = await db.query<{
+      quantity_received: number | string;
+      quantity_used: number | string;
+    }>(
+      `select quantity_received, quantity_used
+         from public.romaneio_materials where romaneio_id = $1`,
+      [romaneioId],
+    );
+    expect(Number(materials[0]!.quantity_received)).toBe(18);
+    expect(Number(materials[0]!.quantity_used)).toBe(15);
+  });
+
+  it("conclui a conferência (ABERTO → CONFERIDO) com todos os itens marcados", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    const { rows } = await db.query<{ id: string }>(
+      `select id from public.romaneios where order_id = $1 and status = 'ABERTO'`,
+      [orderR1],
+    );
+    const romaneioId = rows[0]!.id;
+
+    await saveRomaneioConference({
+      romaneioId,
+      notes: "Carga conferida com o cliente.",
+      checkedItemIds: [rootA],
+      sign: true,
+    });
     expect(await romaneioStatus(romaneioId)).toBe("CONFERIDO");
 
     const { rows: signed } = await db.query<{
@@ -552,7 +690,7 @@ describe("RPC sign_romaneio_conference (045) — aceite da conferência", () => 
     expect(signed[0]!.conference_accepted_at).toBeTruthy();
   });
 
-  it("re-sinalizar em um já CONFERIDO atualiza o registro do aceite", async () => {
+  it("a ficha vira leitura depois de CONFERIDO (e a RPC antiga saiu)", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const { rows } = await db.query<{ id: string }>(
@@ -561,14 +699,104 @@ describe("RPC sign_romaneio_conference (045) — aceite da conferência", () => 
     );
     const romaneioId = rows[0]!.id;
 
-    await signConference(romaneioId, "Reconferida após ajuste de carga.");
-    expect(await romaneioStatus(romaneioId)).toBe("CONFERIDO");
+    await expect(
+      saveRomaneioConference({ romaneioId, checkedItemIds: [rootA], sign: true }),
+    ).rejects.toThrow(/só pode ser editada em romaneios em aberto/i);
 
-    const { rows: signed } = await db.query<{ conference_notes: string | null }>(
-      `select conference_notes from public.romaneios where id = $1`,
-      [romaneioId],
+    // A sign_romaneio_conference antiga foi substituída pela 048.
+    const { rows: old } = await db.query<{ fn: string | null }>(
+      `select to_regprocedure('public.sign_romaneio_conference(uuid, text)')::text as fn`,
     );
-    expect(signed[0]!.conference_notes).toBe("Reconferida após ajuste de carga.");
+    expect(old[0]!.fn).toBeNull();
+  });
+
+  it("recusa a conferência de OPERADOR (RLS escreve só ADMIN/GESTOR)", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    const orderR8 = await createOrder("OF-R08");
+    const rootH = await createRootItem(orderR8, "Tela soldada", 5, [
+      { code: "EXP", status: "CONCLUIDO" },
+    ]);
+    const created = await saveRomaneio({
+      orderId: orderR8,
+      items: [{ orderItemId: rootH, quantity: 5 }],
+    });
+
+    await asUser(db, "authenticated", operadorId);
+    await expect(
+      saveRomaneioConference({ romaneioId: created.id, checkedItemIds: [rootH], sign: true }),
+    ).rejects.toThrow(/permissão/i);
+
+    await asUser(db, "authenticated", gestorId);
+    expect(await romaneioStatus(created.id)).toBe("ABERTO");
+
+    // Limpa o rascunho para não afetar os testes seguintes.
+    await deleteRomaneio(created.id);
+  });
+
+  it("a save_romaneio preserva a marcação ao editar os itens do detalhe", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    const orderR9 = await createOrder("OF-R09");
+    const rootI = await createRootItem(orderR9, "Gradil", 6, [
+      { code: "EXP", status: "CONCLUIDO" },
+    ]);
+    const rootJ = await createRootItem(orderR9, "Poste", 2, [
+      { code: "EXP", status: "CONCLUIDO" },
+    ]);
+    const created = await saveRomaneio({
+      orderId: orderR9,
+      items: [
+        { orderItemId: rootI, quantity: 4 },
+        { orderItemId: rootJ, quantity: 2 },
+      ],
+    });
+    await saveRomaneioConference({
+      romaneioId: created.id,
+      checkedItemIds: [rootI, rootJ],
+      sign: false,
+    });
+
+    // Edição do detalhe remove rootJ e mantém rootI: a marcação sobrevive
+    // ao replace de itens (048).
+    await saveRomaneio({
+      romaneioId: created.id,
+      orderId: orderR9,
+      items: [{ orderItemId: rootI, quantity: 4 }],
+    });
+    const { rows: afterRemove } = await db.query<{
+      order_item_id: string;
+      conference_checked: boolean;
+    }>(
+      `select order_item_id, conference_checked from public.romaneio_items
+        where romaneio_id = $1`,
+      [created.id],
+    );
+    expect(afterRemove).toEqual([{ order_item_id: rootI, conference_checked: true }]);
+
+    // Item re-adicionado nasce DESMARCADO (a marcação é da ficha).
+    await saveRomaneio({
+      romaneioId: created.id,
+      orderId: orderR9,
+      items: [
+        { orderItemId: rootI, quantity: 4 },
+        { orderItemId: rootJ, quantity: 2 },
+      ],
+    });
+    const { rows: afterAdd } = await db.query<{
+      order_item_id: string;
+      conference_checked: boolean;
+    }>(
+      `select order_item_id, conference_checked from public.romaneio_items
+        where romaneio_id = $1 order by order_item_id`,
+      [created.id],
+    );
+    expect(afterAdd).toEqual(
+      [
+        { order_item_id: rootI, conference_checked: true },
+        { order_item_id: rootJ, conference_checked: false },
+      ].sort((a, b) => a.order_item_id.localeCompare(b.order_item_id)),
+    );
   });
 });
 
@@ -581,7 +809,7 @@ describe("RPC confirm_romaneio (045) — gates e baixa", () => {
       items: [{ orderItemId: rootC, quantity: 4 }],
     });
 
-    // Ainda em montagem: a ordem do fluxo exige a conferência antes.
+    // Ainda em aberto: a ordem do fluxo exige a conferência antes.
     await expect(confirmRomaneio(created.id)).rejects.toThrow(
       /apenas romaneios conferidos/i,
     );
@@ -614,12 +842,12 @@ describe("RPC confirm_romaneio (045) — gates e baixa", () => {
 
     await expect(
       saveRomaneio({ romaneioId: confirmedId, orderId: orderR2, items: [{ orderItemId: rootC, quantity: 1 }] }),
-    ).rejects.toThrow(/somente romaneios em montagem/i);
+    ).rejects.toThrow(/somente romaneios em aberto/i);
     await expect(signConference(confirmedId)).rejects.toThrow(
-      /conferência só pode ser sinalizada/i,
+      /conferência só pode ser editada/i,
     );
     await expect(deleteRomaneio(confirmedId)).rejects.toThrow(
-      /somente romaneios em montagem podem ser excluídos/i,
+      /somente romaneios em aberto podem ser excluídos/i,
     );
   });
 
@@ -695,26 +923,38 @@ describe("RPC confirm_romaneio (045) — gates e baixa", () => {
     expect(await romaneioStatus(romaneioId)).toBe("CONFIRMADO");
   });
 
-  it("bloqueia a confirmação de um romaneio sem itens", async () => {
+  it("bloqueia a conferência e a confirmação de um romaneio sem itens", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const orderR5 = await createOrder("OF-R05");
     await createRootItem(orderR5, "Barrilete", 2, [{ code: "EXP", status: "CONCLUIDO" }]);
 
     const created = await saveRomaneio({ orderId: orderR5, items: [] });
-    await signConference(created.id);
+
+    // Concluir a conferência já exige ao menos um item (048)…
+    await expect(signConference(created.id)).rejects.toThrow(/ao menos um item/i);
+    expect(await romaneioStatus(created.id)).toBe("ABERTO");
+
+    // …e o confirm (045) continua travando por defesa: simula um
+    // conferido sem itens gravando o status direto no banco.
+    await asSuperUser(db);
+    await db.query(`update public.romaneios set status = 'CONFERIDO' where id = $1`, [
+      created.id,
+    ]);
+    await asUser(db, "authenticated", gestorId);
+
     await setNfNumber(created.id, "42345");
     await expect(confirmRomaneio(created.id)).rejects.toThrow(/inclua ao menos um item/i);
 
     // Sem item não há carga: o caminho deste conferido é o cancelamento
-    // (exclusão definitiva só existe em montagem).
+    // (exclusão definitiva só existe em aberto).
     await cancelRomaneio(created.id);
     expect(await romaneioStatus(created.id)).toBe("CANCELADO");
   });
 });
 
-describe("RPC delete_romaneio (045) — exclusão definitiva", () => {
-  it("exclui um montado e o cancelamento não serve para montados", async () => {
+describe("RPC delete_romaneio (045/046) — exclusão definitiva", () => {
+  it("exclui um romaneio em aberto e o cancelamento não serve para abertos", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const orderR6 = await createOrder("OF-R06");
@@ -726,9 +966,9 @@ describe("RPC delete_romaneio (045) — exclusão definitiva", () => {
       items: [{ orderItemId: rootF, quantity: 3 }],
     });
 
-    // Montado não se cancela — o caminho é a exclusão definitiva.
+    // Romaneio em aberto não se cancela — o caminho é a exclusão definitiva.
     await expect(cancelRomaneio(created.id)).rejects.toThrow(
-      /em montagem são excluídos, não cancelados/i,
+      /em aberto são excluídos, não cancelados/i,
     );
 
     await deleteRomaneio(created.id);
@@ -738,12 +978,12 @@ describe("RPC delete_romaneio (045) — exclusão definitiva", () => {
     );
     expect(rows).toHaveLength(0);
 
-    // A OF volta a aceitar um novo romaneio em montagem (índice único liberado).
+    // A OF volta a aceitar um novo romaneio em aberto (índice único liberado).
     const recreated = await saveRomaneio({
       orderId: orderR6,
       items: [{ orderItemId: rootF, quantity: 2 }],
     });
-    expect(await romaneioStatus(recreated.id)).toBe("MONTADO");
+    expect(await romaneioStatus(recreated.id)).toBe("ABERTO");
   });
 
   it("bloqueia a exclusão de um CONFERIDO (o caminho é cancelar)", async () => {
@@ -760,7 +1000,7 @@ describe("RPC delete_romaneio (045) — exclusão definitiva", () => {
     await signConference(created.id);
 
     await expect(deleteRomaneio(created.id)).rejects.toThrow(
-      /somente romaneios em montagem podem ser excluídos/i,
+      /somente romaneios em aberto podem ser excluídos/i,
     );
 
     await cancelRomaneio(created.id);
@@ -768,13 +1008,14 @@ describe("RPC delete_romaneio (045) — exclusão definitiva", () => {
   });
 });
 
-describe("constraint de status de romaneios (042 → 045)", () => {
-  // Regressão da ordem da migração 045: o DROP do constraint antigo precisa
-  // vir ANTES da migração de dados e o ADD depois (o ADD valida as linhas
-  // existentes) — UPDATE antes do DROP viola o constraint da 042 (23514).
-  // Com a migração já aplicada, travei aqui o CONJUNTO final de status.
+describe("constraint de status de romaneios (042 → 045 → 046)", () => {
+  // Regressão da ordem das migrações 045/046: o DROP do constraint antigo
+  // precisa vir ANTES da migração de dados e o ADD depois (o ADD valida as
+  // linhas existentes) — UPDATE antes do DROP viola o constraint anterior
+  // (23514). Com as migrações já aplicadas, travei aqui o CONJUNTO final
+  // de status.
   async function insertRawRomaneio(status: string): Promise<void> {
-    // OF nova por insert: o índice único de MONTADO é por OF, e a OF nova
+    // OF nova por insert: o índice único de ABERTO é por OF, e a OF nova
     // não tem itens — o insert direto não passa pelas RPCs.
     const orderId = await createOrder(`OF-CONST-${status}`);
     await db.query(`insert into public.romaneios (order_id, status) values ($1, $2)`, [
@@ -783,10 +1024,10 @@ describe("constraint de status de romaneios (042 → 045)", () => {
     ]);
   }
 
-  it("aceita os quatro status do novo ciclo de vida (MONTADO..CANCELADO)", async () => {
+  it("aceita os quatro status do novo ciclo de vida (ABERTO..CANCELADO)", async () => {
     await asUser(db, "authenticated", gestorId);
 
-    for (const status of ["MONTADO", "CONFERIDO", "CONFIRMADO", "CANCELADO"]) {
+    for (const status of ["ABERTO", "CONFERIDO", "CONFIRMADO", "CANCELADO"]) {
       await expect(insertRawRomaneio(status)).resolves.toBeUndefined();
     }
   });

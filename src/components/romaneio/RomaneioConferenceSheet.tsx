@@ -2,66 +2,143 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardCheck, Loader2, Printer } from "lucide-react";
+import { ClipboardCheck, Loader2, Printer, Save } from "lucide-react";
 import { toast } from "sonner";
 
-import { signRomaneioConferenceAction } from "@/lib/actions/romaneio.actions";
+import { saveRomaneioConferenceAction } from "@/lib/actions/romaneio.actions";
 import type { RomaneioView } from "@/lib/types/romaneio";
 import { formatDate, formatDateTime } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RomaneioStatusBadge } from "@/components/romaneio/RomaneioStatusBadge";
+import { RomaneioItemsWeightTable } from "@/components/romaneio/RomaneioItemsWeightTable";
 
 interface RomaneioConferenceSheetProps {
   view: RomaneioView;
-  /** O perfil edita romaneios (capacidade romaneio.edit) — gate do aceite. */
-  canSign: boolean;
+  /** O perfil edita romaneios (capacidade romaneio.edit) — gate do formulário. */
+  canEdit: boolean;
+}
+
+/** Chave estável de uma linha de material (única por romaneio). */
+function materialKey(description: string, unit: string): string {
+  return `${description}::${unit}`;
+}
+
+/** Texto do input: número salvo vira texto; null vira "" (caixa vazia). */
+function amountText(value: number | null): string {
+  return value === null ? "" : String(value);
 }
 
 /**
- * Folha de conferência do romaneio — versão IMPRIMÍVEL para o check da
- * carga no caminhão: mostra SÓ os itens selecionados (com quadrinho para
- * conferir a mão) e a lista de devolução de matéria-prima. "Sinalizar
- * aceite" registra quem/quando e move o romaneio para CONFERIDO.
+ * Folha de conferência do romaneio — FORMULÁRIO na tela e impressa
+ * para o check da carga no caminhão: marcação por item, recebida/
+ * utilizada dos materiais e observação. "Salvar rascunho" grava sem
+ * mudar a situação; "Marcar como conferida" grava tudo e move para
+ * CONFERIDO (exige todos os itens marcados). Imprimir em branco e
+ * lançar depois também vale — no papel saem caixas vazias onde falta
+ * valor. Depois de CONFERIDO a ficha vira somente leitura (048).
  */
-export function RomaneioConferenceSheet({ view, canSign }: RomaneioConferenceSheetProps) {
+export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceSheetProps) {
   const router = useRouter();
 
-  const [busy, setBusy] = useState(false);
-  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState<"draft" | "sign" | null>(null);
+  const [notes, setNotes] = useState(view.conferenceNotes ?? "");
+  const [checked, setChecked] = useState<Set<string>>(
+    () =>
+      new Set(
+        view.items
+          .filter((item) => item.quantity > 0 && item.conferenceChecked)
+          .map((item) => item.orderItemId),
+      ),
+  );
+  const [amounts, setAmounts] = useState<Record<string, { received: string; used: string }>>(
+    () =>
+      Object.fromEntries(
+        view.materials.map((line) => [
+          materialKey(line.description, line.unit),
+          { received: amountText(line.quantityReceived), used: amountText(line.quantityUsed) },
+        ]),
+      ),
+  );
 
   const included = view.items.filter((item) => item.quantity > 0);
+  const editable = canEdit && view.status === "ABERTO";
+  const pendingCount = included.filter((item) => !checked.has(item.orderItemId)).length;
   const weightTotal = included.reduce(
     (sum, item) => sum + (item.unitWeightKg === null ? 0 : item.unitWeightKg * item.quantity),
     0,
   );
   const hasAnyWeight = included.some((item) => item.unitWeightKg !== null);
-  const signAllowed = canSign && (view.status === "MONTADO" || view.status === "CONFERIDO");
 
   const handlePrint = () => {
     window.print();
   };
 
-  const handleSign = async () => {
+  const toggleItem = (orderItemId: string) => {
+    if (!editable) return;
+    setChecked((current) => {
+      const next = new Set(current);
+      if (next.has(orderItemId)) {
+        next.delete(orderItemId);
+      } else {
+        next.add(orderItemId);
+      }
+      return next;
+    });
+  };
+
+  const setAmount = (
+    key: string,
+    field: "received" | "used",
+    value: string,
+  ) => {
+    if (!editable) return;
+    setAmounts((current) => ({
+      ...current,
+      [key]: { ...current[key], [field]: value },
+    }));
+  };
+
+  const handleSave = async (sign: boolean) => {
     if (busy) return;
-    setBusy(true);
+    if (sign && pendingCount > 0) return;
+    setBusy(sign ? "sign" : "draft");
     try {
-      const result = await signRomaneioConferenceAction(view.id, notes.trim() || null);
+      const result = await saveRomaneioConferenceAction({
+        romaneioId: view.id,
+        notes: notes.trim() || null,
+        checkedItemIds: included
+          .filter((item) => checked.has(item.orderItemId))
+          .map((item) => item.orderItemId),
+        materials: view.materials.map((line) => {
+          const value = amounts[materialKey(line.description, line.unit)] ?? {
+            received: "",
+            used: "",
+          };
+          return {
+            description: line.description,
+            unit: line.unit,
+            quantityReceived: value.received.trim() === "" ? null : value.received,
+            quantityUsed: value.used.trim() === "" ? null : value.used,
+          };
+        }),
+        sign,
+      });
       if (!result.success) {
         toast.error(result.message);
         return;
       }
       toast.success(result.message);
-      setNotes("");
       router.refresh();
     } catch (error) {
       console.error("[RomaneioConferenceSheet]", error);
       toast.error(errorMessage(error));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -70,37 +147,63 @@ export function RomaneioConferenceSheet({ view, canSign }: RomaneioConferenceShe
       {/* Barra de ações — fora do papel */}
       <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
         <p className="text-sm text-muted-foreground">
-          Imprima a folha e confira a carga antes de sinalizar o aceite.
+          {editable
+            ? "Preencha a conferência na tela ou imprima a folha para conferir no papel e lançar depois."
+            : "Folha de conferência — imprima para o registro em papel."}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="outline" size="sm" onClick={handlePrint}>
             <Printer className="h-4 w-4" aria-hidden />
             Imprimir
           </Button>
-          {signAllowed ? (
-            <Button
-              type="button"
-              size="sm"
-              disabled={busy}
-              onClick={() => void handleSign()}
-              title={
-                view.status === "CONFERIDO"
-                  ? "Atualiza o registro do aceite (romaneio já conferido)"
-                  : "Registra o aceite e move o romaneio para Conferido"
-              }
-            >
-              {busy ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : (
-                <ClipboardCheck className="h-4 w-4" aria-hidden />
-              )}
-              Sinalizar aceite
-            </Button>
+          {editable ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy !== null}
+                onClick={() => void handleSave(false)}
+                title="Grava marcação, materiais e observação sem mudar a situação"
+              >
+                {busy === "draft" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Save className="h-4 w-4" aria-hidden />
+                )}
+                Salvar rascunho
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={busy !== null || pendingCount > 0}
+                onClick={() => void handleSave(true)}
+                title={
+                  pendingCount > 0
+                    ? `Faltam ${pendingCount} item(ns) marcados`
+                    : "Grava tudo e move o romaneio para Conferido"
+                }
+              >
+                {busy === "sign" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <ClipboardCheck className="h-4 w-4" aria-hidden />
+                )}
+                Marcar como conferida
+              </Button>
+            </>
           ) : null}
         </div>
       </div>
 
-      {signAllowed ? (
+      {editable && pendingCount > 0 ? (
+        <p className="text-xs text-muted-foreground print:hidden">
+          Faltam {pendingCount}{" "}
+          {pendingCount === 1 ? "item marcado" : "itens marcados"} para concluir a conferência.
+        </p>
+      ) : null}
+
+      {editable ? (
         <div className="space-y-1 rounded border bg-card p-3 print:hidden">
           <Label htmlFor="romaneio-conferencia-sheet-obs" className="text-xs text-muted-foreground">
             Observação do aceite (opcional)
@@ -179,10 +282,20 @@ export function RomaneioConferenceSheet({ view, canSign }: RomaneioConferenceShe
                 {included.map((item) => (
                   <tr key={item.orderItemId} className="border-b last:border-0 print:border-black/40">
                     <td className="py-1.5 pr-2">
-                      <span
-                        className="inline-block h-4 w-4 border print:border-black"
-                        aria-hidden
+                      <input
+                        type="checkbox"
+                        aria-label={`Marcar como conferido: ${item.description || item.orderItemId}`}
+                        checked={checked.has(item.orderItemId)}
+                        disabled={!editable}
+                        onChange={() => toggleItem(item.orderItemId)}
+                        className="h-4 w-4 print:hidden"
                       />
+                      <span
+                        aria-hidden
+                        className="hidden h-4 w-4 border text-center text-[11px] leading-[14px] print:block"
+                      >
+                        {checked.has(item.orderItemId) ? "✔" : ""}
+                      </span>
                     </td>
                     <td className="py-1.5 pr-2">{item.description || "—"}</td>
                     <td className="py-1.5 pr-2 text-muted-foreground">
@@ -213,41 +326,59 @@ export function RomaneioConferenceSheet({ view, canSign }: RomaneioConferenceShe
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-[11px] uppercase tracking-wide text-muted-foreground print:border-black">
-                    <th scope="col" className="w-8 py-1 pr-2 font-semibold">
-                      ✔
-                    </th>
                     <th scope="col" className="py-1 pr-2 font-semibold">Material</th>
                     <th scope="col" className="py-1 pr-2 font-semibold">Un.</th>
                     <th scope="col" className="py-1 pr-2 text-right font-semibold">Previsto</th>
-                    <th scope="col" className="py-1 text-right font-semibold">Conferido</th>
+                    <th scope="col" className="py-1 pr-2 text-right font-semibold">Recebida</th>
+                    <th scope="col" className="py-1 text-right font-semibold">Utilizada</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {view.materials.map((line) => (
-                    <tr
-                      key={`${line.description}-${line.unit}`}
-                      className="border-b last:border-0 print:border-black/40"
-                    >
-                      <td className="py-1.5 pr-2">
-                        <span
-                          className="inline-block h-4 w-4 border print:border-black"
-                          aria-hidden
-                        />
-                      </td>
-                      <td className="py-1.5 pr-2">{line.description}</td>
-                      <td className="py-1.5 pr-2">{line.unit}</td>
-                      <td className="py-1.5 pr-2 text-right tabular-nums">
-                        {formatQuantity(line.quantityPlanned)}
-                      </td>
-                      <td className="py-1.5 text-right">
-                        <span className="inline-block w-16 border-b print:border-black" aria-hidden />
-                      </td>
-                    </tr>
-                  ))}
+                  {view.materials.map((line) => {
+                    const key = materialKey(line.description, line.unit);
+                    const value = amounts[key] ?? { received: "", used: "" };
+                    return (
+                      <tr key={key} className="border-b last:border-0 print:border-black/40">
+                        <td className="py-1.5 pr-2">{line.description}</td>
+                        <td className="py-1.5 pr-2">{line.unit}</td>
+                        <td className="py-1.5 pr-2 text-right tabular-nums">
+                          {formatQuantity(line.quantityPlanned)}
+                        </td>
+                        <td className="py-1.5 pr-2">
+                          <div className="flex justify-end">
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              aria-label={`Quantidade recebida de ${line.description}`}
+                              value={value.received}
+                              readOnly={!editable}
+                              onChange={(event) => setAmount(key, "received", event.target.value)}
+                              className="h-8 w-24 text-right tabular-nums"
+                            />
+                          </div>
+                        </td>
+                        <td className="py-1.5">
+                          <div className="flex justify-end">
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              aria-label={`Quantidade utilizada de ${line.description}`}
+                              value={value.used}
+                              readOnly={!editable}
+                              onChange={(event) => setAmount(key, "used", event.target.value)}
+                              className="h-8 w-24 text-right tabular-nums"
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
+
+          <RomaneioItemsWeightTable items={view.items} />
         </section>
 
         {/* Observações + aceite */}

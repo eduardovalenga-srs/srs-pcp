@@ -24,7 +24,7 @@ async function insertRootItem(
   parentItem: string,
   description: string,
   quantity: number,
-  unitWeightKg: number,
+  unitWeightKg: number | null,
   deliveryDate: string,
 ): Promise<string> {
   const { rows } = await db.query<{ id: string }>(
@@ -37,18 +37,20 @@ async function insertRootItem(
 
 interface RomaneioSeed {
   orderId: string;
-  status: "MONTADO" | "CONFERIDO" | "CONFIRMADO" | "CANCELADO";
+  status: "ABERTO" | "CONFERIDO" | "CONFIRMADO" | "CANCELADO";
   shipmentDate: string | null;
   items: { orderItemId: string; quantity: number }[];
   pendingReturn: boolean;
+  nfNumber?: string | null;
+  returnNfNumber?: string | null;
 }
 
 /** Insere um romaneio (com itens/materiais) ligado a uma OF já criada. */
 async function insertRomaneio(seed: RomaneioSeed): Promise<{ id: string; number: number }> {
   const { rows } = await db.query<{ id: string; number: number }>(
-    `insert into public.romaneios (order_id, status, shipment_date)
-     values ($1, $2, $3::date) returning id, number`,
-    [seed.orderId, seed.status, seed.shipmentDate],
+    `insert into public.romaneios (order_id, status, shipment_date, nf_number, return_nf_number)
+     values ($1, $2, $3::date, $4, $5) returning id, number`,
+    [seed.orderId, seed.status, seed.shipmentDate, seed.nfNumber ?? null, seed.returnNfNumber ?? null],
   );
   const romaneio = rows[0]!;
   for (const item of seed.items) {
@@ -89,12 +91,12 @@ async function insertOrder(seed: OrderSeed): Promise<string> {
 
 describe("RPC get_romaneios_page (043) — listagem de romaneios ordenável", () => {
   beforeAll(async () => {
-    // OF-ROM-1 → Cliente Alfa (rA, MONTADO, qtd 4 / peso 50 / devolução pendente).
+    // OF-ROM-1 → Cliente Alfa (rA, ABERTO, qtd 4 / peso 50 / devolução pendente).
     const ofAlfa = await insertOrder({ code: "OF-ROM-1", customer: "Cliente Alfa", deliveryDate: "2026-11-10" });
     const itemAlfa = await insertRootItem(ofAlfa, "P-ROME-1", "Porta Alfa", 4, 12.5, "2026-11-10");
     const romA = await insertRomaneio({
       orderId: ofAlfa,
-      status: "MONTADO",
+      status: "ABERTO",
       shipmentDate: "2026-11-12",
       items: [{ orderItemId: itemAlfa, quantity: 4 }],
       pendingReturn: true,
@@ -191,6 +193,189 @@ describe("RPC get_romaneios_page (043) — listagem de romaneios ordenável", ()
 });
 
 // ---------------------------------------------------------------------------
+// 047) Filtros de coluna novos da get_romaneios_page + get_romaneio_summary.
+// ---------------------------------------------------------------------------
+
+describe("RPC 047 — filtros de coluna (Nº, peso, NF) e resumo", () => {
+  beforeAll(async () => {
+    await db.query(`delete from public.romaneio_materials`);
+    await db.query(`delete from public.romaneio_items`);
+    await db.query(`delete from public.romaneios`);
+    await db.query(`delete from public.order_items`);
+    await db.query(`delete from public.orders`);
+
+    // r10 → ABERTO, peso 50, NF saída 12345, sem NF de devolução.
+    const of10 = await insertOrder({ code: "OF-FILT-10", customer: "Cliente Alfa", deliveryDate: "2026-11-10" });
+    const item10 = await insertRootItem(of10, "P-FILT-10", "Porta 10", 4, 12.5, "2026-11-10");
+    await insertRomaneio({
+      orderId: of10,
+      status: "ABERTO",
+      shipmentDate: "2026-11-12",
+      items: [{ orderItemId: item10, quantity: 4 }],
+      pendingReturn: false,
+      nfNumber: "12345",
+    });
+
+    // r20 → CONFERIDO, peso 16, NF saída 9999 + NF devolução 5555.
+    const of20 = await insertOrder({ code: "OF-FILT-20", customer: "Cliente Beta", deliveryDate: "2026-11-01" });
+    const item20 = await insertRootItem(of20, "P-FILT-20", "Porta 20", 2, 8, "2026-11-01");
+    await insertRomaneio({
+      orderId: of20,
+      status: "CONFERIDO",
+      shipmentDate: "2026-11-05",
+      items: [{ orderItemId: item20, quantity: 2 }],
+      pendingReturn: false,
+      nfNumber: "9999",
+      returnNfNumber: "5555",
+    });
+
+    // r30 → CONFIRMADO, SEM peso unitário → weight_total NULL (some do
+    // filtro de peso; não conta como 0).
+    const of30 = await insertOrder({ code: "OF-FILT-30", customer: "Cliente Gama", deliveryDate: "2026-11-20" });
+    const item30 = await insertRootItem(of30, "P-FILT-30", "Porta 30", 1, null, "2026-11-20");
+    await insertRomaneio({
+      orderId: of30,
+      status: "CONFIRMADO",
+      shipmentDate: null,
+      items: [{ orderItemId: item30, quantity: 1 }],
+      pendingReturn: false,
+    });
+  });
+
+  it("filtra por faixa de nº (de/ate)", async () => {
+    // Os nºs vêm de sequence — leio os reais antes de montar a faixa.
+    const { rows: seeded } = await db.query<{ number: number; code: string }>(
+      `select r.number, o.code from public.romaneios r join public.orders o on o.id = r.order_id`,
+    );
+    const alfa = seeded.find((row) => row.code === "OF-FILT-10")!;
+    const beta = seeded.find((row) => row.code === "OF-FILT-20")!;
+    const gama = seeded.find((row) => row.code === "OF-FILT-30")!;
+    expect(alfa.number).toBeLessThan(beta.number);
+    expect(beta.number).toBeLessThan(gama.number);
+
+    // Faixa de um só nº (lados inclusivos).
+    const { rows } = await db.query<{ order_code: string }>(
+      `select order_code from public.get_romaneios_page(p_number_from => $1, p_number_to => $1)`,
+      [beta.number],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.order_code).toBe("OF-FILT-20");
+
+    // Só o limite inferior: os três passam.
+    const desde = await db.query<{ order_code: string }>(
+      `select order_code from public.get_romaneios_page(p_number_from => $1)`,
+      [alfa.number],
+    );
+    expect(desde.rows).toHaveLength(3);
+
+    // Acima do maior nº: lista vazia.
+    const acima = await db.query(
+      `select 1 from public.get_romaneios_page(p_number_from => $1)`,
+      [gama.number + 1000],
+    );
+    expect(acima.rows).toHaveLength(0);
+  });
+
+  it("filtra por faixa de peso e exclui o romaneio sem peso", async () => {
+    // Peso >= 20: só o de 50 kg (o de 16 fica fora e o NULL não conta como 0).
+    const { rows } = await db.query<{ order_code: string; weight_total: number | null }>(
+      `select order_code, weight_total from public.get_romaneios_page(p_weight_min => 20)`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.order_code).toBe("OF-FILT-10");
+    expect(Number(rows[0]?.weight_total)).toBe(50);
+
+    // Peso <= 20: só o de 16 kg — o NULL continua fora.
+    const ate = await db.query<{ order_code: string }>(
+      `select order_code from public.get_romaneios_page(p_weight_max => 20)`,
+    );
+    expect(ate.rows).toHaveLength(1);
+    expect(ate.rows[0]?.order_code).toBe("OF-FILT-20");
+  });
+
+  it("filtra por NF de saída e por NF de devolução (contém)", async () => {
+    const nfSaida = await db.query<{ order_code: string }>(
+      `select order_code from public.get_romaneios_page(p_nf_number => '123')`,
+    );
+    expect(nfSaida.rows).toHaveLength(1);
+    expect(nfSaida.rows[0]?.order_code).toBe("OF-FILT-10");
+
+    const nfDev = await db.query<{ order_code: string }>(
+      `select order_code from public.get_romaneios_page(p_return_nf => '55')`,
+    );
+    expect(nfDev.rows).toHaveLength(1);
+    expect(nfDev.rows[0]?.order_code).toBe("OF-FILT-20");
+  });
+
+  it("combina os filtros novos com os antigos e devolve o total certo", async () => {
+    const { rows } = await db.query<{ total_count: number; order_code: string }>(
+      `select total_count, order_code
+         from public.get_romaneios_page(p_status => 'ABERTO', p_nf_number => '12345')`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(Number(rows[0]?.total_count)).toBe(1);
+    expect(rows[0]?.order_code).toBe("OF-FILT-10");
+
+    // Nada combina → lista vazia, total_count 0.
+    const vazio = await db.query(
+      `select total_count from public.get_romaneios_page(p_number_from => 9999)`,
+    );
+    expect(vazio.rows).toHaveLength(0);
+  });
+
+  it("get_romaneio_summary devolve 1 linha com o mesmo filtro da lista", async () => {
+    const { rows } = await db.query<{
+      total_count: number;
+      open_count: number;
+      conferred_count: number;
+      confirmed_count: number;
+    }>(`select * from public.get_romaneio_summary()`);
+
+    expect(rows).toHaveLength(1);
+    expect(Number(rows[0]?.total_count)).toBe(3);
+    expect(Number(rows[0]?.open_count)).toBe(1);
+    expect(Number(rows[0]?.conferred_count)).toBe(1);
+    expect(Number(rows[0]?.confirmed_count)).toBe(1);
+  });
+
+  it("no resumo o total respeita a situação e o breakdown a ignora", async () => {
+    const { rows } = await db.query<{
+      total_count: number;
+      open_count: number;
+      confirmed_count: number;
+    }>(`select * from public.get_romaneio_summary(p_status => 'ABERTO')`);
+
+    expect(Number(rows[0]?.total_count)).toBe(1); // bate com a lista filtrada
+    expect(Number(rows[0]?.open_count)).toBe(1); // breakdown continua completo
+    expect(Number(rows[0]?.confirmed_count)).toBe(1);
+  });
+
+  it("no resumo os filtros de coluna valem igual (peso incluído)", async () => {
+    const { rows } = await db.query<{
+      total_count: number;
+      open_count: number;
+      conferred_count: number;
+      confirmed_count: number;
+    }>(`select * from public.get_romaneio_summary(p_weight_min => 20)`);
+
+    // Só o de 50 kg passa no filtro de peso — inclusive no resumo.
+    expect(Number(rows[0]?.total_count)).toBe(1);
+    expect(Number(rows[0]?.open_count)).toBe(1);
+    expect(Number(rows[0]?.conferred_count)).toBe(0);
+    expect(Number(rows[0]?.confirmed_count)).toBe(0);
+  });
+
+  it("authenticated executa as duas RPCs (grant da migração 047)", async () => {
+    const { rows } = await db.query<{ page: boolean; summary: boolean }>(
+      `select has_function_privilege('authenticated', 'public.get_romaneios_page(text, text, text, text, date, date, bigint, bigint, numeric, numeric, text, text, text, text, integer, integer)', 'EXECUTE') as page,
+              has_function_privilege('authenticated', 'public.get_romaneio_summary(text, text, text, text, date, date, bigint, bigint, numeric, numeric, text, text)', 'EXECUTE') as summary`,
+    );
+    expect(rows[0]?.page).toBe(true);
+    expect(rows[0]?.summary).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // get_romaneio_candidates (043) — seletor de OFs candidatas com agregados.
 // ---------------------------------------------------------------------------
 
@@ -206,7 +391,7 @@ describe("RPC get_romaneio_candidates (043) — seletor de OFs ordenável", () =
     const itemZeta = await insertRootItem(ofZeta, "P-ROME-3", "Porta Zeta", 5, 10, "2026-12-01");
     await insertRomaneio({
       orderId: ofZeta,
-      status: "MONTADO",
+      status: "ABERTO",
       shipmentDate: null,
       items: [{ orderItemId: itemZeta, quantity: 5 }],
       pendingReturn: false,
@@ -249,7 +434,7 @@ describe("RPC get_romaneio_candidates (043) — seletor de OFs ordenável", () =
     expect(rows[1]?.code).toBe("OF-CAND-3"); // entrega 12/01
     expect(Number(rows[1]?.root_quantity)).toBe(5);
     expect(Number(rows[1]?.shipped_quantity)).toBe(0);
-    // A OF com romaneio em montagem expõe o id do rascunho aberto.
+    // A OF com romaneio em aberto expõe o id do rascunho aberto.
     expect(rows[1]?.has_open).toBe(true);
     expect(rows[1]?.open_romaneio_id).toBeTruthy();
   });
@@ -319,7 +504,7 @@ describe("RPC get_romaneio_customers (044) — seletor em cascata", () => {
     await db.query(`delete from public.orders`);
 
     // Cliente Alfa: DUAS OFs disponíveis — a primeira (10/11) com
-    // romaneio em montagem, a segunda (01/11) sem rascunho.
+    // romaneio em aberto, a segunda (01/11) sem rascunho.
     const alfaA = await insertOrder({
       code: "OF-CUST-1",
       customer: "Cliente Alfa",
@@ -328,7 +513,7 @@ describe("RPC get_romaneio_customers (044) — seletor em cascata", () => {
     const alfaAItem = await insertRootItem(alfaA, "P-CUST-1", "Porta Alfa 1", 4, 10, "2026-11-10");
     const mountedAlfa = await insertRomaneio({
       orderId: alfaA,
-      status: "MONTADO",
+      status: "ABERTO",
       shipmentDate: null,
       items: [{ orderItemId: alfaAItem, quantity: 4 }],
       pendingReturn: false,
@@ -389,7 +574,7 @@ describe("RPC get_romaneio_customers (044) — seletor em cascata", () => {
     expect(alfaOfs[0]?.type).toBe("OF");
   });
 
-  it("marca a OF com romaneio em montagem (badge do seletor) e a sem rascunho", async () => {
+  it("marca a OF com romaneio em aberto (badge do seletor) e a sem rascunho", async () => {
     const { rows } = await db.query<CustomerRow>(
       `select customer_name, of_count, ofs from public.get_romaneio_customers()`,
     );
