@@ -6,9 +6,14 @@ import { Input } from "@/components/ui/input";
 import { ProcessStatusBadge } from "@/components/shared/StatusBadges";
 
 interface RomaneioItemsEditorProps {
+  /**
+   * Itens efetivos do detalhe — `quantity` JÁ vem interpretada do
+   * texto digitado (mesmo parser do salvamento: vazio/inválido = 0),
+   * então os pesos e alertas acompanham a digitação na hora.
+   */
   items: RomaneioOrderItem[];
   canEdit: boolean;
-  /** Quantidades digitadas: orderItemId -> texto do input ("", "10", "2,5"). */
+  /** Texto digitado: orderItemId -> valor do input ("", "10", "2,5"). */
   quantities: Record<string, string>;
   onQuantityChange: (orderItemId: string, value: string) => void;
 }
@@ -24,6 +29,16 @@ export function RomaneioItemsEditor({
   quantities,
   onQuantityChange,
 }: RomaneioItemsEditorProps) {
+  // Totalizador da coluna "Peso carga (kg)" — soma as MESMAS células
+  // acima (peso unitário × quantidade efetiva digitada); itens sem
+  // peso ficam de fora e, sem nenhum peso na carga, a linha nem
+  // aparece.
+  const hasAnyWeight = items.some((item) => item.unitWeightKg !== null);
+  const weightTotal = items.reduce((sum, item) => {
+    if (item.unitWeightKg === null) return sum;
+    return sum + item.unitWeightKg * item.quantity;
+  }, 0);
+
   return (
     <>
       {/* Desktop / tablet largo: tabela */}
@@ -48,7 +63,7 @@ export function RomaneioItemsEditor({
           <tbody>
             {items.map((item) => {
               const quantityText = quantities[item.orderItemId] ?? "";
-              const quantity = Number.parseFloat(quantityText.replace(",", ".")) || 0;
+              const quantity = item.quantity;
               const pending = Math.max(item.itemQuantity - item.shippedQuantity, 0);
               const overLimit = quantity + item.shippedQuantity > item.itemQuantity;
               return (
@@ -105,6 +120,18 @@ export function RomaneioItemsEditor({
               );
             })}
           </tbody>
+          {hasAnyWeight ? (
+            <tfoot>
+              <tr className="border-t bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
+                <td className="px-3 py-2 font-semibold" colSpan={8}>
+                  Peso total da carga
+                </td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums text-foreground">
+                  {formatWeight(weightTotal)} kg
+                </td>
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </div>
 

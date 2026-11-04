@@ -11,11 +11,14 @@ import {
   createRomaneio,
   deleteRomaneio,
   getRomaneioOrderItems,
+  getRomaneioView,
   saveRomaneio,
   saveRomaneioConference,
   saveRomaneioNfNumbers,
 } from "@/lib/services/romaneio.service";
 import type { RomaneioOrderItem } from "@/lib/types/romaneio";
+import type { RomaneioStatus } from "@/lib/constants/romaneio";
+import { checkRomaneioConfirmation } from "@/lib/utils/romaneio";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { isValidISODate } from "@/lib/utils/dates";
 import { firstZodMessage } from "@/lib/validators/common";
@@ -51,6 +54,63 @@ function revalidateRomaneio(romaneioId?: string) {
 }
 
 const romaneioIdSchema = z.string().trim().min(1, "Romaneio inválido.");
+
+/**
+ * Pré-requisitos de EMISSÃO (botão da listagem): os gates do
+ * `confirm_romaneio` sem o de NF — o diálogo de emissão é quem exige o
+ * campo preenchido, então a checagem da NF é do cliente.
+ */
+export interface RomaneioEmissionGate {
+  status: RomaneioStatus;
+  /** Motivos que impedem emitir (mensagens prontas), NF à parte. */
+  blockers: string[];
+  /** true quando não sobrou nenhum bloqueio além da NF. */
+  canConfirm: boolean;
+}
+
+export type RomaneioEmissionResult =
+  | { success: true; gate: RomaneioEmissionGate }
+  | { success: false; message: string };
+
+/**
+ * Calcula os pré-requisitos de emissão do romaneio para o diálogo da
+ * listagem — mesma fonte da tela de detalhe (`getRomaneioView` →
+ * `checkRomaneioConfirmation`), só que com a NF tratada pelo diálogo.
+ */
+export async function getRomaneioEmissionAction(
+  romaneioId: string,
+): Promise<RomaneioEmissionResult> {
+  try {
+    await requireCapability("romaneio.edit");
+    const parsedId = romaneioIdSchema.safeParse(romaneioId);
+    if (!parsedId.success) return { success: false, message: "Romaneio inválido." };
+
+    const client = await createClient();
+    const view = await getRomaneioView(client, parsedId.data, true);
+    if (!view) return { success: false, message: "Romaneio não encontrado." };
+
+    const gate = checkRomaneioConfirmation({
+      status: view.status,
+      orderStatus: view.orderStatus,
+      // O diálogo sempre envia a NF de saída preenchida.
+      hasNfNumber: true,
+      items: view.items.map((item) => ({
+        itemQuantity: item.itemQuantity,
+        shippedQuantity: item.shippedQuantity,
+        quantity: item.quantity,
+        expStatus: item.expStatus,
+      })),
+    });
+
+    return {
+      success: true,
+      gate: { status: view.status, blockers: gate.blockers, canConfirm: gate.canConfirm },
+    };
+  } catch (error) {
+    console.error("[getRomaneioEmissionAction]", error);
+    return { success: false, message: errorMessage(error) };
+  }
+}
 
 /** Entrada da criação em /romaneio/novo: OF + data + itens marcados. */
 const createRomaneioInputSchema = z.object({

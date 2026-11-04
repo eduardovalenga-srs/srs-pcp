@@ -123,7 +123,7 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
 
         {/* Mobile: barra de filtros (no desktop os filtros ficam nos cabeçalhos). */}
         <div className="lg:hidden">
-          <RomaneioFilters filters={filters} />
+          <RomaneioFilters filters={filters} processes={data.processes} />
         </div>
 
         {/* Chips de filtros ativos: removem um a um ou limpam tudo. */}
@@ -152,7 +152,12 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
           />
         ) : (
           <>
-            <RomaneioList romaneios={romaneios} filters={filters} />
+            <RomaneioList
+              romaneios={romaneios}
+              filters={filters}
+              processes={data.processes}
+              canEdit={canEdit}
+            />
             <RomaneioPagination filters={filters} total={total} />
           </>
         )}

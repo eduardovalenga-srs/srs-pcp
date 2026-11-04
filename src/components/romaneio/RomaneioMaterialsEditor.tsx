@@ -1,7 +1,7 @@
 "use client";
 
-import type { RomaneioOfMaterialTotals } from "@/lib/types/romaneio";
-import { formatQuantity } from "@/lib/utils/formatting";
+import type { RomaneioOfMaterialTotals, RomaneioOrderItem } from "@/lib/types/romaneio";
+import { formatQuantity, formatWeight, parseQuantity } from "@/lib/utils/formatting";
 import { MATERIAL_UNIT_LABELS, type MaterialUnit } from "@/lib/constants/materials";
 import { Input } from "@/components/ui/input";
 
@@ -17,38 +17,46 @@ export interface MaterialLineState {
 interface RomaneioMaterialsEditorProps {
   materials: MaterialLineState[];
   canEdit: boolean;
-  /** Σ da OF inteira entre romaneios não cancelados. */
+  /** Σ da OF inteira entre romaneios não cancelados (nota abaixo). */
   ofTotals: RomaneioOfMaterialTotals;
-  onFieldChange: (index: number, field: "received" | "used", value: string) => void;
-}
-
-function parseAmount(value: string): number | null {
-  const normalized = value.trim().replace(/\s/g, "").replace(",", ".");
-  if (normalized === "") return null;
-  if (!/^\d*\.?\d+$/.test(normalized)) return null;
-  const parsed = Number.parseFloat(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
+  /** Lançamento das quantidades — presente só onde a linha é editável. */
+  onFieldChange?: (index: number, field: "received" | "used", value: string) => void;
+  /**
+   * Itens da carga com PESO (coluna derivada da OF, 023) — só para o
+   * TOTALIZADOR de peso ao pé desta tabela (023 + simplificação do
+   * detalhe): a listagem por item saiu da tela. Chega efetivo (qtd já
+   * interpretada do texto digitado), então o total acompanha a
+   * digitação na hora.
+   */
+  weightItems: readonly RomaneioOrderItem[];
 }
 
 function unitLabel(unit: string): string {
   return MATERIAL_UNIT_LABELS[unit as MaterialUnit] ?? unit;
 }
 
+/** Quantidade de colunas da tabela de materiais. */
+const COLUMN_COUNT = 5;
+
 /**
  * Editor de devolução de matéria-prima: o PREVISTO vem alocado da OF
- * (recalculado no salvamento) e o usuário informa RECEBIDA do cliente e
- * UTILIZADA na produção — o saldo (recebida − utilizada) aparece na hora.
- * O Σ ao pé mostra a visão da OF inteira entre romaneios.
+ * (recalculado AO VIVO no detalhe a cada tecla nas quantidades dos
+ * itens) e o UTILIZADO informa a produção — o saldo aparece na hora.
+ * O pé da tabela fecha com o **TOTAL DA CARGA** (soma das linhas
+ * visíveis) e o totalizador de PESO; a visão da OF inteira fica só na
+ * nota abaixo. A coluna "Recebida do cliente" saiu daqui (só a ficha
+ * informa) e a listagem de peso por item também não aparece mais.
  */
 export function RomaneioMaterialsEditor({
   materials,
   canEdit,
   ofTotals,
   onFieldChange,
+  weightItems,
 }: RomaneioMaterialsEditorProps) {
   const renderSaldo = (line: MaterialLineState) => {
-    const received = parseAmount(line.received);
-    const used = parseAmount(line.used);
+    const received = parseQuantity(line.received);
+    const used = parseQuantity(line.used);
     if (received === null || used === null) return "—";
     const balance = received - used;
     return (
@@ -58,85 +66,126 @@ export function RomaneioMaterialsEditor({
     );
   };
 
+  // Totais DESTA carga: soma exata das linhas visíveis em cada coluna
+  // (o que o usuário vê). Linha sem informação não entra no total daquela
+  // coluna; se ninguém informou, a célula sai "—".
+  const hasAnyUsed = materials.some((line) => parseQuantity(line.used) !== null);
+  const hasAnyReturn = materials.some(
+    (line) => parseQuantity(line.received) !== null && parseQuantity(line.used) !== null,
+  );
+  const plannedTotal = materials.reduce((sum, line) => sum + line.quantityPlanned, 0);
+  const usedTotal = materials.reduce((sum, line) => sum + (parseQuantity(line.used) ?? 0), 0);
+  const returnTotal = materials.reduce((sum, line) => {
+    const received = parseQuantity(line.received);
+    const used = parseQuantity(line.used);
+    if (received === null || used === null) return sum;
+    return sum + (received - used);
+  }, 0);
+
+  // Totalizador de peso: só itens INCLUÍDOS nesta carga (qtd > 0) —
+  // mesma regra da antiga tabela por item.
+  const included = weightItems.filter((item) => item.quantity > 0);
+  const hasAnyWeight = included.some((item) => item.unitWeightKg !== null);
+  const weightTotal = included.reduce(
+    (sum, item) => sum + (item.unitWeightKg === null ? 0 : item.unitWeightKg * item.quantity),
+    0,
+  );
+
   return (
     <div className="space-y-3">
       {/* Desktop / tablet largo: tabela */}
       <div className="hidden overflow-x-auto rounded border bg-card lg:block">
         <table className="w-full caption-bottom text-sm">
           <caption className="sr-only">
-            Matérias-primas para devolução, com quantidades prevista, recebida, utilizada e saldo.
+            Matérias-primas para devolução, com quantidades prevista, utilizada e saldo — e os
+            totais desta carga (quantidades e peso) ao pé.
           </caption>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
               <th scope="col" className="px-3 py-2 font-semibold">Material</th>
               <th scope="col" className="px-3 py-2 font-semibold">Unidade</th>
               <th scope="col" className="px-3 py-2 text-right font-semibold">Previsto (carga)</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">Recebida do cliente</th>
               <th scope="col" className="px-3 py-2 text-right font-semibold">Utilizada na produção</th>
               <th scope="col" className="px-3 py-2 text-right font-semibold">Saldo a devolver</th>
             </tr>
           </thead>
           <tbody>
-            {materials.map((line, index) => (
-              <tr key={`${line.description}::${line.unit}`} className="border-b last:border-0 hover:bg-muted/30">
-                <td className="max-w-[280px] px-3 py-2">
-                  <span className="block truncate" title={line.description}>
-                    {line.description}
-                  </span>
+            {materials.length === 0 ? (
+              <tr>
+                <td colSpan={COLUMN_COUNT} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                  Nenhum material alocado para os itens desta carga — inclua itens com
+                  matéria-prima para ver a devolução.
                 </td>
-                <td className="px-3 py-2">{unitLabel(line.unit)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">
-                  {formatQuantity(line.quantityPlanned)}
-                </td>
-                <td className="px-3 py-2">
-                  <div className="flex justify-end">
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      aria-label={`Quantidade recebida de ${line.description}`}
-                      value={line.received}
-                      disabled={!canEdit}
-                      onChange={(event) => onFieldChange(index, "received", event.target.value)}
-                      className="h-8 w-28 text-right tabular-nums"
-                    />
-                  </div>
-                </td>
-                <td className="px-3 py-2">
-                  <div className="flex justify-end">
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      aria-label={`Quantidade utilizada de ${line.description}`}
-                      value={line.used}
-                      disabled={!canEdit}
-                      onChange={(event) => onFieldChange(index, "used", event.target.value)}
-                      className="h-8 w-28 text-right tabular-nums"
-                    />
-                  </div>
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{renderSaldo(line)}</td>
               </tr>
-            ))}
+            ) : (
+              materials.map((line, index) => (
+                <tr key={`${line.description}::${line.unit}`} className="border-b last:border-0 hover:bg-muted/30">
+                  <td className="max-w-[280px] px-3 py-2">
+                    <span className="block truncate" title={line.description}>
+                      {line.description}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">{unitLabel(line.unit)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {formatQuantity(line.quantityPlanned)}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex justify-end">
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        aria-label={`Quantidade utilizada de ${line.description}`}
+                        value={line.used}
+                        disabled={!canEdit}
+                        onChange={(event) => onFieldChange?.(index, "used", event.target.value)}
+                        className="h-8 w-28 text-right tabular-nums"
+                      />
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{renderSaldo(line)}</td>
+                </tr>
+              ))
+            )}
+
+            {/* Total DESTA carga — soma das linhas visíveis, coluna a
+                coluna (a OF inteira fica na nota abaixo da tabela). */}
+            {materials.length > 0 ? (
+              <tr className="border-t bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
+                <td className="px-3 py-2 font-semibold" colSpan={2}>
+                  Total da carga
+                </td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums text-foreground">
+                  {formatQuantity(plannedTotal)}
+                </td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums text-foreground">
+                  {hasAnyUsed ? formatQuantity(usedTotal) : "—"}
+                </td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums text-foreground">
+                  {hasAnyReturn ? formatQuantity(returnTotal) : "—"}
+                </td>
+              </tr>
+            ) : null}
+
+            {/* Totalizador de peso da carga — última linha da tabela. */}
+            {included.length > 0 ? (
+              <tr className="border-t bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
+                <td className="px-3 py-2 font-semibold" colSpan={4}>
+                  Peso total da carga
+                </td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums text-foreground">
+                  {hasAnyWeight ? `${formatWeight(weightTotal)} kg` : "—"}
+                </td>
+              </tr>
+            ) : null}
           </tbody>
-          <tfoot>
-            <tr className="border-t bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
-              <td className="px-3 py-2 font-semibold" colSpan={2}>
-                OF inteira (todos os romaneios)
-              </td>
-              <td className="px-3 py-2" />
-              <td className="px-3 py-2 text-right font-semibold tabular-nums text-foreground">
-                {formatQuantity(ofTotals.received)}
-              </td>
-              <td className="px-3 py-2 text-right font-semibold tabular-nums text-foreground">
-                {formatQuantity(ofTotals.used)}
-              </td>
-              <td className="px-3 py-2 text-right font-semibold tabular-nums text-foreground">
-                {formatQuantity(ofTotals.returned)}
-              </td>
-            </tr>
-          </tfoot>
         </table>
       </div>
+
+      {included.length > 0 && !hasAnyWeight ? (
+        <p className="hidden text-xs text-muted-foreground lg:block">
+          Itens sem peso unitário cadastrado.
+        </p>
+      ) : null}
 
       {/* Mobile: cards */}
       <ul className="space-y-2 lg:hidden">
@@ -151,41 +200,22 @@ export function RomaneioMaterialsEditor({
               Previsto nesta carga: {formatQuantity(line.quantityPlanned)}
             </p>
 
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label
-                  htmlFor={`material-recebida-${index}`}
-                  className="text-xs text-muted-foreground"
-                >
-                  Recebida do cliente
-                </label>
-                <Input
-                  id={`material-recebida-${index}`}
-                  type="text"
-                  inputMode="decimal"
-                  value={line.received}
-                  disabled={!canEdit}
-                  onChange={(event) => onFieldChange(index, "received", event.target.value)}
-                  className="h-8 text-right tabular-nums"
-                />
-              </div>
-              <div className="space-y-1">
-                <label
-                  htmlFor={`material-utilizada-${index}`}
-                  className="text-xs text-muted-foreground"
-                >
-                  Utilizada na produção
-                </label>
-                <Input
-                  id={`material-utilizada-${index}`}
-                  type="text"
-                  inputMode="decimal"
-                  value={line.used}
-                  disabled={!canEdit}
-                  onChange={(event) => onFieldChange(index, "used", event.target.value)}
-                  className="h-8 text-right tabular-nums"
-                />
-              </div>
+            <div className="mt-3">
+              <label
+                htmlFor={`material-utilizada-${index}`}
+                className="text-xs text-muted-foreground"
+              >
+                Utilizada na produção
+              </label>
+              <Input
+                id={`material-utilizada-${index}`}
+                type="text"
+                inputMode="decimal"
+                value={line.used}
+                disabled={!canEdit}
+                onChange={(event) => onFieldChange?.(index, "used", event.target.value)}
+                className="mt-1 h-8 text-right tabular-nums"
+              />
             </div>
 
             <p className="mt-2 text-right text-sm">
@@ -194,7 +224,45 @@ export function RomaneioMaterialsEditor({
             </p>
           </li>
         ))}
+        {materials.length === 0 ? (
+          <li className="rounded border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+            Nenhum material alocado para os itens desta carga.
+          </li>
+        ) : null}
       </ul>
+
+      {/* Totais da carga — bloco compacto no mobile. */}
+      {materials.length > 0 ? (
+        <div className="rounded border bg-card px-3 py-2 text-sm lg:hidden">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Total da carga
+          </p>
+          <dl className="mt-1 space-y-0.5">
+            <div className="flex justify-between gap-2">
+              <dt className="text-muted-foreground">Previsto (carga)</dt>
+              <dd className="tabular-nums">{formatQuantity(plannedTotal)}</dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-muted-foreground">Utilizada na produção</dt>
+              <dd className="tabular-nums">{hasAnyUsed ? formatQuantity(usedTotal) : "—"}</dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-muted-foreground">Saldo a devolver</dt>
+              <dd className="tabular-nums">{hasAnyReturn ? formatQuantity(returnTotal) : "—"}</dd>
+            </div>
+          </dl>
+        </div>
+      ) : null}
+
+      {/* Peso total — linha compacta no mobile. */}
+      {included.length > 0 ? (
+        <p className="flex items-center justify-between gap-2 rounded border bg-card px-3 py-2 text-sm lg:hidden">
+          <span className="font-medium">Peso total da carga</span>
+          <span className="tabular-nums">
+            {hasAnyWeight ? `${formatWeight(weightTotal)} kg` : "—"}
+          </span>
+        </p>
+      ) : null}
 
       <div className="rounded border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
         <p>
@@ -203,8 +271,8 @@ export function RomaneioMaterialsEditor({
           saldo a devolver {formatQuantity(ofTotals.returned)}
         </p>
         <p className="mt-1">
-          O previsto é a alocação proporcional desta carga — salve para recalculá-lo ao alterar as
-          quantidades dos itens. Linhas sem NF de devolução ficam marcadas na listagem.
+          O previsto é a alocação proporcional desta carga e recalcula automaticamente ao alterar
+          as quantidades dos itens. Linhas sem NF de devolução ficam marcadas na listagem.
         </p>
       </div>
     </div>

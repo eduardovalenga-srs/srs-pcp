@@ -15,6 +15,7 @@
 import type { OrderStatus } from "@/lib/constants/orders";
 import type { ProcessStatus } from "@/lib/constants/production";
 import type { RomaneioStatus } from "@/lib/constants/romaneio";
+import { parseQuantity } from "@/lib/utils/formatting";
 
 /** Material de um item da OF (order_item_materials). */
 export interface RomaneioMaterialSource {
@@ -226,6 +227,41 @@ export function storedMaterialLines(
       (left, right) =>
         left.description.localeCompare(right.description) || left.unit.localeCompare(right.unit),
     );
+}
+
+/** Insumos do preview dos materiais de UM romaneio (detalhe em ABERTO). */
+export interface RomaneioMaterialsPreviewInput {
+  status: RomaneioStatus;
+  /** Estrutura completa da OF — `view.allocationItems`. */
+  allocationItems: readonly RomaneioOrderItemSource[];
+  /** Linhas gravadas DESTA carga — `view.storedMaterials`. */
+  storedMaterials: readonly StoredMaterialLine[];
+  /** Quantidades digitadas na tabela de itens (orderItemId → texto). */
+  quantities: Readonly<Record<string, string>>;
+}
+
+/**
+ * Preview dos materiais de um romaneio no CLIENTE — espelho EXATO do
+ * que `getRomaneioView` calcula no servidor, só que com as
+ * quantidades digitadas locais (auto-reload do detalhe): em ABERTO
+ * aloca ao vivo e faz o merge com o gravado; fora de ABERTO o
+ * registro congela. Texto vazio/inválido = item fora da carga (0),
+ * com o MESMO parser do salvamento — o que se vê é o que será gravado.
+ */
+export function previewRomaneioMaterials(
+  input: RomaneioMaterialsPreviewInput,
+): RomaneioMaterialLineView[] {
+  if (input.status !== "ABERTO") return storedMaterialLines(input.storedMaterials);
+
+  const includedItems = Object.entries(input.quantities).map(([orderItemId, text]) => ({
+    orderItemId,
+    quantity: parseQuantity(text) ?? 0,
+  }));
+
+  return mergeRomaneioMaterialLines(
+    allocateRomaneioMaterials({ includedItems, orderItems: input.allocationItems }),
+    input.storedMaterials,
+  );
 }
 
 /** Σ dos materiais da OF inteira (todos os romaneios não cancelados). */

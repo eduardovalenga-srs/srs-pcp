@@ -365,10 +365,10 @@ describe("RPC 047 — filtros de coluna (Nº, peso, NF) e resumo", () => {
     expect(Number(rows[0]?.confirmed_count)).toBe(0);
   });
 
-  it("authenticated executa as duas RPCs (grant da migração 047)", async () => {
+  it("authenticated executa as duas RPCs (grant da migração 049)", async () => {
     const { rows } = await db.query<{ page: boolean; summary: boolean }>(
-      `select has_function_privilege('authenticated', 'public.get_romaneios_page(text, text, text, text, date, date, bigint, bigint, numeric, numeric, text, text, text, text, integer, integer)', 'EXECUTE') as page,
-              has_function_privilege('authenticated', 'public.get_romaneio_summary(text, text, text, text, date, date, bigint, bigint, numeric, numeric, text, text)', 'EXECUTE') as summary`,
+      `select has_function_privilege('authenticated', 'public.get_romaneios_page(text, text, text, text, date, date, bigint, bigint, numeric, numeric, text, text, text, text, integer, integer, text, text)', 'EXECUTE') as page,
+              has_function_privilege('authenticated', 'public.get_romaneio_summary(text, text, text, text, date, date, bigint, bigint, numeric, numeric, text, text, text, text)', 'EXECUTE') as summary`,
     );
     expect(rows[0]?.page).toBe(true);
     expect(rows[0]?.summary).toBe(true);
@@ -602,5 +602,168 @@ describe("RPC get_romaneio_customers (044) — seletor em cascata", () => {
       `select has_function_privilege('authenticated', 'public.get_romaneio_customers()', 'EXECUTE') as authenticated`,
     );
     expect(rows[0]?.authenticated).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 049) Colunas de processos da Fábrica 2 — agregação sobre os itens da
+//      carga, filtro por par processo+situação e ordenação por pior situação.
+// ---------------------------------------------------------------------------
+
+/** Marca um processo em um item (insere a linha de production_processes). */
+async function setProcess(orderItemId: string, code: string, status: string): Promise<void> {
+  await db.query(
+    `insert into public.production_processes (order_item_id, process_id, status)
+     values ($1, (select id from public.processes where code = $2), $3)
+     on conflict (order_item_id, process_id) do update set status = excluded.status`,
+    [orderItemId, code, status],
+  );
+}
+
+/** jsonb da RPC pode chegar como objeto ou texto — normaliza. */
+function parseProcesses(value: unknown): Record<string, string> {
+  if (typeof value === "string") return JSON.parse(value) as Record<string, string>;
+  return (value ?? {}) as Record<string, string>;
+}
+
+describe("RPC 049 — colunas de processos da Fábrica 2 na listagem", () => {
+  beforeAll(async () => {
+    await db.query(`delete from public.romaneio_materials`);
+    await db.query(`delete from public.romaneio_items`);
+    await db.query(`delete from public.romaneios`);
+    await db.query(`delete from public.order_items`);
+    await db.query(`delete from public.orders`);
+
+    // r1 → ABERTO: SOLDA concluída no RAIZ + KIT concluída no FILHO
+    // (039: o KIT da carga vem agregado dos filhos).
+    const of1 = await insertOrder({ code: "OF-PROC-1", customer: "Cliente Alfa", deliveryDate: "2026-11-10" });
+    const root1 = await insertRootItem(of1, "P-PROC-1", "Porta 1", 4, 10, "2026-11-10");
+    const child1 = await insertRootItem(of1, "P-PROC-1A", "Portão filho", 2, 3, "2026-11-10");
+    await db.query(`update public.order_items set parent_order_item_id = $1 where id = $2`, [root1, child1]);
+    await setProcess(root1, "SOLDA", "CONCLUIDO");
+    await setProcess(child1, "KIT", "CONCLUIDO");
+    const r1 = await insertRomaneio({
+      orderId: of1,
+      status: "ABERTO",
+      shipmentDate: null,
+      items: [{ orderItemId: root1, quantity: 4 }],
+      pendingReturn: false,
+    });
+
+    // r2 → CONFERIDO: SOLDA não iniciada no raiz + EXP não aplicável.
+    const of2 = await insertOrder({ code: "OF-PROC-2", customer: "Cliente Beta", deliveryDate: "2026-11-05" });
+    const root2 = await insertRootItem(of2, "P-PROC-2", "Porta 2", 2, 8, "2026-11-05");
+    await setProcess(root2, "SOLDA", "NAO_INICIADO");
+    await setProcess(root2, "EXP", "NAO_APLICAVEL");
+    const r2 = await insertRomaneio({
+      orderId: of2,
+      status: "CONFERIDO",
+      shipmentDate: null,
+      items: [{ orderItemId: root2, quantity: 2 }],
+      pendingReturn: false,
+    });
+
+    // r3 → CONFIRMADO: item SEM nenhum processo — agregado vazio.
+    const of3 = await insertOrder({ code: "OF-PROC-3", customer: "Cliente Gama", deliveryDate: "2026-11-20" });
+    const root3 = await insertRootItem(of3, "P-PROC-3", "Porta 3", 1, null, "2026-11-20");
+    const r3 = await insertRomaneio({
+      orderId: of3,
+      status: "CONFIRMADO",
+      shipmentDate: null,
+      items: [{ orderItemId: root3, quantity: 1 }],
+      pendingReturn: false,
+    });
+    expect(r1.id).toBeTruthy();
+    expect(r2.id).toBeTruthy();
+    expect(r3.id).toBeTruthy();
+  });
+
+  it("agrega a pior situação por processo SÓ sobre os itens da carga", async () => {
+    const { rows } = await db.query<{ order_code: string; processes: unknown }>(
+      `select order_code, processes from public.get_romaneios_page(p_sort => 'order_code', p_sort_dir => 'asc')`,
+    );
+    expect(rows).toHaveLength(3);
+
+    const byCode = new Map(rows.map((row) => [row.order_code, parseProcesses(row.processes)]));
+    // r1: SOLDA do raiz CONCLUIDO + KIT agregada dos FILHOS (039).
+    expect(byCode.get("OF-PROC-1")).toMatchObject({ SOLDA: "CONCLUIDO", KIT: "CONCLUIDO" });
+    // r2: pior situação do raiz; NAO_APLICAVEL vira valor (célula "—").
+    expect(byCode.get("OF-PROC-2")).toEqual({ SOLDA: "NAO_INICIADO", EXP: "NAO_APLICAVEL" });
+    // r3: nenhum processo nos itens → objeto vazio (tudo "—").
+    expect(byCode.get("OF-PROC-3")).toEqual({});
+  });
+
+  it("filtra pelo par processo+situação (um por vez)", async () => {
+    const concluida = await db.query<{ order_code: string }>(
+      `select order_code from public.get_romaneios_page(p_process_code => 'SOLDA', p_process_status => 'CONCLUIDO')`,
+    );
+    expect(concluida.rows.map((row) => row.order_code)).toEqual(["OF-PROC-1"]);
+
+    const naoAplicavel = await db.query<{ order_code: string }>(
+      `select order_code from public.get_romaneios_page(p_process_code => 'EXP', p_process_status => 'NAO_APLICAVEL')`,
+    );
+    expect(naoAplicavel.rows.map((row) => row.order_code)).toEqual(["OF-PROC-2"]);
+
+    // KIT vem dos filhos — filtra como as demais colunas.
+    const kit = await db.query<{ order_code: string }>(
+      `select order_code from public.get_romaneios_page(p_process_code => 'KIT', p_process_status => 'CONCLUIDO')`,
+    );
+    expect(kit.rows.map((row) => row.order_code)).toEqual(["OF-PROC-1"]);
+
+    // Processo sem nenhuma linha na carga não casa (chave ausente).
+    const semChave = await db.query(
+      `select order_code from public.get_romaneios_page(p_process_code => 'ACAB', p_process_status => 'CONCLUIDO')`,
+    );
+    expect(semChave.rows).toHaveLength(0);
+
+    // Par incompleto não filtra (mesma regra do backend da Fábrica 2).
+    const semSituacao = await db.query(
+      `select order_code from public.get_romaneios_page(p_process_code => 'SOLDA')`,
+    );
+    expect(semSituacao.rows).toHaveLength(3);
+  });
+
+  it("ordena pela pior situação do processo (asc = melhor primeiro)", async () => {
+    const asc = await db.query<{ order_code: string }>(
+      `select order_code from public.get_romaneios_page(p_sort => 'SOLDA', p_sort_dir => 'asc')`,
+    );
+    // CONCLUIDO (1) → NAO_INICIADO (2) → sem processo (null) no fim.
+    expect(asc.rows.map((row) => row.order_code)).toEqual([
+      "OF-PROC-1",
+      "OF-PROC-2",
+      "OF-PROC-3",
+    ]);
+
+    const desc = await db.query<{ order_code: string }>(
+      `select order_code from public.get_romaneios_page(p_sort => 'SOLDA', p_sort_dir => 'desc')`,
+    );
+    expect(desc.rows.map((row) => row.order_code)).toEqual([
+      "OF-PROC-2",
+      "OF-PROC-1",
+      "OF-PROC-3",
+    ]);
+  });
+
+  it("código de processo fora do catálogo não quebra a ordenação", async () => {
+    const { rows } = await db.query<{ order_code: string }>(
+      `select order_code from public.get_romaneios_page(p_sort => 'NAO_EXISTE', p_sort_dir => 'asc')`,
+    );
+    // Código inexistente em `processes` cai na ordenação default (nº).
+    expect(rows).toHaveLength(3);
+  });
+
+  it("no resumo o filtro de processo vale igual (total bate com a lista)", async () => {
+    const { rows } = await db.query<{
+      total_count: number;
+      open_count: number;
+      conferred_count: number;
+      confirmed_count: number;
+    }>(`select * from public.get_romaneio_summary(p_process_code => 'SOLDA', p_process_status => 'CONCLUIDO')`);
+
+    expect(rows).toHaveLength(1);
+    expect(Number(rows[0]?.total_count)).toBe(1); // mesma contagem da lista
+    expect(Number(rows[0]?.open_count)).toBe(1); // r1 é ABERTO
+    expect(Number(rows[0]?.conferred_count)).toBe(0);
+    expect(Number(rows[0]?.confirmed_count)).toBe(0);
   });
 });

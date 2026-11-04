@@ -5,6 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { X } from "lucide-react";
 
 import { ROMANEIO_STATUSES, ROMANEIO_STATUS_LABELS, type RomaneioStatus } from "@/lib/constants/romaneio";
+import {
+  PROCESS_STATUSES,
+  PROCESS_STATUS_LABELS,
+  PROCESS_STATUS_SYMBOLS,
+  type ProcessStatus,
+} from "@/lib/constants/production";
 import type { RomaneioFilters } from "@/lib/types/romaneio";
 import { romaneioFilterChips, romaneioQueryString } from "@/lib/utils/filters";
 import { truncate } from "@/lib/utils/formatting";
@@ -158,6 +164,45 @@ export function RomaneioStatusFilter({ filters }: { filters: RomaneioFilters }) 
         })),
       ]}
       onValueChange={(next) => apply({ status: next as RomaneioStatus | "ALL" })}
+    />
+  );
+}
+
+/**
+ * Filtro de UMA coluna de processo da Fábrica 2 (049): situação daquele
+ * processo específico. Só existe um filtro de processo por vez no
+ * backend — ativar aqui substitui o de outra coluna; "Todas" limpa o par.
+ */
+export function RomaneioProcessColumnFilter({
+  filters,
+  code,
+}: {
+  filters: RomaneioFilters;
+  code: string;
+}) {
+  const apply = useApplyRomaneioFilters(filters);
+  const active = filters.processCode === code && filters.processStatus !== "ALL";
+  const value = active && filters.processStatus ? filters.processStatus : "ALL";
+
+  return (
+    <FilterMenu
+      context={`situação do processo ${code}`}
+      value={value}
+      active={active}
+      options={[
+        { value: "ALL", label: "Todas as situações" },
+        ...PROCESS_STATUSES.map((status) => ({
+          value: status,
+          label: `${PROCESS_STATUS_SYMBOLS[status]} ${PROCESS_STATUS_LABELS[status]}`,
+        })),
+      ]}
+      onValueChange={(next) =>
+        apply(
+          next === "ALL"
+            ? { processCode: "ALL", processStatus: "ALL" }
+            : { processCode: code, processStatus: next as ProcessStatus },
+        )
+      }
     />
   );
 }

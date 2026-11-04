@@ -29,6 +29,7 @@ import {
   saveRomaneioRpc,
   updateRomaneioNfNumbers,
 } from "@/lib/repositories/romaneio.repository";
+import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { toNumber } from "@/lib/utils/formatting";
 import { EXPORT_PAGE_SIZE, collectAllPages } from "@/lib/utils/collect-pages";
 import {
@@ -41,17 +42,19 @@ import {
   type StoredMaterialLine,
 } from "@/lib/utils/romaneio";
 
-/** Lista paginada de romaneios + cartões de resumo por situação (047). */
+/** Lista paginada de romaneios + cartões de resumo por situação (047) + catálogo (049). */
 export async function getRomaneiosPage(
   client: SupabaseServer,
   filters: RomaneioFilters,
 ): Promise<RomaneiosPage> {
   // O resumo roda na MESMA RPC de filtros da lista: os cartões batem
   // com o total da paginação (inclusive no filtro de peso, que é
-  // agregado e o PostgREST não alcança).
-  const [page, summary] = await Promise.all([
+  // agregado e o PostgREST não alcança). O catálogo de processos é o
+  // mesmo das demais telas — base das colunas de processo da lista.
+  const [page, summary, processes] = await Promise.all([
     listRomaneios(client, filters),
     getRomaneioSummary(client, filters),
+    getActiveProcesses(client),
   ]);
 
   return {
@@ -60,6 +63,7 @@ export async function getRomaneiosPage(
     openCount: summary.open,
     conferredCount: summary.conferred,
     confirmedCount: summary.confirmed,
+    processes,
   };
 }
 
@@ -236,6 +240,10 @@ export async function getRomaneioView(
     createdAt: raw.created_at,
     items,
     materials,
+    // Insumos do preview ao vivo no detalhe (o cliente recalcula os
+    // materiais/pesos a cada tecla com a MESMA lógica deste serviço).
+    allocationItems: orderStructure,
+    storedMaterials,
     ofMaterialTotals: summarizeOfMaterialTotals(
       ofLines.map((line) => ({
         quantityReceived: toNumber(line.quantity_received),

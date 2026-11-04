@@ -1,17 +1,30 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, ClipboardCheck } from "lucide-react";
+import { ArrowRight, ClipboardCheck, FileText, Send } from "lucide-react";
 
 import type { RomaneioFilters, RomaneioSummary } from "@/lib/types/romaneio";
+import type { ProcessDefinition } from "@/lib/types/production";
+import { romaneioProcessColumns } from "@/lib/constants/processes";
+import {
+  PROCESS_STATUS_LABELS,
+  PROCESS_STATUS_SYMBOLS,
+  type ProcessStatus,
+} from "@/lib/constants/production";
 import { formatDate } from "@/lib/utils/dates";
 import { formatWeight } from "@/lib/utils/formatting";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RomaneioStatusBadge } from "@/components/romaneio/RomaneioStatusBadge";
 import {
+  RomaneioEmissionDialog,
+  type RomaneioNfDialogMode,
+} from "@/components/romaneio/RomaneioEmissionDialog";
+import {
   RomaneioColumnHeader,
   RomaneioNumberFilter,
+  RomaneioProcessColumnFilter,
   RomaneioShipmentFilter,
   RomaneioStatusFilter,
   RomaneioTextFilter,
@@ -22,6 +35,16 @@ interface RomaneioListProps {
   romaneios: RomaneioSummary[];
   /** Filtros vigentes (URL) — cada cabeçalho ordena e filtra a coluna. */
   filters: RomaneioFilters;
+  /**
+   * Catálogo ativo de processos (049) — vira UMA coluna por processo da
+   * Fábrica 2 (catálogo menos a cadeia F1), na ordem do catálogo.
+   */
+  processes: ProcessDefinition[];
+  /**
+   * O perfil edita romaneios (capacidade `romaneio.edit`) — gate das
+   * ações de emissão de NF (Conferência/Abrir continuam para leitura).
+   */
+  canEdit: boolean;
 }
 
 /** Marcador de saldo de devolução sem NF registrada. */
@@ -33,8 +56,96 @@ function ReturnPendingBadge() {
   );
 }
 
+/**
+ * Célula de processo (049): SÓ o símbolo da situação (colunas estreitas);
+ * chave ausente no agregado = nenhum item da carga tem aquele processo → "—".
+ */
+function ProcessSymbolCell({
+  process,
+  status,
+}: {
+  process: ProcessDefinition;
+  status: ProcessStatus | undefined;
+}) {
+  const title = `${process.name}: ${
+    status ? PROCESS_STATUS_LABELS[status] : "não aplicável a esta carga"
+  }`;
+  return (
+    <span role="img" aria-label={title} title={title}>
+      {status ? PROCESS_STATUS_SYMBOLS[status] : "—"}
+    </span>
+  );
+}
+
+/**
+ * Ações da linha (desktop e mobile): **Conferência → Emitir NF → Abrir**.
+ * A ordem espelha o fluxo — a conferência sempre precede a emissão; o
+ * botão de emissão só aparece em CONFERIDO (e editar NFs em CONFIRMADO),
+ * e só com a capacidade `romaneio.edit`.
+ */
+function RowActions({
+  romaneio,
+  canEdit,
+  onEmit,
+}: {
+  romaneio: RomaneioSummary;
+  canEdit: boolean;
+  onEmit: (romaneio: RomaneioSummary, mode: RomaneioNfDialogMode) => void;
+}) {
+  return (
+    <>
+      {romaneio.status !== "CANCELADO" ? (
+        <Button type="button" variant="ghost" size="sm" asChild>
+          <Link
+            href={`/romaneio/${romaneio.id}/conferencia`}
+            title="Folha de conferência da carga (imprimível)"
+          >
+            <ClipboardCheck className="h-4 w-4" aria-hidden />
+            Conferência
+          </Link>
+        </Button>
+      ) : null}
+      {canEdit && romaneio.status === "CONFERIDO" ? (
+        <Button
+          type="button"
+          variant="default"
+          size="sm"
+          onClick={() => onEmit(romaneio, "emit")}
+          title="Registrar as NFs e emitir o romaneio (baixa na pendência da OF)"
+        >
+          <Send className="h-4 w-4" aria-hidden />
+          Emitir NF
+        </Button>
+      ) : null}
+      {canEdit && romaneio.status === "CONFIRMADO" ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => onEmit(romaneio, "edit")}
+          title="Ajustar os números de NF de saída / devolução"
+        >
+          <FileText className="h-4 w-4" aria-hidden />
+          NFs
+        </Button>
+      ) : null}
+      <Button type="button" variant="outline" size="sm" asChild>
+        <Link href={`/romaneio/${romaneio.id}`}>
+          Abrir
+          <ArrowRight className="h-4 w-4" aria-hidden />
+        </Link>
+      </Button>
+    </>
+  );
+}
+
 /** Listagem de romaneios: tabela no desktop (lg+) e cards no mobile. */
-export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
+export function RomaneioList({ romaneios, filters, processes, canEdit }: RomaneioListProps) {
+  // Diálogo de emissão/edição de NF — montado só enquanto aberto.
+  const [nfDialog, setNfDialog] = useState<{
+    romaneio: RomaneioSummary;
+    mode: RomaneioNfDialogMode;
+  } | null>(null);
   // 043: servidor decide a ordem via URL (?ordem=&direcao=) — a lista
   // nunca ordena no client (a paginação é server-side). Todos os
   // cabeçalhos combinam ordenação + filtro no mesmo espaço (Romaneio
@@ -46,14 +157,18 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
         : "descending"
       : undefined;
 
+  // 049: colunas de processo = regra da tela Fábrica 2 (catálogo ativo
+  // menos a cadeia F1) menos MP e KIT, na ordem do catálogo.
+  const processColumns = romaneioProcessColumns(processes);
+
   return (
     <>
       {/* Desktop / tablet largo: tabela */}
       <div className="hidden overflow-x-auto rounded border bg-card lg:block">
         <table className="w-full caption-bottom text-sm">
           <caption className="sr-only">
-            Romaneios de expedição, com número, situação, OF/OS, cliente, data de saída, peso e
-            números de NF — cada coluna é ordenável e filtrável.
+            Romaneios de expedição, com número, situação, processos da Fábrica 2, OF/OS, cliente,
+            data de saída, peso e números de NF — cada coluna é ordenável e filtrável.
           </caption>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
@@ -74,6 +189,23 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
                   filter={<RomaneioStatusFilter filters={filters} />}
                 />
               </th>
+              {/* 049: uma coluna por processo da Fábrica 2 — símbolo + filtro + ordenação. */}
+              {processColumns.map((process) => (
+                <th
+                  key={process.code}
+                  scope="col"
+                  className="px-3 py-2 text-center font-semibold"
+                  aria-sort={ariaSort(process.code)}
+                >
+                  <RomaneioColumnHeader
+                    label={process.code}
+                    fullLabel={process.name}
+                    columnId={process.code}
+                    filters={filters}
+                    filter={<RomaneioProcessColumnFilter filters={filters} code={process.code} />}
+                  />
+                </th>
+              ))}
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("order_code")}>
                 <RomaneioColumnHeader
                   label="OF/OS"
@@ -173,6 +305,14 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
                     ) : null}
                   </span>
                 </td>
+                {processColumns.map((process) => (
+                  <td key={process.code} className="px-3 py-2 text-center">
+                    <ProcessSymbolCell
+                      process={process}
+                      status={romaneio.processes[process.code]}
+                    />
+                  </td>
+                ))}
                 <td className="px-3 py-2">
                   <span className="font-medium tabular-nums">{romaneio.orderCode}</span>
                 </td>
@@ -195,23 +335,11 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex items-center justify-end gap-1.5">
-                    {romaneio.status !== "CANCELADO" ? (
-                      <Button type="button" variant="ghost" size="sm" asChild>
-                        <Link
-                          href={`/romaneio/${romaneio.id}/conferencia`}
-                          title="Folha de conferência da carga (imprimível)"
-                        >
-                          <ClipboardCheck className="h-4 w-4" aria-hidden />
-                          Conferência
-                        </Link>
-                      </Button>
-                    ) : null}
-                    <Button type="button" variant="outline" size="sm" asChild>
-                      <Link href={`/romaneio/${romaneio.id}`}>
-                        Abrir
-                        <ArrowRight className="h-4 w-4" aria-hidden />
-                      </Link>
-                    </Button>
+                    <RowActions
+                      romaneio={romaneio}
+                      canEdit={canEdit}
+                      onEmit={(target, mode) => setNfDialog({ romaneio: target, mode })}
+                    />
                   </div>
                 </td>
               </tr>
@@ -257,25 +385,27 @@ export function RomaneioList({ romaneios, filters }: RomaneioListProps) {
                 NF saída: {romaneio.nfNumber || "—"} · NF dev.: {romaneio.returnNfNumber || "—"}
               </p>
               <span className="flex items-center gap-1.5">
-                {romaneio.status !== "CANCELADO" ? (
-                  <Button type="button" variant="ghost" size="sm" asChild>
-                    <Link href={`/romaneio/${romaneio.id}/conferencia`}>
-                      <ClipboardCheck className="h-4 w-4" aria-hidden />
-                      Conferência
-                    </Link>
-                  </Button>
-                ) : null}
-                <Button type="button" variant="outline" size="sm" asChild>
-                  <Link href={`/romaneio/${romaneio.id}`}>
-                    Abrir
-                    <ArrowRight className="h-4 w-4" aria-hidden />
-                  </Link>
-                </Button>
+                <RowActions
+                  romaneio={romaneio}
+                  canEdit={canEdit}
+                  onEmit={(target, mode) => setNfDialog({ romaneio: target, mode })}
+                />
               </span>
             </footer>
           </li>
         ))}
       </ul>
+
+      {/* Emissão/edição de NF — o caminho único da baixa e dos números. */}
+      {nfDialog ? (
+        <RomaneioEmissionDialog
+          romaneio={nfDialog.romaneio}
+          mode={nfDialog.mode}
+          onOpenChange={(open) => {
+            if (!open) setNfDialog(null);
+          }}
+        />
+      ) : null}
     </>
   );
 }

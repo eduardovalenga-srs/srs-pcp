@@ -8,12 +8,14 @@ import type {
   ProductionOrderRow,
   ProductionRow,
 } from "@/lib/types/production";
+import type { RomaneioSummary } from "@/lib/types/romaneio";
 import { collectAllPages, EXPORT_PAGE_SIZE } from "@/lib/export/common";
 import {
   fabrica1Sheet,
   fabrica2Sheet,
   gestaoEntregasSheet,
   pedidosSheet,
+  romaneiosListSheet,
 } from "@/lib/export/columns";
 
 /** Catálogo com a cadeia da Fábrica 1 + etapas da gestão (ordem real). */
@@ -28,6 +30,30 @@ const PROCESSES: ProcessDefinition[] = [
 
 /** Data de referência dos testes: segunda-feira (DP conta dias úteis). */
 const TODAY = "2026-10-19";
+
+/** Linha da lista de romaneios para a planilha (049). */
+function romaneioSummary(overrides: Partial<RomaneioSummary> = {}): RomaneioSummary {
+  return {
+    id: "rom-1",
+    number: 42,
+    orderId: "order-1",
+    orderCode: "OF 107482",
+    customerName: "ACME",
+    orderDeliveryDate: "2026-10-20",
+    status: "CONFIRMADO",
+    shipmentDate: "2026-10-25",
+    carrier: null,
+    weightTotal: 12.5,
+    nfNumber: "12345",
+    returnNfNumber: null,
+    pendingReturn: true,
+    conferenceAcceptedAt: "2026-10-25T10:00:00Z",
+    emittedAt: "2026-10-26T12:00:00Z",
+    createdAt: "2026-10-20T09:00:00Z",
+    processes: {},
+    ...overrides,
+  };
+}
 
 function processCell(overrides: Partial<ProcessCell> = {}): ProcessCell {
   return {
@@ -403,5 +429,43 @@ describe("collectAllPages", () => {
     // Sempre página cheia, mas o teto de páginas segura o loop.
     expect(calls).toBeLessThanOrEqual(100);
     expect(rows.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 049) Lista de romaneios — colunas de processos da Fábrica 2 na planilha.
+// ---------------------------------------------------------------------------
+
+describe("romaneiosListSheet — lista de romaneios (049)", () => {
+  it("espelha a tela: colunas de processo F2 (sem MP/KIT) com símbolo e Saída como data", () => {
+    const sheet = romaneiosListSheet(
+      [romaneioSummary({ processes: { SOLDA: "CONCLUIDO", EXP: "NAO_APLICAVEL" } })],
+      PROCESSES,
+    );
+
+    // MESMAS colunas da tela: cadeia F1 (LASER/SERRA) e MP/KIT ficam de fora.
+    expect(sheet.headers).toEqual([
+      "Nº",
+      "OF/OS",
+      "Cliente",
+      "Situação",
+      "SOLDA",
+      "EXP",
+      "Saída",
+      "Peso (kg)",
+      "NF saída",
+      "NF devolução",
+      "Saldo a devolver",
+    ]);
+    expect(sheet.headers).not.toContain("MP");
+    expect(sheet.headers).not.toContain("KIT");
+    // A coluna Saída desloca pelos 2 processos (4 + 2 = 6) e continua data.
+    expect(sheet.dateColumns).toEqual([6]);
+
+    const row = sheet.rows[0]!;
+    expect(row[4]).toBe("✓"); // SOLDA CONCLUIDO
+    expect(row[5]).toBe("—"); // EXP NAO_APLICAVEL
+    expect(row[6]).toBeInstanceOf(Date); // Saída
+    expect(row[10]).toBe("Sim"); // saldo a devolver (pendingReturn sem NF devol.)
   });
 });

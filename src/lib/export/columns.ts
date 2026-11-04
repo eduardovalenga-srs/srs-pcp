@@ -1,6 +1,10 @@
 import { ORDER_STATUS_LABELS } from "@/lib/constants/orders";
 import { ROMANEIO_STATUS_LABELS } from "@/lib/constants/romaneio";
-import { F1_PROCESS_CODES, FABRICA1_EDITABLE_PROCESS_CODES } from "@/lib/constants/processes";
+import {
+  F1_PROCESS_CODES,
+  FABRICA1_EDITABLE_PROCESS_CODES,
+  romaneioProcessColumns,
+} from "@/lib/constants/processes";
 import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
 import type { ChildItemGroup, OrderSummary } from "@/lib/types/order";
 import type { RomaneioSummary, RomaneioView } from "@/lib/types/romaneio";
@@ -233,17 +237,21 @@ export function pedidosSheet(
 
 /**
  * Romaneio — listagem (RomaneioList): Nº, OF/OS, Cliente, Situação,
- * Saída, Peso, NF saída, NF devolução e o marcador de saldo a devolver
+ * UMA coluna por processo da Fábrica 2 (049 — só o símbolo), Saída,
+ * Peso, NF saída, NF devolução e o marcador de saldo a devolver
  * (mesmas colunas da tela, mesma ordem do servidor).
  */
 export function romaneiosListSheet(
   romaneios: readonly RomaneioSummary[],
+  processes: readonly ProcessDefinition[],
 ): ExportSheet {
+  const processColumns = romaneioProcessColumns(processes);
   const headers = [
     "Nº",
     "OF/OS",
     "Cliente",
     "Situação",
+    ...processColumns.map((process) => process.code),
     "Saída",
     "Peso (kg)",
     "NF saída",
@@ -255,13 +263,15 @@ export function romaneiosListSheet(
     text(romaneio.orderCode),
     text(romaneio.customerName),
     ROMANEIO_STATUS_LABELS[romaneio.status],
+    ...processColumns.map((process) => inheritedProcessCell(romaneio.processes[process.code])),
     dateCell(romaneio.shipmentDate),
     number(romaneio.weightTotal),
     text(romaneio.nfNumber),
     text(romaneio.returnNfNumber),
     romaneio.pendingReturn && !romaneio.returnNfNumber ? "Sim" : "Não",
   ]);
-  return { headers, rows: body, dateColumns: [4] };
+  // A coluna Saída desloca pelo número de colunas de processo novas.
+  return { headers, rows: body, dateColumns: [4 + processColumns.length] };
 }
 
 /**

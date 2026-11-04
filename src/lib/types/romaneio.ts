@@ -1,6 +1,8 @@
 import type { OrderStatus, OrderType } from "@/lib/constants/orders";
 import type { RomaneioStatus } from "@/lib/constants/romaneio";
 import type { ProcessStatus } from "@/lib/constants/production";
+import type { ProcessDefinition } from "@/lib/types/production";
+import type { RomaneioOrderItemSource, StoredMaterialLine } from "@/lib/utils/romaneio";
 
 /** Resumo de um romaneio para a listagem. */
 export interface RomaneioSummary {
@@ -23,6 +25,12 @@ export interface RomaneioSummary {
   /** Quando o romaneio foi CONFIRMADO (coluna emitted_at). */
   emittedAt: string | null;
   createdAt: string;
+  /**
+   * 049: pior situação de CADA processo entre os ITENS DESTA carga
+   * (colunas da Fábrica 2). Chave ausente = o processo não tem linha
+   * aplicável neste romaneio — a célula sai "—".
+   */
+  processes: Record<string, ProcessStatus>;
 }
 
 /** Filtros da listagem de romaneios (vivem na URL). */
@@ -48,6 +56,13 @@ export interface RomaneioFilters {
   nfNumber: string;
   /** Coluna NF devolução por "contém". */
   returnNfNumber: string;
+  /**
+   * 049: coluna de processo da Fábrica 2 filtrada — par ÚNICO com
+   * processStatus (ALL = sem filtro; o backend só filtra o par montado).
+   */
+  processCode: string;
+  /** 049: situação filtrada naquele processo (ALL = sem filtro). */
+  processStatus: ProcessStatus | "ALL";
   /** 043: chave de ordenação (whitelist fechada da RPC de listagem). */
   sort: string;
   sortDir: "asc" | "desc";
@@ -64,6 +79,8 @@ export interface RomaneiosPage {
   conferredCount: number;
   /** Contagem de CONFIRMADOS com os mesmos filtros (cartão de resumo). */
   confirmedCount: number;
+  /** 049: catálogo ativo — base das colunas de processo da lista. */
+  processes: ProcessDefinition[];
 }
 
 /**
@@ -143,6 +160,18 @@ export interface RomaneioView {
   items: RomaneioOrderItem[];
   /** Linhas de material (editáveis só em ABERTO). */
   materials: RomaneioMaterialLine[];
+  /**
+   * Estrutura COMPLETA da OF (raiz + filhos com materiais) — insumo da
+   * alocação proporcional, levado ao cliente para o preview ao vivo do
+   * detalhe: o "previsto" dos materiais recalcula a cada tecla digitada
+   * nas quantidades dos itens, com a MESMA função do servidor.
+   */
+  allocationItems: readonly RomaneioOrderItemSource[];
+  /**
+   * Linhas gravadas DESTE romaneio (sem o merge) — base do mesmo
+   * preview local: o cliente refaz merge/alocação igualzinho ao serviço.
+   */
+  storedMaterials: readonly StoredMaterialLine[];
   /** Σ da OF inteira entre romaneios não cancelados. */
   ofMaterialTotals: RomaneioOfMaterialTotals;
   /** Gates de confirmação vigentes. */

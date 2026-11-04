@@ -133,6 +133,44 @@ export function isProcessCode(value: string): value is ProcessCode {
   return (PROCESS_CODES as readonly string[]).includes(value);
 }
 
+/**
+ * Colunas de processo da tela Fábrica 2 — base também da listagem de
+ * romaneios (049): catálogo ATIVO menos a cadeia da Fábrica 1. Sai
+ * PRÉ-MTG, SOLDA, ACAB, QUALITY, EXP… na ordem do catálogo,
+ * dinâmica (processos novos entram sozinhos).
+ */
+export function fabrica2ProcessColumns<T extends { code: string; active: boolean }>(
+  processes: readonly T[],
+): T[] {
+  return processes.filter(
+    (process) => process.active && !(F1_PROCESS_CODES as readonly string[]).includes(process.code),
+  );
+}
+
+/**
+ * 049 + ajuste: códigos que NÃO abrem coluna na listagem de romaneios —
+ * **MP** e **KIT** ficam de fora (não são etapas da carga de expedição).
+ * Valem para as colunas, para o seletor do mobile e para a URL
+ * (`processo`/`procsituacao` e `ordem=`): link antigo cai no default.
+ */
+export const ROMANEIO_EXCLUDED_PROCESS_CODES: readonly string[] = [
+  MP_PROCESS_CODE,
+  KIT_PROCESS_CODE,
+];
+
+/**
+ * Colunas de processo da listagem de romaneios (049): a regra da
+ * Fábrica 2 (`fabrica2ProcessColumns`) menos `ROMANEIO_EXCLUDED_PROCESS_CODES`
+ * — na ordem do catálogo, dinâmica (processos novos entram sozinhos).
+ */
+export function romaneioProcessColumns<T extends { code: string; active: boolean }>(
+  processes: readonly T[],
+): T[] {
+  return fabrica2ProcessColumns(processes).filter(
+    (process) => !ROMANEIO_EXCLUDED_PROCESS_CODES.includes(process.code),
+  );
+}
+
 /** Normaliza um código/rotulo de processo para comparção ("DB CH" -> "DBCH"). */
 export function normalizeProcessKey(value: string): string {
   return value

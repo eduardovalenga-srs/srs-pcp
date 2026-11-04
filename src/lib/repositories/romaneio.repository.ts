@@ -1,7 +1,7 @@
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type { Json, RomaneioCustomerRow } from "@/lib/types/database";
 import type { OrderStatus, OrderType } from "@/lib/constants/orders";
-import type { ProcessStatus } from "@/lib/constants/production";
+import { isProcessStatus, type ProcessStatus } from "@/lib/constants/production";
 import type { RomaneioStatus } from "@/lib/constants/romaneio";
 import type {
   RomaneioCandidate,
@@ -100,6 +100,8 @@ interface RawRomaneiosPageRow {
   conference_accepted_at: string | null;
   emitted_at: string | null;
   created_at: string;
+  /** 049: pior situação por processo sobre os itens da carga (jsonb). */
+  processes: Record<string, string> | string | null;
 }
 
 /**
@@ -158,6 +160,10 @@ function romaneioFilterArgs(filters: RomaneioFilters) {
     p_weight_max: filters.weightTo,
     p_nf_number: filters.nfNumber.trim() || null,
     p_return_nf: filters.returnNfNumber.trim() || null,
+    // 049: par ÚNICO processo+situação — só filtra quando os dois estão
+    // ligados (par incompleto não existe fora da URL inválida).
+    p_process_code: filters.processCode !== "ALL" ? filters.processCode : null,
+    p_process_status: filters.processStatus !== "ALL" ? filters.processStatus : null,
   };
 }
 
@@ -225,6 +231,28 @@ export async function getRomaneioSummary(
   };
 }
 
+/**
+ * jsonb `processes` da RPC (049) → mapa só com situações conhecidas
+ * (defesa contra status legado fora da whitelist — nunca quebra a lista).
+ */
+function parseProcessMap(raw: Record<string, string> | string | null): Record<string, ProcessStatus> {
+  let parsed: unknown = raw;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      parsed = null;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return {};
+
+  const map: Record<string, ProcessStatus> = {};
+  for (const [code, status] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof status === "string" && isProcessStatus(status)) map[code] = status;
+  }
+  return map;
+}
+
 /** Converte a linha da RPC `get_romaneios_page` no resumo da tela/export. */
 function mapRomaneioSummary(row: RawRomaneiosPageRow): RomaneioSummary {
   return {
@@ -244,6 +272,7 @@ function mapRomaneioSummary(row: RawRomaneiosPageRow): RomaneioSummary {
     conferenceAcceptedAt: row.conference_accepted_at,
     emittedAt: row.emitted_at,
     createdAt: row.created_at,
+    processes: parseProcessMap(row.processes),
   };
 }
 

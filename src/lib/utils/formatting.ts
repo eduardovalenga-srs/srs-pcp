@@ -45,6 +45,20 @@ export function toNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Converte TEXTO DIGITADO em quantidade ("2,5" → 2.5); null quando
+ * vazio/inválido. Parser estrito (sem separador de milhar, sem
+ * negativo) — é o MESMO que o salvamento do romaneio grava, então o
+ * que o usuário vê no preview digitado bate com o que vai ao banco.
+ */
+export function parseQuantity(value: string): number | null {
+  const normalized = value.trim().replace(/\s/g, "").replace(",", ".");
+  if (normalized === "") return null;
+  if (!/^\d*\.?\d+$/.test(normalized)) return null;
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 /** Peso total (kg) de um item: quantidade × peso unitário. */
 export function calculateTotalWeight(
   quantity: number | string | null | undefined,
