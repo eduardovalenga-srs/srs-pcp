@@ -5,7 +5,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 
-import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS } from "@/lib/constants/production";
+import {
+  PROCESS_OVERDUE_OPTION,
+  processStatusFilterOptions,
+} from "@/lib/constants/production";
 import { DELIVERY_FILTERS, DELIVERY_LABELS } from "@/lib/constants/pagination";
 import type { ProductionFilters } from "@/lib/types/production";
 import { productionQueryString } from "@/lib/utils/filters";
@@ -160,28 +163,36 @@ export function Fabrica2DeliveryFilter({ filters }: { filters: ProductionFilters
 /**
  * Filtro do grupo "PROCESSOS": situação em *qualquer* processo
  * (processCode fica em ALL — o banco procura a situação em todas as etapas).
+ *
+ * 051: a lista ganha a opção "Atrasados" — início previsto de qualquer
+ * processo já vencido (mesma regra da cor vermelha da célula). Um valor por
+ * filtro: escolher "Atrasados" zera a situação e vice-versa.
  */
 export function Fabrica2ProcessGroupFilter({ filters }: { filters: ProductionFilters }) {
   const apply = useApplyFilters(filters);
-  const active = filters.processCode === "ALL" && filters.processStatus !== "ALL";
-  const value = filters.processCode === "ALL" ? filters.processStatus : "ALL";
+  const active =
+    filters.processCode === "ALL" && (filters.processOverdue || filters.processStatus !== "ALL");
+  const value =
+    filters.processCode !== "ALL"
+      ? "ALL"
+      : filters.processOverdue
+        ? PROCESS_OVERDUE_OPTION
+        : filters.processStatus;
 
   return (
     <FilterMenu
       context="situação em qualquer processo"
       value={value}
       active={active}
-      options={[
-        { value: "ALL", label: "Todas as situações" },
-        ...PROCESS_STATUSES.map((status) => ({
-          value: status,
-          label: `${PROCESS_STATUS_SYMBOLS[status]} ${PROCESS_STATUS_LABELS[status]}`,
-        })),
-      ]}
+      options={processStatusFilterOptions()}
       onValueChange={(next) =>
         apply({
           processCode: "ALL",
-          processStatus: next === "ALL" ? "ALL" : (next as ProductionFilters["processStatus"]),
+          processOverdue: next === PROCESS_OVERDUE_OPTION,
+          processStatus:
+            next === "ALL" || next === PROCESS_OVERDUE_OPTION
+              ? "ALL"
+              : (next as ProductionFilters["processStatus"]),
         })
       }
     />
@@ -271,29 +282,39 @@ export function Fabrica2NumericColumnFilter({
  * Filtro de UMA coluna de processo: situação daquele processo específico
  * (038). Só existe um filtro de processo por vez no backend — ativar aqui
  * substitui o de outra coluna/de grupo; "Todas" limpa o par.
+ *
+ * 051: a lista ganha a opção "Atrasados" — início previsto DAQUELE processo
+ * já vencido e ainda não concluído (a mesma data que a célula pinta de
+ * vermelho). Um valor por filtro: "Atrasados" zera a situação e vice-versa.
  */
 export function Fabrica2ProcessColumnFilter({ filters, code }: { filters: ProductionFilters; code: string }) {
   const apply = useApplyFilters(filters);
-  const active = filters.processCode === code && filters.processStatus !== "ALL";
-  const value = active && filters.processStatus ? filters.processStatus : "ALL";
+  const active =
+    filters.processCode === code && (filters.processOverdue || filters.processStatus !== "ALL");
+  const value =
+    filters.processCode !== code
+      ? "ALL"
+      : filters.processOverdue
+        ? PROCESS_OVERDUE_OPTION
+        : filters.processStatus;
 
   return (
     <FilterMenu
       context={`situação do processo ${code}`}
       value={value}
       active={active}
-      options={[
-        { value: "ALL", label: "Todas as situações" },
-        ...PROCESS_STATUSES.map((status) => ({
-          value: status,
-          label: `${PROCESS_STATUS_SYMBOLS[status]} ${PROCESS_STATUS_LABELS[status]}`,
-        })),
-      ]}
+      options={processStatusFilterOptions()}
       onValueChange={(next) =>
         apply(
           next === "ALL"
-            ? { processCode: "ALL", processStatus: "ALL" }
-            : { processCode: code, processStatus: next as ProductionFilters["processStatus"] },
+            ? { processCode: "ALL", processStatus: "ALL", processOverdue: false }
+            : next === PROCESS_OVERDUE_OPTION
+              ? { processCode: code, processStatus: "ALL", processOverdue: true }
+              : {
+                  processCode: code,
+                  processStatus: next as ProductionFilters["processStatus"],
+                  processOverdue: false,
+                },
         )
       }
     />

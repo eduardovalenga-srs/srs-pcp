@@ -78,12 +78,14 @@ export function Fabrica2Summary({
     },
     {
       // 041: itens com EXPEDIÇÃO concluída do conjunto filtrado.
+      // 051: escolher um filtro de processo limpa a opção "Atrasados"
+      // (mesma regra dos menus: um valor por filtro de processo).
       key: "expedition",
       label: "Expedição",
       value: formatQuantity(expedition.records),
       icon: <Truck className="h-4 w-4" aria-hidden />,
       tone: "success",
-      filter: { processCode: "EXP", processStatus: "CONCLUIDO" },
+      filter: { processCode: "EXP", processStatus: "CONCLUIDO", processOverdue: false },
       active: filters.processCode === "EXP" && filters.processStatus === "CONCLUIDO",
       details: [
         { label: "Registros", value: formatQuantity(expedition.records) },

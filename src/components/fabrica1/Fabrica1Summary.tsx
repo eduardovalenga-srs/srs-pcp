@@ -100,7 +100,9 @@ export function Fabrica1Summary({
       label: "KIT",
       icon: <Truck className="h-4 w-4" aria-hidden />,
       tone: "success",
-      filter: { processCode: "EXP", processStatus: "CONCLUIDO" },
+      // 052: escolher um filtro de processo limpa a opção "Atrasados"
+      // (mesma regra dos menus: um valor por filtro de processo).
+      filter: { processCode: "EXP", processStatus: "CONCLUIDO", processOverdue: false },
       active: filters.processCode === "EXP" && filters.processStatus === "CONCLUIDO",
       details: [
         { label: "Registros", value: formatQuantity(expedition?.count) },

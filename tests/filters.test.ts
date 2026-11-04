@@ -32,6 +32,7 @@ describe("parseProductionFilters", () => {
       orderStatus: "ALL",
       processCode: "ALL",
       processStatus: "ALL",
+      processOverdue: false,
       delivery: "ALL",
       deliveryFrom: null,
       deliveryTo: null,
@@ -100,6 +101,26 @@ describe("parseProductionFilters", () => {
   it("lê o primeiro valor quando o parâmetro se repete", () => {
     const filters = parseProductionFilters({ q: ["aberto", "fechado"] });
     expect(filters.search).toBe("aberto");
+  });
+
+  it("lê a opção \"Atrasados\" dos filtros de processo (051)", () => {
+    const porColuna = parseProductionFilters({ processo: "SOLDA", procsatrasado: "1" });
+    expect(porColuna.processOverdue).toBe(true);
+    expect(porColuna.processCode).toBe("SOLDA");
+    // Um valor por filtro: a flag substitui a situação escolhida.
+    expect(porColuna.processStatus).toBe("ALL");
+
+    const porGrupo = parseProductionFilters({ procsatrasado: "1" });
+    expect(porGrupo.processOverdue).toBe(true);
+    expect(porGrupo.processCode).toBe("ALL");
+
+    // Valor diferente de "1" e status vencido junto não ligam a flag sozinhos.
+    expect(parseProductionFilters({ procsatrasado: "sim" }).processOverdue).toBe(false);
+    expect(parseProductionFilters({ processo: "SOLDA", situacao: "CONCLUIDO", procsatrasado: "1" })).toMatchObject({
+      processOverdue: true,
+      processStatus: "ALL",
+      processCode: "SOLDA",
+    });
   });
 
   it("preserva parâmetros alheios ao montar a query (úteis para debug/links)", () => {
@@ -203,6 +224,25 @@ describe("parseProductionFilters", () => {
     // Padrão continua omitido (URL limpa).
     expect(productionQueryString(parseProductionFilters({}))).toBe("");
   });
+
+  it("serializa a opção 'Atrasados' do filtro de processo e faz roundtrip (051)", () => {
+    const filters = parseProductionFilters({ processo: "SOLDA", procsatrasado: "1" });
+    const params = new URLSearchParams(productionQueryString(filters));
+    expect(params.get("processo")).toBe("SOLDA");
+    expect(params.get("procsatrasado")).toBe("1");
+    // Um valor por filtro: a situação nunca sai junto da flag.
+    expect(params.has("situacao")).toBe(false);
+
+    const roundtrip = parseProductionFilters(Object.fromEntries(params));
+    expect(roundtrip).toMatchObject({
+      processCode: "SOLDA",
+      processOverdue: true,
+      processStatus: "ALL",
+    });
+
+    // Desligada, a chave some da URL (endereço volta a ficar limpo).
+    expect(productionQueryString({ ...filters, processOverdue: false })).not.toContain("procsatrasado");
+  });
 });
 
 describe("parseOrderFilters", () => {
@@ -272,6 +312,7 @@ describe("parseChildItemFilters", () => {
       deliveryTo: null,
       processCode: "ALL",
       processStatus: "ALL",
+      processOverdue: false,
       overdue: false,
       seq: null,
       qtyMin: null,
@@ -339,6 +380,31 @@ describe("parseChildItemFilters", () => {
     expect(parseChildItemFilters(Object.fromEntries(params)).overdue).toBe(true);
     // Padrão omitido: o link dos outros cards não carrega `atrasados`.
     expect(childItemQueryString(parseChildItemFilters({}))).not.toContain("atrasados");
+  });
+
+  it("lê a opção \"Atrasados\" dos filtros de processo (052)", () => {
+    const porColuna = parseChildItemFilters({ processo: "LASER", procsatrasado: "1" });
+    expect(porColuna.processOverdue).toBe(true);
+    expect(porColuna.processCode).toBe("LASER");
+    // Um valor por filtro: a flag substitui a situação escolhida.
+    expect(porColuna.processStatus).toBe("ALL");
+
+    const porGrupo = parseChildItemFilters({ procsatrasado: "1" });
+    expect(porGrupo.processOverdue).toBe(true);
+    expect(porGrupo.processCode).toBe("ALL");
+
+    // Valor diferente de "1" e status vencido junto não ligam a flag sozinhos.
+    expect(parseChildItemFilters({ procsatrasado: "sim" }).processOverdue).toBe(false);
+    expect(
+      parseChildItemFilters({ processo: "LASER", situacao: "CONCLUIDO", procsatrasado: "1" }),
+    ).toMatchObject({
+      processOverdue: true,
+      processStatus: "ALL",
+      processCode: "LASER",
+    });
+
+    // A chave é DIFERENTE do recorte do card (atrasados=1 = KIT vencido).
+    expect(parseChildItemFilters({ atrasados: "1" }).processOverdue).toBe(false);
   });
 
   it("descarta página inválida e limita o tamanho da página", () => {
@@ -436,6 +502,27 @@ describe("parseChildItemFilters", () => {
     expect(params.get("material")).toBe("chapa");
     expect(params.has("pagina")).toBe(false);
   });
+
+  it("serializa a opção 'Atrasados' do filtro de processo e faz roundtrip (052)", () => {
+    const filters = parseChildItemFilters({ processo: "LASER", procsatrasado: "1" });
+    const params = new URLSearchParams(childItemQueryString(filters));
+    expect(params.get("processo")).toBe("LASER");
+    expect(params.get("procsatrasado")).toBe("1");
+    // Um valor por filtro: a situação nunca sai junto da flag.
+    expect(params.has("situacao")).toBe(false);
+
+    const roundtrip = parseChildItemFilters(Object.fromEntries(params));
+    expect(roundtrip).toMatchObject({
+      processCode: "LASER",
+      processOverdue: true,
+      processStatus: "ALL",
+    });
+
+    // Desligada, a chave some da URL (endereço volta a ficar limpo).
+    expect(childItemQueryString({ ...filters, processOverdue: false })).not.toContain(
+      "procsatrasado",
+    );
+  });
 });
 
 describe("childItemFilterChips", () => {
@@ -477,6 +564,35 @@ describe("childItemFilterChips", () => {
     expect(semAtrasados.overdue).toBe(false);
     // Remover o recorte não derruba os demais filtros.
     expect(semAtrasados.customer).toBe("ACME");
+  });
+
+  it("descreve a opção 'Atrasados' do filtro de processo por coluna e por grupo (052)", () => {
+    const porColuna = childItemFilterChips(
+      parseChildItemFilters({ processo: "LASER", procsatrasado: "1" }),
+    );
+    expect(porColuna).toHaveLength(1);
+    expect(porColuna[0].key).toBe("process");
+    expect(porColuna[0].label).toBe("LASER: Atrasados");
+    // Remover o chip desliga a flag E o par de processo.
+    expect(porColuna[0].clear).toEqual({
+      processCode: "ALL",
+      processStatus: "ALL",
+      processOverdue: false,
+    });
+
+    const porGrupo = childItemFilterChips(parseChildItemFilters({ procsatrasado: "1" }));
+    expect(porGrupo).toHaveLength(1);
+    expect(porGrupo[0].label).toBe("Atrasados (qualquer processo)");
+
+    // Um chip só por filtro de processo: a flag não divide espaço com o de
+    // situação — e o chip do card (KIT vencido) é OUTRO filtro, ao lado.
+    const comSituacao = childItemFilterChips(
+      parseChildItemFilters({ processo: "LASER", situacao: "CONCLUIDO", procsatrasado: "1" }),
+    );
+    expect(comSituacao.map((chip) => chip.key)).toEqual(["process"]);
+
+    const comCard = childItemFilterChips(parseChildItemFilters({ procsatrasado: "1", atrasados: "1" }));
+    expect(comCard.map((chip) => chip.key)).toEqual(["process", "overdue"]);
   });
 
   it("descreve o seq e as faixas dos agregados do grupo (038)", () => {
@@ -551,6 +667,32 @@ describe("activeFilterChips", () => {
     const chips = activeFilterChips(parseProductionFilters({ situacao: "CONCLUIDO" }));
     expect(chips).toHaveLength(1);
     expect(chips[0].label).toBe("Concluído (qualquer processo)");
+  });
+
+  it("descreve a opção 'Atrasados' por coluna e por grupo (051)", () => {
+    const porColuna = activeFilterChips(
+      parseProductionFilters({ processo: "SOLDA", procsatrasado: "1" }),
+    );
+    expect(porColuna).toHaveLength(1);
+    expect(porColuna[0].key).toBe("process");
+    expect(porColuna[0].label).toBe("SOLDA: Atrasados");
+    // Remover o chip desliga a flag E o par de processo.
+    expect(porColuna[0].clear).toEqual({
+      processCode: "ALL",
+      processStatus: "ALL",
+      processOverdue: false,
+    });
+
+    const porGrupo = activeFilterChips(parseProductionFilters({ procsatrasado: "1" }));
+    expect(porGrupo).toHaveLength(1);
+    expect(porGrupo[0].label).toBe("Atrasados (qualquer processo)");
+
+    // Um chip só por filtro de processo: a flag não divide espaço com o de situação.
+    expect(
+      activeFilterChips(
+        parseProductionFilters({ processo: "SOLDA", situacao: "CONCLUIDO", procsatrasado: "1" }),
+      ),
+    ).toHaveLength(1);
   });
 
   it("gera chips para os filtros de coluna (texto e faixas)", () => {

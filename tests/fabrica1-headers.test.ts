@@ -14,6 +14,7 @@ import {
   Fabrica1TextFilter,
 } from "@/components/fabrica1/Fabrica1ColumnHeaders";
 import { Fabrica1Table } from "@/components/fabrica1/Fabrica1Table";
+import { isProcessStatus, processStatusFilterOptions } from "@/lib/constants/production";
 import { parseChildItemFilters } from "@/lib/utils/filters";
 import type { ChildItemGroup } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
@@ -174,6 +175,72 @@ describe("cabeçalhos da Fábrica 1 (desktop)", () => {
       }),
     );
     expect(outraColuna).not.toContain("filtro ativo");
+  });
+
+  it("coluna de processo — opção 'Atrasados' sinaliza só aquela coluna (052)", () => {
+    const ativo = html(
+      createElement(Fabrica1ProcessColumnFilter, {
+        filters: parseChildItemFilters({ processo: "LASER", procsatrasado: "1" }),
+        code: "LASER",
+      }),
+    );
+    expect(ativo).toContain("Filtrar por situação do processo LASER — filtro ativo");
+    expect(ativo).toContain("fill-current");
+
+    // A flag de OUTRA coluna não sinaliza o funil desta.
+    const outraColuna = html(
+      createElement(Fabrica1ProcessColumnFilter, {
+        filters: parseChildItemFilters({ processo: "DB_CH", procsatrasado: "1" }),
+        code: "LASER",
+      }),
+    );
+    expect(outraColuna).not.toContain("filtro ativo");
+
+    // Sem flag ligada, o funil volta a ser da situação (comportamento antigo).
+    const situacao = html(
+      createElement(Fabrica1ProcessColumnFilter, {
+        filters: parseChildItemFilters({ processo: "LASER", situacao: "CONCLUIDO" }),
+        code: "LASER",
+      }),
+    );
+    expect(situacao).toContain("Filtrar por situação do processo LASER — filtro ativo");
+  });
+
+  it("filtro de grupo PROCESSOS — 'Atrasados' em qualquer processo ativa o funil (052)", () => {
+    const ativo = html(
+      createElement(Fabrica1ProcessGroupFilter, {
+        filters: parseChildItemFilters({ procsatrasado: "1" }),
+      }),
+    );
+    expect(ativo).toContain("Filtrar por situação em qualquer processo da Fábrica 1 — filtro ativo");
+
+    // Com um processo escolhido, o recorte é da coluna — o do grupo fica inativo.
+    const porColuna = html(
+      createElement(Fabrica1ProcessGroupFilter, {
+        filters: parseChildItemFilters({ processo: "LASER", procsatrasado: "1" }),
+      }),
+    );
+    expect(porColuna).not.toContain("filtro ativo");
+
+    const inativo = html(createElement(Fabrica1ProcessGroupFilter, { filters: noFilters }));
+    expect(inativo).not.toContain("filtro ativo");
+  });
+});
+
+describe("lista de situações dos filtros de processo da Fábrica 1 (052)", () => {
+  it("traz 'Atrasados' entre 'Todas' e as situações — mesma lista nos 3 filtros", () => {
+    const options = processStatusFilterOptions();
+
+    expect(options.map((option) => option.value)).toEqual([
+      "ALL",
+      "ATRASADO",
+      "NAO_INICIADO",
+      "CONCLUIDO",
+      "NAO_APLICAVEL",
+    ]);
+    expect(options[1].label).toBe("⚠ Atrasados");
+    // O valor é de UI: nunca um status que exista no banco.
+    expect(isProcessStatus("ATRASADO")).toBe(false);
   });
 });
 

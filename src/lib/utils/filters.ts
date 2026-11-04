@@ -1,6 +1,6 @@
 import { DELIVERY_FILTERS, DELIVERY_LABELS, PRODUCTION_PAGE_SIZE, PRODUCTION_PAGE_SIZE_OPTIONS, MAX_PAGE_SIZE, ORDERS_PAGE_SIZE, CHILD_ITEMS_PAGE_SIZE, ROMANEIO_PAGE_SIZE, type DeliveryFilter } from "@/lib/constants/pagination";
 import { ORDER_STATUSES, ORDER_STATUS_LABELS, type OrderStatus } from "@/lib/constants/orders";
-import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, type ProcessStatus } from "@/lib/constants/production";
+import { PROCESS_OVERDUE_LABEL, PROCESS_STATUSES, PROCESS_STATUS_LABELS, type ProcessStatus } from "@/lib/constants/production";
 import type { ChildItemFilters, OrderFilters } from "@/lib/types/order";
 import type { ProductionFilters } from "@/lib/types/production";
 import type { RomaneioFilters } from "@/lib/types/romaneio";
@@ -228,6 +228,11 @@ export function parseProductionFilters(params: SearchParamsRecord): ProductionFi
     ? (processStatusRaw as ProcessStatus)
     : "ALL";
 
+  // 051: opção "Atrasados" dos filtros de PROCESSO da Fábrica 2 — um valor
+  // por filtro: a flag substitui a situação (uma URL mal escrita com as duas
+  // zera a situação) e nunca chega à RPC (o recorte é em memória, só na F2).
+  const processOverdue = firstValue(params.procsatrasado) === "1";
+
   const deliveryRaw = firstValue(params.entrega).toUpperCase() as DeliveryFilter;
   const delivery = (DELIVERY_FILTERS as readonly string[]).includes(deliveryRaw) ? deliveryRaw : "ALL";
 
@@ -253,7 +258,9 @@ export function parseProductionFilters(params: SearchParamsRecord): ProductionFi
     search,
     orderStatus,
     processCode,
-    processStatus,
+    // 051: a opção "Atrasados" substitui a situação (valor único por filtro).
+    processStatus: processOverdue ? "ALL" : processStatus,
+    processOverdue,
     delivery,
     deliveryFrom,
     deliveryTo,
@@ -325,6 +332,11 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
     ? (processStatusRaw as ProcessStatus)
     : "ALL";
 
+  // 052: opção "Atrasados" dos filtros de PROCESSO da Fábrica 1 — um valor
+  // por filtro: a flag substitui a situação (uma URL mal escrita com as
+  // duas zera a situação) e nunca chega à RPC (o recorte é em memória).
+  const processOverdue = firstValue(params.procsatrasado) === "1";
+
   // Card "Atrasados" da Fábrica 1: `?atrasados=1` liga o recorte do KIT vencido.
   const overdue = firstValue(params.atrasados) === "1";
 
@@ -354,7 +366,9 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
     deliveryFrom,
     deliveryTo,
     processCode,
-    processStatus,
+    // 052: a opção "Atrasados" substitui a situação (valor único por filtro).
+    processStatus: processOverdue ? "ALL" : processStatus,
+    processOverdue,
     overdue,
     // 038: seq por igualdade + faixas sobre os AGREGADOS do grupo.
     seq: seqParam(params, "seq"),
@@ -532,6 +546,9 @@ export function productionQueryString(filters: ProductionFilters, overrides: Par
     status: next.orderStatus === "ALL" ? undefined : next.orderStatus,
     processo: next.processCode === "ALL" ? undefined : next.processCode,
     situacao: next.processStatus === "ALL" ? undefined : next.processStatus,
+    // 051: opção "Atrasados" dos filtros de processo da Fábrica 2 — sai
+    // sozinha (a situação já vem "ALL" quando a flag está ligada).
+    procsatrasado: next.processOverdue ? 1 : undefined,
     entrega: next.delivery === "ALL" ? undefined : next.delivery,
     entregade: next.deliveryFrom || undefined,
     entregaate: next.deliveryTo || undefined,
@@ -589,6 +606,9 @@ export function childItemQueryString(
     entregaate: next.deliveryTo || undefined,
     processo: next.processCode === "ALL" ? undefined : next.processCode,
     situacao: next.processStatus === "ALL" ? undefined : next.processStatus,
+    // 052: opção "Atrasados" do filtro de processo da Fábrica 1 — sai
+    // sozinha (a situação já vem "ALL" quando a flag está ligada).
+    procsatrasado: next.processOverdue ? 1 : undefined,
     atrasados: next.overdue ? 1 : undefined,
     seq: next.seq ?? undefined,
     qtdmin: next.qtyMin ?? undefined,
@@ -695,7 +715,20 @@ export function childItemFilterChips(filters: ChildItemFilters): ChildItemFilter
     });
   }
 
-  if (filters.processCode !== "ALL") {
+  // 052: a opção "Atrasados" é UM valor do filtro de processo — chip
+  // próprio, no lugar do de situação (a flag já zera `processStatus` ao ser
+  // ligada). O chip do card "Atrasados" (KIT vencido) é OUTRO filtro e
+  // continua ao lado, com a chave própria `overdue`.
+  if (filters.processOverdue) {
+    chips.push({
+      key: "process",
+      label:
+        filters.processCode === "ALL"
+          ? `${PROCESS_OVERDUE_LABEL} (qualquer processo)`
+          : `${filters.processCode}: ${PROCESS_OVERDUE_LABEL}`,
+      clear: { processCode: "ALL", processStatus: "ALL", processOverdue: false },
+    });
+  } else if (filters.processCode !== "ALL") {
     chips.push({
       key: "process",
       label:
@@ -803,7 +836,18 @@ export function activeFilterChips(filters: ProductionFilters): ActiveFilterChip[
     });
   }
 
-  if (filters.processCode !== "ALL") {
+  // 051: a opção "Atrasados" é UM valor do filtro de processo — chip próprio,
+  // no lugar do de situação (a flag já zera `processStatus` ao ser ligada).
+  if (filters.processOverdue) {
+    chips.push({
+      key: "process",
+      label:
+        filters.processCode === "ALL"
+          ? `${PROCESS_OVERDUE_LABEL} (qualquer processo)`
+          : `${filters.processCode}: ${PROCESS_OVERDUE_LABEL}`,
+      clear: { processCode: "ALL", processStatus: "ALL", processOverdue: false },
+    });
+  } else if (filters.processCode !== "ALL") {
     chips.push({
       key: "process",
       label:

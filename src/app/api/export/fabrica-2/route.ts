@@ -1,10 +1,10 @@
 import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { fabrica2Sheet } from "@/lib/export/columns";
-import { EXPORT_PAGE_SIZE, collectAllPages, exportFileName, searchParamsRecord } from "@/lib/export/common";
+import { exportFileName, searchParamsRecord } from "@/lib/export/common";
 import { workbookResponse } from "@/lib/export/workbook";
-import { getActiveProcesses, getProductionRows } from "@/lib/repositories/production.repository";
-import { listAcabOverdueRows } from "@/lib/services/production.service";
+import { getActiveProcesses } from "@/lib/repositories/production.repository";
+import { listFabrica2FilteredRows } from "@/lib/services/production.service";
 import { createClient } from "@/lib/supabase/server";
 import { todayISODate } from "@/lib/utils/dates";
 import { parseProductionFilters } from "@/lib/utils/filters";
@@ -33,14 +33,10 @@ export async function GET(request: Request) {
     const today = todayISODate();
 
     const processes = await getActiveProcesses(client);
-    // Fábrica 2: "Atrasados" é a data da coluna ACAB anterior a hoje (regra em
-    // memória) — a exportação sai com o MESMO recorte que a tela exibe.
-    const rows =
-      filters.delivery === "OVERDUE"
-        ? await listAcabOverdueRows(client, filters, today, processes)
-        : await collectAllPages((page) =>
-            getProductionRows(client, { ...filters, page, pageSize: EXPORT_PAGE_SIZE }, today),
-          );
+    // Fábrica 2: recortes em MEMÓRIA — "Atrasados" do ACAB (entrega=OVERDUE)
+    // e, na 051, "Atrasados" dos filtros de processo. A exportação sai com o
+    // MESMO recorte que a tela exibe (varredura da lista inteira).
+    const rows = await listFabrica2FilteredRows(client, filters, today, processes);
 
     return workbookResponse(exportFileName("fabrica-2"), fabrica2Sheet(rows, processes, today));
   } catch (error) {

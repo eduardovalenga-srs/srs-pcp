@@ -5,11 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 
 import { SEARCH_DEBOUNCE_MS } from "@/lib/constants/pagination";
-import {
-  PROCESS_STATUSES,
-  PROCESS_STATUS_LABELS,
-  PROCESS_STATUS_SYMBOLS,
-} from "@/lib/constants/production";
+import { PROCESS_OVERDUE_OPTION, processStatusFilterOptions } from "@/lib/constants/production";
 import type { ChildItemFilters as ChildItemFilterValues } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
 import { childItemQueryString, normalizeDeliveryPeriod } from "@/lib/utils/filters";
@@ -94,7 +90,8 @@ export function Fabrica1Filters({ filters, processes }: Fabrica1FiltersProps) {
     filters.deliveryFrom !== null ||
     filters.deliveryTo !== null ||
     filters.processCode !== "ALL" ||
-    filters.processStatus !== "ALL";
+    filters.processStatus !== "ALL" ||
+    filters.processOverdue;
 
   const processOptions = fabrica1ProcessOptions(processes);
 
@@ -161,17 +158,28 @@ export function Fabrica1Filters({ filters, processes }: Fabrica1FiltersProps) {
             Situação do processo
           </Label>
           <Select
-            value={filters.processStatus}
-            onValueChange={(value) => apply({ processStatus: value as ChildItemFilterValues["processStatus"] })}
+            value={filters.processOverdue ? PROCESS_OVERDUE_OPTION : filters.processStatus}
+            onValueChange={(value) =>
+              // 052: "Atrasados" é UM valor do filtro (substitui a situação):
+              // o recorte usa o processo escolhido acima — ou qualquer etapa
+              // editável quando o seletor "Processo" está em "Todos".
+              apply(
+                value === PROCESS_OVERDUE_OPTION
+                  ? { processStatus: "ALL", processOverdue: true }
+                  : {
+                      processStatus: value as ChildItemFilterValues["processStatus"],
+                      processOverdue: false,
+                    },
+              )
+            }
           >
             <SelectTrigger id="fabrica1-situacao" className="w-full">
               <SelectValue placeholder="Situação" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ALL">Todas as situações</SelectItem>
-              {PROCESS_STATUSES.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {PROCESS_STATUS_SYMBOLS[status]} {PROCESS_STATUS_LABELS[status]}
+              {processStatusFilterOptions().map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
                 </SelectItem>
               ))}
             </SelectContent>

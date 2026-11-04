@@ -5,9 +5,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   Fabrica2NumericColumnFilter,
   Fabrica2ProcessColumnFilter,
+  Fabrica2ProcessGroupFilter,
   Fabrica2SeqFilter,
   Fabrica2TextColumnFilter,
 } from "@/components/fabrica2/Fabrica2ColumnHeaders";
+import { isProcessStatus, processStatusFilterOptions } from "@/lib/constants/production";
 import { parseProductionFilters } from "@/lib/utils/filters";
 import type { ProductionFilters } from "@/lib/types/production";
 
@@ -103,5 +105,74 @@ describe("filtros por coluna da Fábrica 2 (038)", () => {
       }),
     );
     expect(outraColuna).not.toContain("filtro ativo");
+  });
+
+  it("coluna de processo — opção 'Atrasados' sinaliza só aquela coluna (051)", () => {
+    const ativo = html(
+      createElement(Fabrica2ProcessColumnFilter, {
+        filters: parseProductionFilters({ processo: "SOLDA", procsatrasado: "1" }),
+        code: "SOLDA",
+      }),
+    );
+    expect(ativo).toContain("Filtrar por situação do processo SOLDA — filtro ativo");
+    expect(ativo).toContain("fill-current");
+
+    // A flag de OUTRA coluna não sinaliza o funil desta.
+    const outraColuna = html(
+      createElement(Fabrica2ProcessColumnFilter, {
+        filters: parseProductionFilters({ processo: "DB_CH", procsatrasado: "1" }),
+        code: "SOLDA",
+      }),
+    );
+    expect(outraColuna).not.toContain("filtro ativo");
+
+    // Sem flag ligada, o funil volta a ser da situação (comportamento antigo).
+    const situacao = html(
+      createElement(Fabrica2ProcessColumnFilter, {
+        filters: parseProductionFilters({ processo: "SOLDA", situacao: "CONCLUIDO" }),
+        code: "SOLDA",
+      }),
+    );
+    expect(situacao).toContain("Filtrar por situação do processo SOLDA — filtro ativo");
+  });
+});
+
+describe("filtro de grupo PROCESSOS da Fábrica 2 (051)", () => {
+  it("'Atrasados' em qualquer processo ativa o funil do grupo", () => {
+    const ativo = html(
+      createElement(Fabrica2ProcessGroupFilter, {
+        filters: parseProductionFilters({ procsatrasado: "1" }),
+      }),
+    );
+    expect(ativo).toContain("Filtrar por situação em qualquer processo — filtro ativo");
+
+    // Com um processo escolhido, o recorte é da coluna — o do grupo fica inativo.
+    const porColuna = html(
+      createElement(Fabrica2ProcessGroupFilter, {
+        filters: parseProductionFilters({ processo: "SOLDA", procsatrasado: "1" }),
+      }),
+    );
+    expect(porColuna).not.toContain("filtro ativo");
+
+    const inativo = html(createElement(Fabrica2ProcessGroupFilter, { filters: noFilters }));
+    expect(inativo).toContain('aria-label="Filtrar por situação em qualquer processo"');
+    expect(inativo).not.toContain("filtro ativo");
+  });
+});
+
+describe("lista de situações dos filtros de processo (051)", () => {
+  it("traz 'Atrasados' entre 'Todas' e as situações — mesma lista nos 3 filtros", () => {
+    const options = processStatusFilterOptions();
+
+    expect(options.map((option) => option.value)).toEqual([
+      "ALL",
+      "ATRASADO",
+      "NAO_INICIADO",
+      "CONCLUIDO",
+      "NAO_APLICAVEL",
+    ]);
+    expect(options[1].label).toBe("⚠ Atrasados");
+    // O valor é de UI: nunca um status que exista no banco.
+    expect(isProcessStatus("ATRASADO")).toBe(false);
   });
 });

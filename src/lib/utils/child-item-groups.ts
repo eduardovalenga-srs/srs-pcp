@@ -1,6 +1,7 @@
 import type { ProcessStatus } from "@/lib/constants/production";
-import { KIT_PROCESS_CODE } from "@/lib/constants/processes";
+import { KIT_PROCESS_CODE, MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type {
+  ChildItemFilters,
   ChildItemGroup,
   ChildItemGroupMember,
   ChildItemProcess,
@@ -239,6 +240,48 @@ export function isChildItemKitOverdue(
   return isProcessStartOverdue(window.start, kit.status, today);
 }
 
+/**
+ * REGRA DE ATRASO POR PROCESSO (052) — opção "Atrasados" dos filtros de
+ * processo da Fábrica 1: o grupo conta quando o INÍCIO previsto da janela
+ * daquele processo é ANTERIOR à data de referência e o processo ainda não
+ * concluiu — exatamente a regra que deixa a data da célula em vermelho
+ * (mesma janela de `scheduleByItem` em `components/fabrica1/Fabrica1Table`:
+ * dias úteis de trás para frente da entrega do grupo, status AGREGADOS).
+ *
+ *  - `code` = código de UM processo (funil da coluna) ou `"ALL"` para
+ *    QUALQUER etapa editável do grupo (funil do grupo) — o MP fica de fora
+ *    nele, porque a coluna MP desta tela mostra o status do PAI;
+ *  - fora da conta: processo `NAO_APLICAVEL`/ausente no grupo, processo já
+ *    `CONCLUIDO` e grupo sem data de entrega (sem janela calculável) — mesma
+ *    convenção de `isChildItemKitOverdue`/`isProcessStartOverdue`.
+ *
+ * Não considera feriados (o cálculo da janela já é em dias úteis).
+ */
+export function isGroupProcessOverdue(
+  item: Pick<ChildItemGroup, "deliveryDate" | "processes">,
+  catalog: readonly KitCatalogProcess[],
+  code: string | "ALL",
+  today: string,
+): boolean {
+  const statusByCode = new Map(item.processes.map((process) => [process.code, process.status] as const));
+  const schedule = computeProcessSchedule(
+    item.deliveryDate,
+    scheduleProcessesForItem(catalog, (candidate) => statusByCode.get(candidate)),
+  );
+
+  const targets =
+    code === "ALL"
+      ? item.processes.map((process) => process.code).filter((candidate) => candidate !== MP_PROCESS_CODE)
+      : [code];
+
+  for (const target of targets) {
+    const window = schedule.get(target);
+    const status = statusByCode.get(target);
+    if (window && status && isProcessStartOverdue(window.start, status, today)) return true;
+  }
+  return false;
+}
+
 /** Card "Atrasados" da Fábrica 1: registros (grupos), Σ qtd. e Σ peso (kg). */
 export interface KitOverdueTotals {
   records: number;
@@ -277,4 +320,31 @@ export function summarizeKitOverdue(
     totals.weight += item.weightTotal ?? 0;
   }
   return totals;
+}
+
+/**
+ * Recortes EM MEMÓRIA da Fábrica 1 combinados por E (052), na mesma ordem em
+ * que a tela e a exportação os aplicam:
+ *
+ *  1. `overdue` (card "Atrasados") → recorte pela regra do KIT;
+ *  2. `processOverdue` (opção "Atrasados" dos filtros de processo) → recorte
+ *     pelo INÍCIO previsto da janela do processo escolhido (ou de qualquer
+ *     etapa editável, no filtro do grupo).
+ *
+ * Nenhum dos dois existe no banco (as janelas são calculadas em dias úteis
+ * a partir da entrega), então a varredura do conjunto filtrado inteiro vem
+ * antes — é a MESMA técnica do card do KIT e da Fábrica 2 (item 051).
+ * A tela, os cards e o .xlsx falam a mesma língua porque os três passam por
+ * aqui.
+ */
+export function applyChildItemOverdueCuts(
+  groups: readonly ChildItemGroup[],
+  catalog: readonly KitCatalogProcess[],
+  filters: Pick<ChildItemFilters, "overdue" | "processCode" | "processOverdue">,
+  today: string,
+): ChildItemGroup[] {
+  const processCut: ChildItemGroup[] = filters.processOverdue
+    ? groups.filter((group) => isGroupProcessOverdue(group, catalog, filters.processCode, today))
+    : [...groups];
+  return filters.overdue ? kitOverdueGroups(processCut, catalog, today) : processCut;
 }

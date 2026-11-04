@@ -59,11 +59,34 @@ export function isProcessStartOverdue(
   return status !== "CONCLUIDO";
 }
 
-/** Dados que o cálculo da janela do ACAB precisa de cada processo do catálogo. */
-export interface AcabCatalogProcess {
+/** Dados que o cálculo da janela de um processo precisa do catálogo. */
+export interface ScheduleCatalogProcess {
   code: string;
   displayOrder: number;
   durationDays: number;
+}
+
+/** Janelas previstas de cada processo do item (mesma receita da célula). */
+function scheduleOfItem(
+  item: Pick<ProductionRow, "deliveryDate" | "processes">,
+  catalog: readonly ScheduleCatalogProcess[],
+): Map<string, ProcessWindow> {
+  const statusByCode = new Map(
+    Object.entries(item.processes).map(([code, cell]) => [code, cell.status] as const),
+  );
+  return computeProcessSchedule(
+    item.deliveryDate,
+    scheduleProcessesForItem(catalog, (code) => statusByCode.get(code)),
+  );
+}
+
+/** Janela prevista de UM processo do item (null sem entrega/janela). */
+export function processWindowForItem(
+  item: Pick<ProductionRow, "deliveryDate" | "processes">,
+  catalog: readonly ScheduleCatalogProcess[],
+  code: string,
+): ProcessWindow | null {
+  return scheduleOfItem(item, catalog).get(code) ?? null;
 }
 
 /**
@@ -75,17 +98,9 @@ export interface AcabCatalogProcess {
  */
 export function acabWindowForItem(
   item: Pick<ProductionRow, "deliveryDate" | "processes">,
-  catalog: readonly AcabCatalogProcess[],
+  catalog: readonly ScheduleCatalogProcess[],
 ): ProcessWindow | null {
-  const statusByCode = new Map(
-    Object.entries(item.processes).map(([code, cell]) => [code, cell.status] as const),
-  );
-  return (
-    computeProcessSchedule(
-      item.deliveryDate,
-      scheduleProcessesForItem(catalog, (code) => statusByCode.get(code)),
-    ).get(ACAB_PROCESS_CODE) ?? null
-  );
+  return processWindowForItem(item, catalog, ACAB_PROCESS_CODE);
 }
 
 /**
@@ -105,7 +120,7 @@ export function acabWindowForItem(
  */
 export function isAcabOverdue(
   item: Pick<ProductionRow, "deliveryDate" | "processes">,
-  catalog: readonly AcabCatalogProcess[],
+  catalog: readonly ScheduleCatalogProcess[],
   today: string,
 ): boolean {
   const acab = item.processes[ACAB_PROCESS_CODE];
@@ -115,6 +130,39 @@ export function isAcabOverdue(
   if (!window) return false;
 
   return isProcessStartOverdue(window.start, acab.status, today);
+}
+
+/**
+ * REGRA DE ATRASO POR PROCESSO (051) — opção "Atrasados" dos filtros de
+ * processo da Fábrica 2: o item conta quando o INÍCIO previsto da janela daquele
+ * processo é ANTERIOR à data de referência e o processo ainda não concluiu —
+ * exatamente a regra que deixa a data da célula em vermelho.
+ *
+ *  - `code` = código de UM processo (filtro da coluna) ou `"ALL"` para
+ *    QUALQUER processo aplicável do catálogo (filtro do grupo "PROCESSOS");
+ *  - fora da conta: processo `NAO_APLICAVEL`/ausente no item, processo já
+ *    `CONCLUIDO` e item sem data de entrega (sem janela calculável) — mesma
+ *    convenção de `isAcabOverdue`/`isProcessStartOverdue`.
+ *
+ * Não considera feriados/fins de semana no MVP (o cálculo da janela já é em
+ * dias úteis).
+ */
+export function isProcessOverdue(
+  item: Pick<ProductionRow, "deliveryDate" | "processes">,
+  catalog: readonly ScheduleCatalogProcess[],
+  code: string | "ALL",
+  today: string,
+): boolean {
+  const schedule = scheduleOfItem(item, catalog);
+  const targets = code === "ALL" ? schedule.keys() : [code];
+
+  for (const target of targets) {
+    const window = schedule.get(target);
+    if (!window) continue;
+    const status = item.processes[target]?.status;
+    if (status && isProcessStartOverdue(window.start, status, today)) return true;
+  }
+  return false;
 }
 
 /** Totais de um recorte de itens da Fábrica 2 (registros, Σ qtd., Σ peso). */

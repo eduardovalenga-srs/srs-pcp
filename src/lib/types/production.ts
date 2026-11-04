@@ -92,6 +92,16 @@ export interface ProductionFilters {
   orderStatus: OrderStatus | "ALL";
   processCode: string | "ALL";
   processStatus: ProcessStatus | "ALL";
+  /**
+   * Nova opção dos filtros de PROCESSO da Fábrica 2: "Atrasados" — itens
+   * cujo INÍCIO previsto da janela daquele processo já passou e o processo
+   * ainda não concluiu (mesma regra da cor vermelha da célula).
+   *
+   * É um VALOR por filtro de processo (substitui `processStatus`), não um
+   * status do banco: por isso mora numa flag própria e a RPC nunca a vê.
+   * Só a Fábrica 2 aplica o recorte (em memória); a Gestão de OF ignora.
+   */
+  processOverdue: boolean;
   delivery: DeliveryFilter;
   /**
    * Período de entrega (014): datas YYYY-MM-DD ou null (lado aberto).

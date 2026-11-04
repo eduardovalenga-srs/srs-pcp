@@ -6,7 +6,7 @@ import { workbookResponse } from "@/lib/export/workbook";
 import { listChildItemGroups } from "@/lib/repositories/order-items.repository";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { createClient } from "@/lib/supabase/server";
-import { kitOverdueGroups } from "@/lib/utils/child-item-groups";
+import { applyChildItemOverdueCuts } from "@/lib/utils/child-item-groups";
 import { todayISODate } from "@/lib/utils/dates";
 import { parseChildItemFilters } from "@/lib/utils/filters";
 import { errorMessage } from "@/lib/utils/supabase-result";
@@ -50,9 +50,10 @@ export async function GET(request: Request) {
               processId,
             ).then((result) => ({ rows: result.items, total: result.total })),
           );
-    // Card "Atrasados" ligado na tela: a planilha leva o mesmo recorte do KIT
-    // vencido que a lista mostra (a regra é calculada em memória).
-    const items = filters.overdue ? kitOverdueGroups(groups, processes, today) : groups;
+    // Recortes em MEMÓRIA da tela: "Atrasados" do card (regra do KIT) e, na
+    // 052, "Atrasados" dos filtros de processo — combinados por E, a
+    // planilha leva o MESMO recorte que a lista mostra.
+    const items = applyChildItemOverdueCuts(groups, processes, filters, today);
 
     return workbookResponse(exportFileName("fabrica-1"), fabrica1Sheet(items, processes, today));
   } catch (error) {

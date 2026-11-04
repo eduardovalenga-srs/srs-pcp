@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 
 import { ORDER_STATUSES, ORDER_STATUS_LABELS } from "@/lib/constants/orders";
-import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS } from "@/lib/constants/production";
+import { PROCESS_OVERDUE_OPTION, processStatusFilterOptions } from "@/lib/constants/production";
 import { DELIVERY_FILTERS, DELIVERY_LABELS, SEARCH_DEBOUNCE_MS } from "@/lib/constants/pagination";
 import type { ProcessDefinition, ProductionFilters as Filters } from "@/lib/types/production";
 import { normalizeDeliveryPeriod, productionQueryString } from "@/lib/utils/filters";
@@ -182,15 +182,18 @@ export function Fabrica2FiltersBar({ filters, processes }: Fabrica2FiltersProps)
         <FilterSelect
           id="f2-situacao"
           label="Situação do processo"
-          value={filters.processStatus}
-          onValueChange={setSelect("processStatus")}
-          options={[
-            { value: "ALL", label: "Todas as situações" },
-            ...PROCESS_STATUSES.map((status) => ({
-              value: status,
-              label: `${PROCESS_STATUS_SYMBOLS[status]} ${PROCESS_STATUS_LABELS[status]}`,
-            })),
-          ]}
+          // 051: "Atrasados" é UM valor do filtro (substitui a situação): o
+          // recorte usa o processo escolhido acima — ou qualquer um quando o
+          // seletor "Processo" está em "Todos os processos".
+          value={filters.processOverdue ? PROCESS_OVERDUE_OPTION : filters.processStatus}
+          onValueChange={(value) =>
+            apply(
+              value === PROCESS_OVERDUE_OPTION
+                ? { processStatus: "ALL", processOverdue: true }
+                : { processStatus: value as Filters["processStatus"], processOverdue: false },
+            )
+          }
+          options={processStatusFilterOptions()}
         />
 
         <FilterSelect

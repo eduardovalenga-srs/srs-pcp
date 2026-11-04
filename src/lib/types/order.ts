@@ -113,6 +113,15 @@ export interface ChildItemFilters {
   /** Situação do processo (combinável com o código ou sozinha). */
   processStatus: ProcessStatus | "ALL";
   /**
+   * 052: opção "Atrasados" dos filtros de PROCESSO desta tela — itens cujo
+   * INÍCIO previsto da janela daquele processo já passou e o processo ainda
+   * não concluiu (mesma regra da cor vermelha da célula). É um VALOR por
+   * filtro de processo (substitui `processStatus`), não um status do banco:
+   * por isso mora numa flag própria e a RPC nunca a vê. O recorte é em
+   * memória, sobre o conjunto já filtrado — mesma técnica do card do KIT.
+   */
+  processOverdue: boolean;
+  /**
    * Card "Atrasados": mantém só os grupos com o KIT vencido (início previsto
    * da coluna KIT anterior a hoje e KIT ainda não concluído) — a mesma regra
    * dos números do card. A janela do KIT é calculada em memória (dias úteis +

@@ -459,6 +459,24 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   unitário EXIBIDO — só quando todos os membros coincidem, senão "—") e **uma
   situação por coluna de processo** (o backend aceita um filtro de processo por vez;
   ativar numa coluna substitui o de outra).
+  **052 — filtros de processo com a opção "Atrasados"**: os três filtros de processo
+  da tela (funil de CADA coluna de processo, funil do grupo **PROCESSOS** e o
+  seletor "Situação do processo" da barra do mobile) passaram a oferecer, além das
+  três situações, a opção **⚠ Atrasados** — itens cujo **início previsto** da
+  janela daquele processo é anterior a hoje e que **ainda não concluíram** (a MESMA
+  regra que deixa a data da célula em vermelho; processo `CONCLUIDO`,
+  `NAO_APLICAVEL`/ausente no grupo e grupo sem entrega ficam de fora). No funil do
+  grupo o recorte vale para **qualquer etapa editável** (o MP fica de fora — a coluna
+  MP mostra o status do pai). Segue a regra de **um valor por filtro de processo**:
+  escolher "Atrasados" zera a situação e vice-versa (URL `procsatrasado=1` junto de
+  `processo=` — mesma chave da Fábrica 2, chip próprio — "LASER: Atrasados" ou
+  "Atrasados (qualquer processo)" — e a chave some ao desligar). Como a janela não
+  existe no banco, o corte acontece **em memória**: o serviço varre o conjunto
+  filtrado inteiro, recorta (combinando **por E** com o recorte do card
+  `atrasados=1`, regra do KIT) e só então pagina; os cards e a exportação `.xlsx`
+  usam o MESMO recorte (`applyChildItemOverdueCuts` em
+  `lib/utils/child-item-groups.ts`). Só a Fábrica 1 aplica — a Gestão de OF e a
+  Fábrica 2 usam chaves próprias.
   **Ordenação por coluna** (043 — o cabeçalho do grupo passou a ser ordenável por
   link; antes era a ordenação fixa abaixo): **Seq.** (igualdade sobre o MENOR seq do
   grupo) é o **default** (asc; sem número por último; entrega como desempate → chave) e
@@ -503,6 +521,22 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   `get_production_rows`. As colunas
   ganharam filtros de cabeçalho (038 — mesmos da gestão): Seq., TP ("contém"), OP
   ("contém"), Qtd./Peso/Peso un. (faixas) e situação por coluna de processo.
+  **051 — filtros de processo com a opção "Atrasados"**: os três filtros de processo
+  da tela (funil de CADA coluna de processo, funil do grupo **PROCESSOS** e o
+  seletor "Situação do processo" da barra do mobile) passaram a oferecer, além das
+  três situações, a opção **⚠ Atrasados** — itens cujo **início previsto** da
+  janela daquele processo é anterior a hoje e que **ainda não concluíram** (a MESMA
+  regra que deixa a data da célula em vermelho; processo `CONCLUIDO`,
+  `NAO_APLICAVEL`/ausente no item e item sem entrega ficam de fora). No funil do
+  grupo o recorte vale para **qualquer** processo aplicável do item. Segue a regra
+  de **um valor por filtro de processo**: escolher "Atrasados" zera a situação e
+  vice-versa (URL `procsatrasado=1` junto de `processo=`, chip próprio — "SOLDA:
+  Atrasados" ou "Atrasados (qualquer processo)" — e a chave some ao desligar). Como
+  a janela não existe no banco, o corte acontece **em memória**: o serviço varre o
+  conjunto filtrado inteiro, recorta (combinando **por E** com o
+  `entrega=OVERDUE` do ACAB) e só então pagina; os cards "Atrasados"/"Expedição" e
+  a exportação `.xlsx` usam o MESMO recorte. Só a Fábrica 2 aplica — a Gestão de OF
+  ignora a chave e a RPC nunca a vê.
 - **Gestão como hub**: o código da OF/OS na tabela de entregas (desktop e mobile) abre a
   tela de detalhes `/pedidos/[id]` — sub-itens, processos e materiais num só lugar; a
   criação termina lá e o menu superior não expõe "Pedidos" (a lista `/pedidos` segue como
@@ -570,10 +604,15 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
     (sobre os totais da OF na gestão, sobre o item na F2) e **Peso un.** na F2;
     **Seq.** por igualdade; **uma situação por coluna de processo** (ativar numa
     coluna substitui o par processo+situação de outra — o backend só aceita um filtro
-    de processo por vez).
+    de processo por vez). Na **Fábrica 2** a lista de situações de processo ganhou a
+    opção **⚠ Atrasados** (051 — início previsto vencido; coluna, grupo e barra do
+    mobile, recorte em memória, um valor por filtro; ver a tela Fábrica 2).
   - **Fábrica 1** — Seq. (menor seq do grupo), Qtd. e Peso total (faixa sobre Σ dos
     membros), Peso un. (sobre o peso exibido — só quando os membros coincidem) e
-    situação por coluna de processo.
+    situação por coluna de processo. Na **Fábrica 1** a lista de situações de
+    processo também ganhou a opção **⚠ Atrasados** (052 — início previsto vencido;
+    coluna, grupo e barra do mobile, recorte em memória combinando por E com o card
+    do KIT, um valor por filtro; ver a tela Fábrica 1).
   - **Pedidos** — OF/OS e Cliente ("contém"), Entrega (período inclusivo De → Até,
     migração 014) e Situação (menu). A coluna **Itens** fica informativa, sem filtro.
   Tudo mora na query string (link compartilhável), volta para a página 1 ao aplicar e

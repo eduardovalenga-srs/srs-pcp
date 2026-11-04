@@ -5,12 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { X } from "lucide-react";
 
 import { FABRICA1_EDITABLE_PROCESS_CODES } from "@/lib/constants/processes";
-import {
-  PROCESS_STATUSES,
-  PROCESS_STATUS_LABELS,
-  PROCESS_STATUS_SYMBOLS,
-  type ProcessStatus,
-} from "@/lib/constants/production";
+import { PROCESS_OVERDUE_OPTION, processStatusFilterOptions } from "@/lib/constants/production";
 import type { ChildItemFilters } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
 import { childItemFilterChips, childItemQueryString } from "@/lib/utils/filters";
@@ -207,29 +202,39 @@ export function Fabrica1NumericFilter({
  * Filtro de UMA coluna de processo: situação daquele processo da cadeia
  * (038). Só existe um filtro de processo por vez no backend — ativar aqui
  * substitui o de outra coluna/de grupo; "Todas" limpa o par.
+ *
+ * 052: a lista ganha a opção "Atrasados" — início previsto DAQUELE processo
+ * já vencido e ainda não concluído (a mesma data que a célula pinta de
+ * vermelho). Um valor por filtro: "Atrasados" zera a situação e vice-versa.
  */
 export function Fabrica1ProcessColumnFilter({ filters, code }: { filters: ChildItemFilters; code: string }) {
   const apply = useApplyChildItemFilters(filters);
-  const active = filters.processCode === code && filters.processStatus !== "ALL";
-  const value = active && filters.processStatus ? filters.processStatus : "ALL";
+  const active =
+    filters.processCode === code && (filters.processOverdue || filters.processStatus !== "ALL");
+  const value =
+    filters.processCode !== code
+      ? "ALL"
+      : filters.processOverdue
+        ? PROCESS_OVERDUE_OPTION
+        : filters.processStatus;
 
   return (
     <FilterMenu
       context={`situação do processo ${code}`}
       value={value}
       active={active}
-      options={[
-        { value: "ALL", label: "Todas as situações" },
-        ...PROCESS_STATUSES.map((status) => ({
-          value: status,
-          label: `${PROCESS_STATUS_SYMBOLS[status]} ${PROCESS_STATUS_LABELS[status]}`,
-        })),
-      ]}
+      options={processStatusFilterOptions()}
       onValueChange={(next) =>
         apply(
           next === "ALL"
-            ? { processCode: "ALL", processStatus: "ALL" }
-            : { processCode: code, processStatus: next as ProcessStatus },
+            ? { processCode: "ALL", processStatus: "ALL", processOverdue: false }
+            : next === PROCESS_OVERDUE_OPTION
+              ? { processCode: code, processStatus: "ALL", processOverdue: true }
+              : {
+                  processCode: code,
+                  processStatus: next as ChildItemFilters["processStatus"],
+                  processOverdue: false,
+                },
         )
       }
     />
@@ -240,28 +245,36 @@ export function Fabrica1ProcessColumnFilter({ filters, code }: { filters: ChildI
  * Filtro do grupo "PROCESSOS": situação em qualquer etapa editável desta tela
  * (o MP fica de fora — ele mostra o status do item pai, que é filtrado pela
  * situação do próprio pai na gestão de entregas).
+ *
+ * 052: a lista ganha a opção "Atrasados" — início previsto de qualquer
+ * etapa editável já vencido (mesma regra da cor vermelha da célula). Um valor
+ * por filtro: escolher "Atrasados" zera a situação e vice-versa.
  */
 export function Fabrica1ProcessGroupFilter({ filters }: { filters: ChildItemFilters }) {
   const apply = useApplyChildItemFilters(filters);
-  const active = filters.processCode === "ALL" && filters.processStatus !== "ALL";
-  const value = filters.processCode === "ALL" ? filters.processStatus : "ALL";
+  const active =
+    filters.processCode === "ALL" && (filters.processOverdue || filters.processStatus !== "ALL");
+  const value =
+    filters.processCode !== "ALL"
+      ? "ALL"
+      : filters.processOverdue
+        ? PROCESS_OVERDUE_OPTION
+        : filters.processStatus;
 
   return (
     <FilterMenu
       context="situação em qualquer processo da Fábrica 1"
       value={value}
       active={active}
-      options={[
-        { value: "ALL", label: "Todas as situações" },
-        ...PROCESS_STATUSES.map((status) => ({
-          value: status,
-          label: `${PROCESS_STATUS_SYMBOLS[status]} ${PROCESS_STATUS_LABELS[status]}`,
-        })),
-      ]}
+      options={processStatusFilterOptions()}
       onValueChange={(next) =>
         apply({
           processCode: "ALL",
-          processStatus: next === "ALL" ? "ALL" : (next as ProcessStatus),
+          processOverdue: next === PROCESS_OVERDUE_OPTION,
+          processStatus:
+            next === "ALL" || next === PROCESS_OVERDUE_OPTION
+              ? "ALL"
+              : (next as ChildItemFilters["processStatus"]),
         })
       }
     />
