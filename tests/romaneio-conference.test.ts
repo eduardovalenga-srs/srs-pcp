@@ -85,6 +85,7 @@ function orderItem(overrides: Partial<RomaneioOrderItem> = {}): RomaneioOrderIte
     unitWeightKg: 10,
     shippedQuantity: 0,
     expStatus: "CONCLUIDO",
+    processes: {},
     quantity: 4,
     conferenceChecked: false,
     ...overrides,
@@ -115,6 +116,9 @@ function view(overrides: Partial<RomaneioView> = {}): RomaneioView {
     createdAt: "2026-10-20T09:00:00Z",
     // item-2 fica FORA da carga (quantity 0) — a ficha não o exibe.
     items: [orderItem(), orderItem({ orderItemId: "item-2", quantity: 0, unitWeightKg: null })],
+    // Sem catálogo: as colunas de processo do editor de itens ficam vazias
+    // (a cobertura delas está em romaneio-detail-processes.test.ts).
+    processes: [],
     materials: [
       {
         description: "Chapa aço 3mm",

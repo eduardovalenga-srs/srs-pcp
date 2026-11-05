@@ -60,7 +60,6 @@ function summary(overrides: Partial<RomaneioSummary> = {}): RomaneioSummary {
     conferenceAcceptedAt: "2026-10-25T10:00:00Z",
     emittedAt: null,
     createdAt: "2026-10-20T09:00:00Z",
-    processes: {},
     ...overrides,
   };
 }

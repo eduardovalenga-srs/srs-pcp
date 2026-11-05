@@ -834,8 +834,6 @@ describe("parseRomaneioFilters (047 — filtros em todas as colunas)", () => {
       weightTo: null,
       nfNumber: "",
       returnNfNumber: "",
-      processCode: "ALL",
-      processStatus: "ALL",
       sort: "number",
       sortDir: "desc",
       page: 1,
@@ -877,8 +875,6 @@ describe("parseRomaneioFilters (047 — filtros em todas as colunas)", () => {
       pesoate: "80",
       nfsaida: "12345",
       nfdev: "9876",
-      processo: "SOLDA",
-      procsituacao: "NAO_INICIADO",
     });
     const params = new URLSearchParams(romaneioQueryString(filters));
     expect(params.get("situacao")).toBe("ABERTO");
@@ -888,9 +884,9 @@ describe("parseRomaneioFilters (047 — filtros em todas as colunas)", () => {
     expect(params.get("pesoate")).toBe("80");
     expect(params.get("nfsaida")).toBe("12345");
     expect(params.get("nfdev")).toBe("9876");
-    // 049: par de coluna de processo viaja junto (só montado).
-    expect(params.get("processo")).toBe("SOLDA");
-    expect(params.get("procsituacao")).toBe("NAO_INICIADO");
+    // 049: as chaves de processo NÃO viajam mais — saíram da listagem.
+    expect(params.get("processo")).toBeNull();
+    expect(params.get("procsituacao")).toBeNull();
     expect(parseRomaneioFilters(Object.fromEntries(params))).toEqual(filters);
 
     // Padrões continuam omitidos.
@@ -901,49 +897,26 @@ describe("parseRomaneioFilters (047 — filtros em todas as colunas)", () => {
     const filters = parseRomaneioFilters({ ordem: "status", direcao: "asc" });
     expect(filters.sort).toBe("status");
     expect(filters.sortDir).toBe("asc");
-    // Chave que não é coluna nem código de processo cai no default.
+    // Chave que não é coluna cai no default.
     expect(parseRomaneioFilters({ ordem: "123abc" }).sort).toBe("number");
   });
 
-  it("ordena por código de processo da Fábrica 2 (049) — maiúsculas preservadas", () => {
-    expect(parseRomaneioFilters({ ordem: "SOLDA" }).sort).toBe("SOLDA");
-    // Minúsculas na URL também apontam o processo (o catálogo é maiúsculo).
-    expect(parseRomaneioFilters({ ordem: "solda" }).sort).toBe("SOLDA");
-    // MP e KIT não abrem coluna na lista — link antigo cai no default.
+  it("códigos de processo na URL não ordenam mais (049 saiu da listagem)", () => {
+    // As colunas de processo passaram a viver no detalhe — um link
+    // antigo com `ordem=<código>` cai no default (nº desc).
+    expect(parseRomaneioFilters({ ordem: "SOLDA" }).sort).toBe("number");
+    expect(parseRomaneioFilters({ ordem: "solda" }).sort).toBe("number");
     expect(parseRomaneioFilters({ ordem: "MP" }).sort).toBe("number");
     expect(parseRomaneioFilters({ ordem: "KIT" }).sort).toBe("number");
   });
 
-  it("lê o par processo+situação (049) e zera par incompleto", () => {
+  it("chaves de processo na URL são ignoradas (não há mais filtro na lista)", () => {
     const filters = parseRomaneioFilters({ processo: "solda", procsituacao: "nao_iniciado" });
-    expect(filters.processCode).toBe("SOLDA");
-    expect(filters.processStatus).toBe("NAO_INICIADO");
-
-    // Sem código, sem situação ou com situação inválida → nada filtra
-    // (o backend só trabalha com o par montado).
-    expect(parseRomaneioFilters({ processo: "SOLDA" })).toMatchObject({
-      processCode: "ALL",
-      processStatus: "ALL",
-    });
-    expect(parseRomaneioFilters({ procsituacao: "CONCLUIDO" })).toMatchObject({
-      processCode: "ALL",
-      processStatus: "ALL",
-    });
-    expect(parseRomaneioFilters({ processo: "SOLDA", procsituacao: "HACK" })).toMatchObject({
-      processCode: "ALL",
-      processStatus: "ALL",
-    });
-    // MP e KIT não têm coluna na lista: par completo também é ignorado.
-    expect(parseRomaneioFilters({ processo: "KIT", procsituacao: "CONCLUIDO" })).toMatchObject({
-      processCode: "ALL",
-      processStatus: "ALL",
-    });
-    expect(parseRomaneioFilters({ processo: "MP", procsituacao: "NAO_INICIADO" })).toMatchObject({
-      processCode: "ALL",
-      processStatus: "ALL",
-    });
-    // `situacao` continua sendo a situação DO ROMANEIO (não do processo).
-    expect(parseRomaneioFilters({ situacao: "ABERTO" }).processStatus).toBe("ALL");
+    expect(filters).toEqual(parseRomaneioFilters({}));
+    // `situacao` continua sendo a situação DO ROMANEIO.
+    expect(parseRomaneioFilters({ situacao: "ABERTO" }).status).toBe("ABERTO");
+    expect(parseRomaneioFilters({ processo: "SOLDA" })).toEqual(parseRomaneioFilters({}));
+    expect(parseRomaneioFilters({ procsituacao: "CONCLUIDO" })).toEqual(parseRomaneioFilters({}));
   });
 });
 
@@ -953,8 +926,6 @@ describe("romaneioFilterChips + hasRomaneioFilters (047)", () => {
       parseRomaneioFilters({
         q: "107482",
         situacao: "ABERTO",
-        processo: "SOLDA",
-        procsituacao: "NAO_INICIADO",
         numerode: "10",
         numeroate: "99",
         pesode: "1.5",
@@ -965,7 +936,6 @@ describe("romaneioFilterChips + hasRomaneioFilters (047)", () => {
     expect(chips.map((chip) => chip.key)).toEqual([
       "search",
       "status",
-      "process",
       "number",
       "weight",
       "nfNumber",
@@ -973,13 +943,10 @@ describe("romaneioFilterChips + hasRomaneioFilters (047)", () => {
     ]);
     expect(chips[1]?.label).toBe("Situação: Aberto");
     expect(chips[1]?.clear).toEqual({ status: "ALL" });
-    // 049: o chip de processo limpa o par inteiro.
-    expect(chips[2]?.label).toBe("Processo SOLDA: Não iniciado");
-    expect(chips[2]?.clear).toEqual({ processCode: "ALL", processStatus: "ALL" });
-    expect(chips[3]?.label).toBe("Nº: #10 – #99");
-    expect(chips[4]?.label).toBe("Peso: ≥ 1,5");
-    expect(chips[5]?.label).toBe("NF saída: 12345");
-    expect(chips[6]?.label).toBe("NF devolução: 9876");
+    expect(chips[2]?.label).toBe("Nº: #10 – #99");
+    expect(chips[3]?.label).toBe("Peso: ≥ 1,5");
+    expect(chips[4]?.label).toBe("NF saída: 12345");
+    expect(chips[5]?.label).toBe("NF devolução: 9876");
     expect(romaneioFilterChips(parseRomaneioFilters({}))).toEqual([]);
   });
 
@@ -997,9 +964,8 @@ describe("romaneioFilterChips + hasRomaneioFilters (047)", () => {
     expect(hasRomaneioFilters(parseRomaneioFilters({ pesoate: "80" }))).toBe(true);
     expect(hasRomaneioFilters(parseRomaneioFilters({ nfsaida: "12345" }))).toBe(true);
     expect(hasRomaneioFilters(parseRomaneioFilters({ nfdev: "9876" }))).toBe(true);
-    // 049: o par processo+situação é filtro; par incompleto não conta.
-    expect(hasRomaneioFilters(parseRomaneioFilters({ processo: "SOLDA", procsituacao: "CONCLUIDO" }))).toBe(true);
-    expect(hasRomaneioFilters(parseRomaneioFilters({ processo: "SOLDA" }))).toBe(false);
+    // 049: as chaves de processo não são mais filtro da lista.
+    expect(hasRomaneioFilters(parseRomaneioFilters({ processo: "SOLDA", procsituacao: "CONCLUIDO" }))).toBe(false);
     // Ordenação e paginação NÃO são filtro.
     expect(hasRomaneioFilters(parseRomaneioFilters({ ordem: "status", pagina: "3" }))).toBe(false);
   });

@@ -5,7 +5,7 @@ import {
   FABRICA1_EDITABLE_PROCESS_CODES,
   romaneioProcessColumns,
 } from "@/lib/constants/processes";
-import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
+import { PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
 import type { ChildItemGroup, OrderSummary } from "@/lib/types/order";
 import type { RomaneioSummary, RomaneioView } from "@/lib/types/romaneio";
 import type {
@@ -72,7 +72,7 @@ function itemProcessCell(
   return `${symbol} ${counter}`;
 }
 
-/** Célula herdada do item pai (coluna MP da Fábrica 1): só o símbolo. */
+/** Célula de processo SEM contador (MP da Fábrica 1 e itens do romaneio): só o símbolo. */
 function inheritedProcessCell(status: ProcessStatus | undefined): string {
   return status ? PROCESS_STATUS_SYMBOLS[status] : "—";
 }
@@ -237,21 +237,16 @@ export function pedidosSheet(
 
 /**
  * Romaneio — listagem (RomaneioList): Nº, OF/OS, Cliente, Situação,
- * UMA coluna por processo da Fábrica 2 (049 — só o símbolo), Saída,
- * Peso, NF saída, NF devolução e o marcador de saldo a devolver
- * (mesmas colunas da tela, mesma ordem do servidor).
+ * Saída, Peso, NF saída, NF devolução e o marcador de saldo a devolver
+ * (mesmas colunas da tela, mesma ordem do servidor). As colunas de
+ * processo ficaram na lista de itens do DETALHE — aqui não entram.
  */
-export function romaneiosListSheet(
-  romaneios: readonly RomaneioSummary[],
-  processes: readonly ProcessDefinition[],
-): ExportSheet {
-  const processColumns = romaneioProcessColumns(processes);
+export function romaneiosListSheet(romaneios: readonly RomaneioSummary[]): ExportSheet {
   const headers = [
     "Nº",
     "OF/OS",
     "Cliente",
     "Situação",
-    ...processColumns.map((process) => process.code),
     "Saída",
     "Peso (kg)",
     "NF saída",
@@ -263,15 +258,13 @@ export function romaneiosListSheet(
     text(romaneio.orderCode),
     text(romaneio.customerName),
     ROMANEIO_STATUS_LABELS[romaneio.status],
-    ...processColumns.map((process) => inheritedProcessCell(romaneio.processes[process.code])),
     dateCell(romaneio.shipmentDate),
     number(romaneio.weightTotal),
     text(romaneio.nfNumber),
     text(romaneio.returnNfNumber),
     romaneio.pendingReturn && !romaneio.returnNfNumber ? "Sim" : "Não",
   ]);
-  // A coluna Saída desloca pelo número de colunas de processo novas.
-  return { headers, rows: body, dateColumns: [4 + processColumns.length] };
+  return { headers, rows: body, dateColumns: [4] };
 }
 
 /**
@@ -314,13 +307,16 @@ export function romaneioDocumentSheet(view: RomaneioView): ExportSheet {
   ]);
 
   // ---- Blocos: itens da carga e devolução de matéria-prima ----
+  // Uma coluna por processo (mesma regra/regras da tela do detalhe: o
+  // catálogo ativo menos a cadeia F1, MP e KIT), símbolo por item.
+  const processColumns = romaneioProcessColumns(view.processes);
   rows.push([]);
   rows.push(["ITENS DA CARGA"]);
   rows.push([
     "Item pai",
     "Família",
     "Descrição",
-    "EXP",
+    ...processColumns.map((process) => process.code),
     "Qtd OF",
     "Já expedida",
     "Nesta carga",
@@ -332,7 +328,7 @@ export function romaneioDocumentSheet(view: RomaneioView): ExportSheet {
       text(item.parentItem),
       text(item.family),
       text(item.description),
-      item.expStatus ? PROCESS_STATUS_LABELS[item.expStatus] : "—",
+      ...processColumns.map((process) => inheritedProcessCell(item.processes[process.code])),
       number(item.itemQuantity),
       number(item.shippedQuantity),
       number(item.quantity),

@@ -10,16 +10,8 @@ import {
   ROMANEIO_STATUS_LABELS,
   type RomaneioStatus,
 } from "@/lib/constants/romaneio";
-import { romaneioProcessColumns } from "@/lib/constants/processes";
-import {
-  PROCESS_STATUSES,
-  PROCESS_STATUS_LABELS,
-  PROCESS_STATUS_SYMBOLS,
-  type ProcessStatus,
-} from "@/lib/constants/production";
 import { SEARCH_DEBOUNCE_MS } from "@/lib/constants/pagination";
 import type { RomaneioFilters as RomaneioFilterValues } from "@/lib/types/romaneio";
-import type { ProcessDefinition } from "@/lib/types/production";
 import {
   hasRomaneioFilters,
   normalizeDeliveryPeriod,
@@ -39,8 +31,6 @@ import {
 
 interface RomaneioFiltersProps {
   filters: RomaneioFilterValues;
-  /** 049: catálogo ativo — base do seletor de coluna de processo (F2). */
-  processes: ProcessDefinition[];
 }
 
 /**
@@ -77,7 +67,7 @@ function parseRange(
  * faixa de peso e os dois números de NF. No desktop os filtros ficam nos
  * cabeçalhos das colunas (RomaneioColumnHeaders).
  */
-export function RomaneioFilters({ filters, processes }: RomaneioFiltersProps) {
+export function RomaneioFilters({ filters }: RomaneioFiltersProps) {
   const router = useRouter();
   const pathname = usePathname();
 
@@ -169,8 +159,6 @@ export function RomaneioFilters({ filters, processes }: RomaneioFiltersProps) {
   };
 
   const hasFilters = hasRomaneioFilters(filters);
-  // 049: mesmas colunas da tabela (regra F2 menos MP e KIT).
-  const processOptions = romaneioProcessColumns(processes);
 
   return (
     <section aria-label="Filtros dos romaneios" className="rounded border bg-card p-3">
@@ -221,67 +209,6 @@ export function RomaneioFilters({ filters, processes }: RomaneioFiltersProps) {
               {ROMANEIO_STATUSES.map((status) => (
                 <SelectItem key={status} value={status}>
                   {ROMANEIO_STATUS_LABELS[status]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* 049: par processo+situação (um filtro de processo por vez). */}
-        <div className="space-y-1">
-          <Label htmlFor="romaneio-processo" className="text-xs text-muted-foreground">
-            Processo (F2)
-          </Label>
-          <Select
-            value={filters.processCode}
-            onValueChange={(value) =>
-              apply(
-                value === "ALL"
-                  ? { processCode: "ALL", processStatus: "ALL" }
-                  : { processCode: value },
-              )
-            }
-          >
-            <SelectTrigger id="romaneio-processo" className="w-full">
-              <SelectValue placeholder="Nenhum processo" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">Nenhum processo</SelectItem>
-              {processOptions.map((process) => (
-                <SelectItem key={process.code} value={process.code}>
-                  {process.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor="romaneio-procsituacao" className="text-xs text-muted-foreground">
-            Situação do processo
-          </Label>
-          <Select
-            value={filters.processStatus}
-            onValueChange={(value) => {
-              if (filters.processCode === "ALL") {
-                toast.error("Escolha um processo primeiro para filtrar pela situação.");
-                return;
-              }
-              apply(
-                value === "ALL"
-                  ? { processCode: "ALL", processStatus: "ALL" }
-                  : { processStatus: value as ProcessStatus },
-              );
-            }}
-          >
-            <SelectTrigger id="romaneio-procsituacao" className="w-full">
-              <SelectValue placeholder="Todas as situações" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">Todas as situações</SelectItem>
-              {PROCESS_STATUSES.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {PROCESS_STATUS_SYMBOLS[status]} {PROCESS_STATUS_LABELS[status]}
                 </SelectItem>
               ))}
             </SelectContent>

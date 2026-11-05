@@ -352,6 +352,7 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
         </div>
         <RomaneioItemsEditor
           items={effectiveItems}
+          processes={view.processes}
           canEdit={canEdit}
           quantities={quantities}
           onQuantityChange={(orderItemId, value) =>

@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseServer } from "@/lib/supabase/types";
+import type { ProcessStatus } from "@/lib/constants/production";
 import type {
   RomaneioCustomerOption,
   RomaneioFilters,
@@ -42,19 +43,17 @@ import {
   type StoredMaterialLine,
 } from "@/lib/utils/romaneio";
 
-/** Lista paginada de romaneios + cartões de resumo por situação (047) + catálogo (049). */
+/** Lista paginada de romaneios + cartões de resumo por situação (047). */
 export async function getRomaneiosPage(
   client: SupabaseServer,
   filters: RomaneioFilters,
 ): Promise<RomaneiosPage> {
   // O resumo roda na MESMA RPC de filtros da lista: os cartões batem
   // com o total da paginação (inclusive no filtro de peso, que é
-  // agregado e o PostgREST não alcança). O catálogo de processos é o
-  // mesmo das demais telas — base das colunas de processo da lista.
-  const [page, summary, processes] = await Promise.all([
+  // agregado e o PostgREST não alcança).
+  const [page, summary] = await Promise.all([
     listRomaneios(client, filters),
     getRomaneioSummary(client, filters),
-    getActiveProcesses(client),
   ]);
 
   return {
@@ -63,7 +62,6 @@ export async function getRomaneiosPage(
     openCount: summary.open,
     conferredCount: summary.conferred,
     confirmedCount: summary.confirmed,
-    processes,
   };
 }
 
@@ -82,6 +80,21 @@ export async function getRomaneioCustomers(
   client: SupabaseServer,
 ): Promise<RomaneioCustomerOption[]> {
   return listRomaneioCustomers(client);
+}
+
+/**
+ * `production_processes` do item → mapa código do catálogo → situação.
+ * Base das colunas de processo da lista de itens no detalhe (chave
+ * ausente = o item não tem linha daquele processo → "—").
+ */
+function processStatusMap(
+  item: { production_processes: { status: ProcessStatus; processes: { code: string } | null }[] },
+): Record<string, ProcessStatus> {
+  const map: Record<string, ProcessStatus> = {};
+  for (const row of item.production_processes ?? []) {
+    if (row.processes?.code) map[row.processes.code] = row.status;
+  }
+  return map;
 }
 
 /**
@@ -111,6 +124,7 @@ export async function getRomaneioOrderItems(
       unitWeightKg: toNumber(item.unit_weight_kg),
       shippedQuantity: confirmedByItem.get(item.id) ?? 0,
       expStatus: exp ? exp.status : null,
+      processes: processStatusMap(item),
       quantity: 0,
       conferenceChecked: false,
     };
@@ -120,8 +134,9 @@ export async function getRomaneioOrderItems(
 /**
  * Visão completa do romaneio para a tela de detalhe: cabeçalho, itens
  * raiz da OF com o estado de expedição (EXP + já confirmado +
- * pendência), linhas de material (previsto alocado × informado) e os
- * gates de confirmação.
+ * pendência) e a situação de cada processo por item (colunas da lista
+ * de itens da carga), linhas de material (previsto alocado × informado)
+ * e os gates de confirmação.
  */
 export async function getRomaneioView(
   client: SupabaseServer,
@@ -132,9 +147,10 @@ export async function getRomaneioView(
   if (!raw) return null;
 
   const orderId = raw.orders.id;
-  const [confirmedByItem, ofLines] = await Promise.all([
+  const [confirmedByItem, ofLines, processes] = await Promise.all([
     listConfirmedQuantityByItem(client, orderId, romaneioId),
     listOrderMaterialLines(client, orderId),
+    getActiveProcesses(client),
   ]);
 
   // Estrutura completa da OF (raiz + filhos) com materiais — insumo da
@@ -181,6 +197,7 @@ export async function getRomaneioView(
         unitWeightKg: toNumber(item.unit_weight_kg),
         shippedQuantity: confirmedByItem.get(item.id) ?? 0,
         expStatus: exp ? exp.status : null,
+        processes: processStatusMap(item),
         quantity: includedByItem.get(item.id) ?? 0,
         conferenceChecked: checkedByItem.has(item.id),
       };
@@ -239,6 +256,9 @@ export async function getRomaneioView(
     returnNfNumber: raw.return_nf_number,
     createdAt: raw.created_at,
     items,
+    // Colunas de processo da lista de itens da carga (mesma regra da
+    // antiga lista: catálogo ativo menos a cadeia F1, MP e KIT).
+    processes,
     materials,
     // Insumos do preview ao vivo no detalhe (o cliente recalcula os
     // materiais/pesos a cada tecla com a MESMA lógica deste serviço).

@@ -1,9 +1,15 @@
 "use client";
 
 import type { RomaneioOrderItem } from "@/lib/types/romaneio";
+import type { ProcessDefinition } from "@/lib/types/production";
+import { romaneioProcessColumns } from "@/lib/constants/processes";
+import {
+  PROCESS_STATUS_LABELS,
+  PROCESS_STATUS_SYMBOLS,
+  type ProcessStatus,
+} from "@/lib/constants/production";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { Input } from "@/components/ui/input";
-import { ProcessStatusBadge } from "@/components/shared/StatusBadges";
 
 interface RomaneioItemsEditorProps {
   /**
@@ -12,6 +18,12 @@ interface RomaneioItemsEditorProps {
    * então os pesos e alertas acompanham a digitação na hora.
    */
   items: RomaneioOrderItem[];
+  /**
+   * Catálogo ativo de processos (049) — vira UMA coluna por processo da
+   * Fábrica 2 (catálogo menos a cadeia F1, MP e KIT), na ordem do
+   * catálogo: as colunas de processo da carga moram AQUI, no detalhe.
+   */
+  processes: ProcessDefinition[];
   canEdit: boolean;
   /** Texto digitado: orderItemId -> valor do input ("", "10", "2,5"). */
   quantities: Record<string, string>;
@@ -19,16 +31,43 @@ interface RomaneioItemsEditorProps {
 }
 
 /**
+ * Célula de processo (049): só o símbolo da situação (colunas estreitas);
+ * chave ausente no mapa do item = o item não tem linha daquele processo → "—".
+ */
+function ProcessSymbolCell({
+  process,
+  status,
+}: {
+  process: ProcessDefinition;
+  status: ProcessStatus | undefined;
+}) {
+  const title = `${process.name}: ${
+    status ? PROCESS_STATUS_LABELS[status] : "não aplicável a este item"
+  }`;
+  return (
+    <span role="img" aria-label={title} title={title}>
+      {status ? PROCESS_STATUS_SYMBOLS[status] : "—"}
+    </span>
+  );
+}
+
+/**
  * Editor de itens do romaneio — só itens RAIZ da OF (o EXP mora no pai).
  * "0"/vazio = item fora desta carga; a pendência ao lado lembra o teto da
  * expedição parcial (qtd do item − já emitida em outros romaneios).
+ * Cada coluna de processo mostra a situação DAQUELE item (mesma regra de
+ * colunas da antiga lista, agora por item em vez de agregada por carga).
  */
 export function RomaneioItemsEditor({
   items,
+  processes,
   canEdit,
   quantities,
   onQuantityChange,
 }: RomaneioItemsEditorProps) {
+  // 049: colunas de processo = regra da tela Fábrica 2 (catálogo ativo
+  // menos a cadeia F1) menos MP e KIT, na ordem do catálogo.
+  const processColumns = romaneioProcessColumns(processes);
   // Totalizador da coluna "Peso carga (kg)" — soma as MESMAS células
   // acima (peso unitário × quantidade efetiva digitada); itens sem
   // peso ficam de fora e, sem nenhum peso na carga, a linha nem
@@ -38,6 +77,8 @@ export function RomaneioItemsEditor({
     if (item.unitWeightKg === null) return sum;
     return sum + item.unitWeightKg * item.quantity;
   }, 0);
+  // Colunas antes do "Peso carga (kg)" — base do colSpan do rodapé.
+  const leadingColumns = 3 + processColumns.length + 4;
 
   return (
     <>
@@ -45,14 +86,23 @@ export function RomaneioItemsEditor({
       <div className="hidden overflow-x-auto rounded border bg-card lg:block">
         <table className="w-full caption-bottom text-sm">
           <caption className="sr-only">
-            Itens raiz da OF com situação da expedição, quantidades e pesos.
+            Itens raiz da OF com situação da expedição, situação de cada processo da carga,
+            quantidades e pesos.
           </caption>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
               <th scope="col" className="px-3 py-2 font-semibold">Família</th>
               <th scope="col" className="px-3 py-2 font-semibold">Item pai</th>
               <th scope="col" className="px-3 py-2 font-semibold">Descrição</th>
-              <th scope="col" className="px-3 py-2 font-semibold">EXP</th>
+              {/* 049: uma coluna por processo da Fábrica 2 — só o símbolo. */}
+              {processColumns.map((process) => (
+                <th key={process.code} scope="col" className="px-3 py-2 text-center font-semibold">
+                  <span className="block truncate" title={process.name}>
+                    <span aria-hidden>{process.code}</span>
+                    <span className="sr-only">{process.name}</span>
+                  </span>
+                </th>
+              ))}
               <th scope="col" className="px-3 py-2 text-right font-semibold">Qtd OF</th>
               <th scope="col" className="px-3 py-2 text-right font-semibold">Já expedida</th>
               <th scope="col" className="px-3 py-2 text-right font-semibold">Pendência</th>
@@ -75,18 +125,14 @@ export function RomaneioItemsEditor({
                       {item.description || "—"}
                     </span>
                   </td>
-                  <td className="px-3 py-2">
-                    {item.expStatus ? (
-                      <ProcessStatusBadge status={item.expStatus} />
-                    ) : (
-                      <span
-                        className="text-xs text-muted-foreground"
-                        title="O item não possui etapa de EXPEDIÇÃO"
-                      >
-                        —
-                      </span>
-                    )}
-                  </td>
+                  {processColumns.map((process) => (
+                    <td key={process.code} className="px-3 py-2 text-center">
+                      <ProcessSymbolCell
+                        process={process}
+                        status={item.processes[process.code]}
+                      />
+                    </td>
+                  ))}
                   <td className="px-3 py-2 text-right tabular-nums">
                     {formatQuantity(item.itemQuantity)}
                   </td>
@@ -123,7 +169,7 @@ export function RomaneioItemsEditor({
           {hasAnyWeight ? (
             <tfoot>
               <tr className="border-t bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
-                <td className="px-3 py-2 font-semibold" colSpan={8}>
+                <td className="px-3 py-2 font-semibold" colSpan={leadingColumns}>
                   Peso total da carga
                 </td>
                 <td className="px-3 py-2 text-right font-semibold tabular-nums text-foreground">
@@ -144,20 +190,34 @@ export function RomaneioItemsEditor({
           const overLimit = quantity + item.shippedQuantity > item.itemQuantity;
           return (
             <li key={item.orderItemId} className="rounded border bg-card p-3">
-              <header className="flex flex-wrap items-start justify-between gap-2">
-                <p className="min-w-0 flex-1 text-sm font-medium">{item.description || "—"}</p>
-                {item.expStatus ? (
-                  <ProcessStatusBadge status={item.expStatus} />
-                ) : (
-                  <span className="text-xs text-muted-foreground" title="Sem etapa de EXPEDIÇÃO">
-                    EXP —
-                  </span>
-                )}
-              </header>
+              <p className="text-sm font-medium">{item.description || "—"}</p>
 
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {[item.family, item.parentItem].filter(Boolean).join(" · ") || "Sem família"}
               </p>
+
+              {/* 049: processos do item — mesma linha compacta de símbolos
+                  nas colunas da tabela do desktop. */}
+              <ul
+                aria-label="Processos do item"
+                className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"
+              >
+                {processColumns.map((process) => {
+                  const status = item.processes[process.code];
+                  const label = status
+                    ? PROCESS_STATUS_LABELS[status]
+                    : "não aplicável a este item";
+                  return (
+                    <li key={process.code} className="inline-flex items-center gap-1">
+                      <span aria-hidden>{status ? PROCESS_STATUS_SYMBOLS[status] : "—"}</span>
+                      <span>{process.code}</span>
+                      <span className="sr-only">
+                        {process.name}: {label}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
 
               <dl className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1 text-sm">
                 <div>

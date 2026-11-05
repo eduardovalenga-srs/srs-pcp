@@ -1,0 +1,26 @@
+# Ignorar dependências e builds
+node_modules/
+.next/
+dist/
+build/
+.vercel/
+
+# Forçar a IA a ignorar tudo que NÃO seja romaneio
+src/app/(dashboard)/gestao-entregas/
+src/app/(dashboard)/fabrica-1/
+src/app/(dashboard)/fabrica-2/
+src/app/(dashboard)/pedidos/
+#src/app/(dashboard)/romaneio/
+src/app/(dashboard)/configuracoes/
+src/app/(dashboard)/importacao/
+
+# Ignorar arquivos de mídia e logs
+*.log
+*.mp4
+*.png
+*.jpg
+*.svg
+
+# Ignorar arquivos de ambiente (segurança e economia)
+.env
+.env.local

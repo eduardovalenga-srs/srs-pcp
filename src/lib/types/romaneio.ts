@@ -25,12 +25,6 @@ export interface RomaneioSummary {
   /** Quando o romaneio foi CONFIRMADO (coluna emitted_at). */
   emittedAt: string | null;
   createdAt: string;
-  /**
-   * 049: pior situação de CADA processo entre os ITENS DESTA carga
-   * (colunas da Fábrica 2). Chave ausente = o processo não tem linha
-   * aplicável neste romaneio — a célula sai "—".
-   */
-  processes: Record<string, ProcessStatus>;
 }
 
 /** Filtros da listagem de romaneios (vivem na URL). */
@@ -56,13 +50,6 @@ export interface RomaneioFilters {
   nfNumber: string;
   /** Coluna NF devolução por "contém". */
   returnNfNumber: string;
-  /**
-   * 049: coluna de processo da Fábrica 2 filtrada — par ÚNICO com
-   * processStatus (ALL = sem filtro; o backend só filtra o par montado).
-   */
-  processCode: string;
-  /** 049: situação filtrada naquele processo (ALL = sem filtro). */
-  processStatus: ProcessStatus | "ALL";
   /** 043: chave de ordenação (whitelist fechada da RPC de listagem). */
   sort: string;
   sortDir: "asc" | "desc";
@@ -79,8 +66,6 @@ export interface RomaneiosPage {
   conferredCount: number;
   /** Contagem de CONFIRMADOS com os mesmos filtros (cartão de resumo). */
   confirmedCount: number;
-  /** 049: catálogo ativo — base das colunas de processo da lista. */
-  processes: ProcessDefinition[];
 }
 
 /**
@@ -100,6 +85,12 @@ export interface RomaneioOrderItem {
   shippedQuantity: number;
   /** Situação do processo EXP do item (null = o item não tem linha de EXP). */
   expStatus: ProcessStatus | null;
+  /**
+   * Situação de CADA processo deste item (chave = código do catálogo) —
+   * colunas de processo da lista de itens da carga no detalhe. Chave
+   * ausente = o item não tem linha daquele processo (célula "—").
+   */
+  processes: Record<string, ProcessStatus>;
   /** Quantidade incluída NESTE romaneio (0 = item fora da carga). */
   quantity: number;
   /** Item marcado como conferido na ficha (048) — true só se incluído. */
@@ -158,6 +149,12 @@ export interface RomaneioView {
   createdAt: string;
   /** Itens raiz da OF com o estado de expedição (editável só em ABERTO). */
   items: RomaneioOrderItem[];
+  /**
+   * Catálogo ativo de processos — base das colunas de processo da lista
+   * de itens da carga (mesma regra da antiga lista: Fábrica 2 ativa, sem
+   * MP e sem KIT), na ordem do catálogo.
+   */
+  processes: ProcessDefinition[];
   /** Linhas de material (editáveis só em ABERTO). */
   materials: RomaneioMaterialLine[];
   /**

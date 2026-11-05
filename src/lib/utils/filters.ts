@@ -4,7 +4,6 @@ import { PROCESS_OVERDUE_LABEL, PROCESS_STATUSES, PROCESS_STATUS_LABELS, type Pr
 import type { ChildItemFilters, OrderFilters } from "@/lib/types/order";
 import type { ProductionFilters } from "@/lib/types/production";
 import type { RomaneioFilters } from "@/lib/types/romaneio";
-import { ROMANEIO_EXCLUDED_PROCESS_CODES } from "@/lib/constants/processes";
 import { ROMANEIO_STATUSES, ROMANEIO_STATUS_LABELS, type RomaneioStatus } from "@/lib/constants/romaneio";
 import { formatDate, isValidISODate } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight, toNumber } from "@/lib/utils/formatting";
@@ -386,37 +385,21 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
 }
 
 /**
- * 049: código de processo que a listagem de romaneios EXIBE — formato de
- * código válido E fora de `ROMANEIO_EXCLUDED_PROCESS_CODES` (MP e KIT não
- * abrem coluna aqui; link antigo cai no default/`ALL` em vez de ordenar
- * ou filtrar por uma coluna que não existe mais).
- */
-function isRomaneioProcessParam(value: string): boolean {
-  return isValidProcessSort(value) && !ROMANEIO_EXCLUDED_PROCESS_CODES.includes(value);
-}
-
-/**
  * Lê os filtros da listagem de romaneios de expedição a partir da URL.
  * `q` busca genérica (nº do romaneio, OF/OS ou cliente); `saida*` filtra
  * o período da data de saída (mesmas convenções das telas de entrega).
  * As demais chaves são os filtros de coluna (047): situação, faixa de
- * nº, faixa de peso e os dois números de NF — e o par de coluna de
- * processo da Fábrica 2 (049).
+ * nº, faixa de peso e os dois números de NF.
  */
 export function parseRomaneioFilters(params: SearchParamsRecord): RomaneioFilters {
   const search = firstValue(params.q).trim();
 
-  // 043: ordenação por coluna (whitelist fechada); 049: códigos de
-  // processo exibidos também ordenam (pior situação) — validação
-  // separada, padrão da tela da Fábrica 2.
+  // 043: ordenação por coluna (whitelist fechada) — os códigos de
+  // processo não ordenam mais aqui: as colunas de processo saíram da
+  // lista e passaram a viver no detalhe, por item.
   const sortRaw = firstValue(params.ordem);
   const sortColumn = sortRaw.toLowerCase();
-  const sortProcess = sortRaw.trim().toUpperCase();
-  const sort = isRomaneioSortableColumn(sortColumn)
-    ? sortColumn
-    : isRomaneioProcessParam(sortProcess)
-      ? sortProcess
-      : DEFAULT_ROMANEIO_SORT;
+  const sort = isRomaneioSortableColumn(sortColumn) ? sortColumn : DEFAULT_ROMANEIO_SORT;
   const sortDirRaw = firstValue(params.direcao).toLowerCase();
   const sortDir: "asc" | "desc" =
     sortDirRaw === "asc" || sortDirRaw === "desc" ? sortDirRaw : DEFAULT_ROMANEIO_SORT_DIR;
@@ -432,23 +415,6 @@ export function parseRomaneioFilters(params: SearchParamsRecord): RomaneioFilter
     ? (statusRaw as RomaneioStatus)
     : "ALL";
 
-  // 049: par processo+situação da coluna F2 — `situacao` já é a
-  // situação DO ROMANEIO, então a situação do processo usa a chave
-  // `procsituacao`. Par incompleto zera os dois (o backend só filtra
-  // com o par montado — mesma regra de um filtro de processo por vez).
-  const processCodeRaw = firstValue(params.processo).trim().toUpperCase();
-  const processStatusRaw = firstValue(params.procsituacao).toUpperCase();
-  let processCode = isRomaneioProcessParam(processCodeRaw) ? processCodeRaw : "ALL";
-  let processStatus: ProcessStatus | "ALL" = (PROCESS_STATUSES as readonly string[]).includes(
-    processStatusRaw,
-  )
-    ? (processStatusRaw as ProcessStatus)
-    : "ALL";
-  if (processCode === "ALL" || processStatus === "ALL") {
-    processCode = "ALL";
-    processStatus = "ALL";
-  }
-
   return {
     search,
     status,
@@ -462,8 +428,6 @@ export function parseRomaneioFilters(params: SearchParamsRecord): RomaneioFilter
     weightTo: numberParam(params, "pesoate"),
     nfNumber: textParam(params, "nfsaida"),
     returnNfNumber: textParam(params, "nfdev"),
-    processCode,
-    processStatus,
     sort,
     sortDir,
     page,
@@ -490,9 +454,6 @@ export function romaneioQueryString(
     pesoate: next.weightTo ?? undefined,
     nfsaida: next.nfNumber || undefined,
     nfdev: next.returnNfNumber || undefined,
-    // 049: par de coluna de processo (F2) — só sai montado.
-    processo: next.processCode === "ALL" ? undefined : next.processCode,
-    procsituacao: next.processStatus === "ALL" ? undefined : next.processStatus,
     ordem: next.sort === DEFAULT_ROMANEIO_SORT ? undefined : next.sort,
     // `direcao` só sobrevive quando difere do default da tela (desc) —
     // no default, "asc" sobrevive sozinho (`?direcao=asc` reparseia na
@@ -521,9 +482,7 @@ export function hasRomaneioFilters(filters: RomaneioFilters): boolean {
     filters.weightFrom !== null ||
     filters.weightTo !== null ||
     filters.nfNumber !== "" ||
-    filters.returnNfNumber !== "" ||
-    filters.processCode !== "ALL" ||
-    filters.processStatus !== "ALL"
+    filters.returnNfNumber !== ""
   );
 }
 
@@ -907,7 +866,6 @@ export interface RomaneioFilterChip {
   key:
     | "search"
     | "status"
-    | "process"
     | "orderCode"
     | "customer"
     | "shipmentPeriod"
@@ -937,15 +895,6 @@ export function romaneioFilterChips(filters: RomaneioFilters): RomaneioFilterChi
       key: "status",
       label: `Situação: ${ROMANEIO_STATUS_LABELS[filters.status]}`,
       clear: { status: "ALL" },
-    });
-  }
-
-  // 049: coluna de processo da Fábrica 2 (par processo+situação).
-  if (filters.processCode !== "ALL" && filters.processStatus !== "ALL") {
-    chips.push({
-      key: "process",
-      label: `Processo ${filters.processCode}: ${PROCESS_STATUS_LABELS[filters.processStatus]}`,
-      clear: { processCode: "ALL", processStatus: "ALL" },
     });
   }
 

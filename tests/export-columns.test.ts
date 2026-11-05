@@ -8,13 +8,14 @@ import type {
   ProductionOrderRow,
   ProductionRow,
 } from "@/lib/types/production";
-import type { RomaneioSummary } from "@/lib/types/romaneio";
+import type { RomaneioOrderItem, RomaneioSummary, RomaneioView } from "@/lib/types/romaneio";
 import { collectAllPages, EXPORT_PAGE_SIZE } from "@/lib/export/common";
 import {
   fabrica1Sheet,
   fabrica2Sheet,
   gestaoEntregasSheet,
   pedidosSheet,
+  romaneioDocumentSheet,
   romaneiosListSheet,
 } from "@/lib/export/columns";
 
@@ -50,7 +51,6 @@ function romaneioSummary(overrides: Partial<RomaneioSummary> = {}): RomaneioSumm
     conferenceAcceptedAt: "2026-10-25T10:00:00Z",
     emittedAt: "2026-10-26T12:00:00Z",
     createdAt: "2026-10-20T09:00:00Z",
-    processes: {},
     ...overrides,
   };
 }
@@ -433,39 +433,131 @@ describe("collectAllPages", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 049) Lista de romaneios — colunas de processos da Fábrica 2 na planilha.
+// Romaneio — a lista NÃO tem mais colunas de processo (049 saiu da tela);
+// quem carrega colunas por processo é o documento do DETALHE.
 // ---------------------------------------------------------------------------
 
-describe("romaneiosListSheet — lista de romaneios (049)", () => {
-  it("espelha a tela: colunas de processo F2 (sem MP/KIT) com símbolo e Saída como data", () => {
-    const sheet = romaneiosListSheet(
-      [romaneioSummary({ processes: { SOLDA: "CONCLUIDO", EXP: "NAO_APLICAVEL" } })],
-      PROCESSES,
-    );
+describe("romaneiosListSheet — lista de romaneios", () => {
+  it("espelha a tela sem colunas de processo, com Saída como data", () => {
+    const sheet = romaneiosListSheet([romaneioSummary()]);
 
-    // MESMAS colunas da tela: cadeia F1 (LASER/SERRA) e MP/KIT ficam de fora.
+    // MESMAS colunas da tela, na mesma ordem do servidor.
     expect(sheet.headers).toEqual([
       "Nº",
       "OF/OS",
       "Cliente",
       "Situação",
-      "SOLDA",
-      "EXP",
       "Saída",
       "Peso (kg)",
       "NF saída",
       "NF devolução",
       "Saldo a devolver",
     ]);
-    expect(sheet.headers).not.toContain("MP");
-    expect(sheet.headers).not.toContain("KIT");
-    // A coluna Saída desloca pelos 2 processos (4 + 2 = 6) e continua data.
-    expect(sheet.dateColumns).toEqual([6]);
+    expect(sheet.headers).not.toContain("SOLDA");
+    expect(sheet.headers).not.toContain("EXP");
+    // Sem colunas de processo, a Saída volta para o índice 4 e segue data.
+    expect(sheet.dateColumns).toEqual([4]);
 
     const row = sheet.rows[0]!;
-    expect(row[4]).toBe("✓"); // SOLDA CONCLUIDO
-    expect(row[5]).toBe("—"); // EXP NAO_APLICAVEL
-    expect(row[6]).toBeInstanceOf(Date); // Saída
-    expect(row[10]).toBe("Sim"); // saldo a devolver (pendingReturn sem NF devol.)
+    expect(row[4]).toBeInstanceOf(Date); // Saída
+    expect(row[8]).toBe("Sim"); // saldo a devolver (pendingReturn sem NF devol.)
+  });
+});
+
+/** Item raiz da OF com as situações de processo (049 — colunas do detalhe). */
+function romaneioItem(
+  overrides: Partial<RomaneioOrderItem> = {},
+): RomaneioOrderItem {
+  return {
+    orderItemId: "item-1",
+    family: "GC",
+    parentItem: "P-1",
+    description: "GUARDA CORPO",
+    itemQuantity: 10,
+    unitWeightKg: 2.5,
+    shippedQuantity: 0,
+    expStatus: "CONCLUIDO",
+    processes: { SOLDA: "CONCLUIDO", EXP: "NAO_APLICAVEL" },
+    quantity: 4,
+    conferenceChecked: false,
+    ...overrides,
+  };
+}
+
+/** Visão mínima do detalhe para o documento de UM romaneio. */
+function romaneioView(overrides: Partial<RomaneioView> = {}): RomaneioView {
+  return {
+    id: "rom-1",
+    number: 42,
+    status: "CONFERIDO",
+    orderId: "order-1",
+    orderCode: "OF 107482",
+    orderType: "OF",
+    customerName: "ACME",
+    orderDeliveryDate: "2026-10-20",
+    orderStatus: "EM_PRODUCAO",
+    shipmentDate: "2026-10-25",
+    carrier: "Transportes ACME",
+    vehicle: "ABC-1D23",
+    notes: null,
+    conferenceAcceptedAt: "2026-10-25T10:00:00Z",
+    conferenceAcceptedByName: "João",
+    conferenceNotes: null,
+    emittedAt: null,
+    nfNumber: "12345",
+    returnNfNumber: null,
+    createdAt: "2026-10-20T09:00:00Z",
+    items: [romaneioItem()],
+    processes: PROCESSES,
+    materials: [],
+    allocationItems: [],
+    storedMaterials: [],
+    ofMaterialTotals: { received: 0, used: 0, returned: 0 },
+    confirmation: { canConfirm: true, blockers: [] },
+    canEdit: true,
+    ...overrides,
+  };
+}
+
+describe("romaneioDocumentSheet — documento do detalhe", () => {
+  it("troca a coluna EXP por uma coluna por processo na lista de itens", () => {
+    const sheet = romaneioDocumentSheet(romaneioView());
+    const itemsHeaderIndex = sheet.rows.findIndex((row) => row[0] === "ITENS DA CARGA");
+    expect(itemsHeaderIndex).toBeGreaterThanOrEqual(0);
+
+    const headers = sheet.rows[itemsHeaderIndex + 1]!;
+    // MESMAS colunas da tela: F1/MP/KIT ficam de fora, EXP entra no conjunto.
+    expect(headers).toEqual([
+      "Item pai",
+      "Família",
+      "Descrição",
+      "SOLDA",
+      "EXP",
+      "Qtd OF",
+      "Já expedida",
+      "Nesta carga",
+      "Peso un. (kg)",
+      "Peso carga (kg)",
+    ]);
+    expect(headers).not.toContain("MP");
+    expect(headers).not.toContain("KIT");
+    expect(headers).not.toContain("LASER");
+
+    const row = sheet.rows[itemsHeaderIndex + 2]!;
+    expect(row[3]).toBe("✓"); // SOLDA CONCLUIDO
+    expect(row[4]).toBe("—"); // EXP NAO_APLICAVEL
+    expect(row[5]).toBe(10); // Qtd OF
+    expect(row[8]).toBe(2.5); // Peso un.
+    expect(row[9]).toBe(10); // Peso carga = 2.5 × 4
+  });
+
+  it("processo sem linha no item vira “—” na planilha", () => {
+    const sheet = romaneioDocumentSheet(
+      romaneioView({ items: [romaneioItem({ processes: {} })] }),
+    );
+    const itemsHeaderIndex = sheet.rows.findIndex((row) => row[0] === "ITENS DA CARGA");
+    const row = sheet.rows[itemsHeaderIndex + 2]!;
+    expect(row[3]).toBe("—"); // SOLDA ausente
+    expect(row[4]).toBe("—"); // EXP ausente
   });
 });

@@ -3,7 +3,6 @@ import { getSessionUser } from "@/lib/auth/session";
 import { romaneioDocumentSheet, romaneiosListSheet } from "@/lib/export/columns";
 import { exportFileName, searchParamsRecord } from "@/lib/export/common";
 import { workbookResponse } from "@/lib/export/workbook";
-import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { getRomaneioView, listRomaneiosForExport } from "@/lib/services/romaneio.service";
 import { createClient } from "@/lib/supabase/server";
 import { firstValue, parseRomaneioFilters } from "@/lib/utils/filters";
@@ -50,12 +49,9 @@ export async function GET(request: Request) {
     }
 
     const filters = parseRomaneioFilters(params);
-    const [romaneios, processes] = await Promise.all([
-      listRomaneiosForExport(client, filters),
-      getActiveProcesses(client),
-    ]);
+    const romaneios = await listRomaneiosForExport(client, filters);
 
-    return workbookResponse(exportFileName("romaneio"), romaneiosListSheet(romaneios, processes));
+    return workbookResponse(exportFileName("romaneio"), romaneiosListSheet(romaneios));
   } catch (error) {
     return Response.json(
       { error: errorMessage(error, "Não foi possível exportar a lista.") },

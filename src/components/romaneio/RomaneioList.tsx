@@ -5,13 +5,6 @@ import Link from "next/link";
 import { ArrowRight, ClipboardCheck, FileText, Send } from "lucide-react";
 
 import type { RomaneioFilters, RomaneioSummary } from "@/lib/types/romaneio";
-import type { ProcessDefinition } from "@/lib/types/production";
-import { romaneioProcessColumns } from "@/lib/constants/processes";
-import {
-  PROCESS_STATUS_LABELS,
-  PROCESS_STATUS_SYMBOLS,
-  type ProcessStatus,
-} from "@/lib/constants/production";
 import { formatDate } from "@/lib/utils/dates";
 import { formatWeight } from "@/lib/utils/formatting";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +17,6 @@ import {
 import {
   RomaneioColumnHeader,
   RomaneioNumberFilter,
-  RomaneioProcessColumnFilter,
   RomaneioShipmentFilter,
   RomaneioStatusFilter,
   RomaneioTextFilter,
@@ -35,11 +27,6 @@ interface RomaneioListProps {
   romaneios: RomaneioSummary[];
   /** Filtros vigentes (URL) — cada cabeçalho ordena e filtra a coluna. */
   filters: RomaneioFilters;
-  /**
-   * Catálogo ativo de processos (049) — vira UMA coluna por processo da
-   * Fábrica 2 (catálogo menos a cadeia F1), na ordem do catálogo.
-   */
-  processes: ProcessDefinition[];
   /**
    * O perfil edita romaneios (capacidade `romaneio.edit`) — gate das
    * ações de emissão de NF (Conferência/Abrir continuam para leitura).
@@ -53,27 +40,6 @@ function ReturnPendingBadge() {
     <Badge variant="warning" title="Há saldo de devolução de matéria-prima sem NF registrada">
       A devolver
     </Badge>
-  );
-}
-
-/**
- * Célula de processo (049): SÓ o símbolo da situação (colunas estreitas);
- * chave ausente no agregado = nenhum item da carga tem aquele processo → "—".
- */
-function ProcessSymbolCell({
-  process,
-  status,
-}: {
-  process: ProcessDefinition;
-  status: ProcessStatus | undefined;
-}) {
-  const title = `${process.name}: ${
-    status ? PROCESS_STATUS_LABELS[status] : "não aplicável a esta carga"
-  }`;
-  return (
-    <span role="img" aria-label={title} title={title}>
-      {status ? PROCESS_STATUS_SYMBOLS[status] : "—"}
-    </span>
   );
 }
 
@@ -140,7 +106,7 @@ function RowActions({
 }
 
 /** Listagem de romaneios: tabela no desktop (lg+) e cards no mobile. */
-export function RomaneioList({ romaneios, filters, processes, canEdit }: RomaneioListProps) {
+export function RomaneioList({ romaneios, filters, canEdit }: RomaneioListProps) {
   // Diálogo de emissão/edição de NF — montado só enquanto aberto.
   const [nfDialog, setNfDialog] = useState<{
     romaneio: RomaneioSummary;
@@ -157,18 +123,14 @@ export function RomaneioList({ romaneios, filters, processes, canEdit }: Romanei
         : "descending"
       : undefined;
 
-  // 049: colunas de processo = regra da tela Fábrica 2 (catálogo ativo
-  // menos a cadeia F1) menos MP e KIT, na ordem do catálogo.
-  const processColumns = romaneioProcessColumns(processes);
-
   return (
     <>
       {/* Desktop / tablet largo: tabela */}
       <div className="hidden overflow-x-auto rounded border bg-card lg:block">
         <table className="w-full caption-bottom text-sm">
           <caption className="sr-only">
-            Romaneios de expedição, com número, situação, processos da Fábrica 2, OF/OS, cliente,
-            data de saída, peso e números de NF — cada coluna é ordenável e filtrável.
+            Romaneios de expedição, com número, situação, OF/OS, cliente, data de saída, peso e
+            números de NF — cada coluna é ordenável e filtrável.
           </caption>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
@@ -189,23 +151,6 @@ export function RomaneioList({ romaneios, filters, processes, canEdit }: Romanei
                   filter={<RomaneioStatusFilter filters={filters} />}
                 />
               </th>
-              {/* 049: uma coluna por processo da Fábrica 2 — símbolo + filtro + ordenação. */}
-              {processColumns.map((process) => (
-                <th
-                  key={process.code}
-                  scope="col"
-                  className="px-3 py-2 text-center font-semibold"
-                  aria-sort={ariaSort(process.code)}
-                >
-                  <RomaneioColumnHeader
-                    label={process.code}
-                    fullLabel={process.name}
-                    columnId={process.code}
-                    filters={filters}
-                    filter={<RomaneioProcessColumnFilter filters={filters} code={process.code} />}
-                  />
-                </th>
-              ))}
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("order_code")}>
                 <RomaneioColumnHeader
                   label="OF/OS"
@@ -305,14 +250,6 @@ export function RomaneioList({ romaneios, filters, processes, canEdit }: Romanei
                     ) : null}
                   </span>
                 </td>
-                {processColumns.map((process) => (
-                  <td key={process.code} className="px-3 py-2 text-center">
-                    <ProcessSymbolCell
-                      process={process}
-                      status={romaneio.processes[process.code]}
-                    />
-                  </td>
-                ))}
                 <td className="px-3 py-2">
                   <span className="font-medium tabular-nums">{romaneio.orderCode}</span>
                 </td>

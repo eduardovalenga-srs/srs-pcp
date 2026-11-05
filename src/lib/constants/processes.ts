@@ -134,8 +134,8 @@ export function isProcessCode(value: string): value is ProcessCode {
 }
 
 /**
- * Colunas de processo da tela Fábrica 2 — base também da listagem de
- * romaneios (049): catálogo ATIVO menos a cadeia da Fábrica 1. Sai
+ * Colunas de processo da tela Fábrica 2 — base também das colunas do
+ * romaneio (049): catálogo ATIVO menos a cadeia da Fábrica 1. Sai
  * PRÉ-MTG, SOLDA, ACAB, QUALITY, EXP… na ordem do catálogo,
  * dinâmica (processos novos entram sozinhos).
  */
@@ -148,10 +148,11 @@ export function fabrica2ProcessColumns<T extends { code: string; active: boolean
 }
 
 /**
- * 049 + ajuste: códigos que NÃO abrem coluna na listagem de romaneios —
+ * 049 + ajuste: códigos que NÃO abrem coluna no romaneio —
  * **MP** e **KIT** ficam de fora (não são etapas da carga de expedição).
- * Valem para as colunas, para o seletor do mobile e para a URL
- * (`processo`/`procsituacao` e `ordem=`): link antigo cai no default.
+ * Valem para as colunas de processo da lista de itens do detalhe e para
+ * a URL de listagem (`processo`/`procsituacao` e `ordem=`): link antigo
+ * cai no default.
  */
 export const ROMANEIO_EXCLUDED_PROCESS_CODES: readonly string[] = [
   MP_PROCESS_CODE,
@@ -159,8 +160,8 @@ export const ROMANEIO_EXCLUDED_PROCESS_CODES: readonly string[] = [
 ];
 
 /**
- * Colunas de processo da listagem de romaneios (049): a regra da
- * Fábrica 2 (`fabrica2ProcessColumns`) menos `ROMANEIO_EXCLUDED_PROCESS_CODES`
+ * Colunas de processo do romaneio (049): a regra da Fábrica 2
+ * (`fabrica2ProcessColumns`) menos `ROMANEIO_EXCLUDED_PROCESS_CODES`
  * — na ordem do catálogo, dinâmica (processos novos entram sozinhos).
  */
 export function romaneioProcessColumns<T extends { code: string; active: boolean }>(

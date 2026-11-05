@@ -5,8 +5,10 @@ import { ArrowLeft } from "lucide-react";
 import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
+import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { getRomaneioCustomers } from "@/lib/services/romaneio.service";
 import type { RomaneioCustomerOption } from "@/lib/types/romaneio";
+import type { ProcessDefinition } from "@/lib/types/production";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -43,9 +45,14 @@ export default async function NovoRomaneioPage() {
   }
 
   let customers: RomaneioCustomerOption[];
+  let processes: ProcessDefinition[];
   try {
     const client = await createClient();
-    customers = await getRomaneioCustomers(client);
+    // Catálogo de processos = colunas da lista de itens da remessa (049).
+    [customers, processes] = await Promise.all([
+      getRomaneioCustomers(client),
+      getActiveProcesses(client),
+    ]);
   } catch (error) {
     return (
       <>
@@ -76,7 +83,7 @@ export default async function NovoRomaneioPage() {
           description="Não há OFs abertas para expedir (canceladas, sem itens ou totalmente expedidas ficam fora)."
         />
       ) : (
-        <RomaneioNewForm customers={customers} />
+        <RomaneioNewForm customers={customers} processes={processes} />
       )}
     </>
   );

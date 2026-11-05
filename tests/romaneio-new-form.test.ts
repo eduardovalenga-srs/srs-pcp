@@ -84,6 +84,7 @@ function orderItem(overrides: Partial<RomaneioOrderItem> = {}): RomaneioOrderIte
     unitWeightKg: 2,
     shippedQuantity: 2,
     expStatus: "CONCLUIDO",
+    processes: {},
     quantity: 0,
     conferenceChecked: false,
     ...overrides,
@@ -200,7 +201,7 @@ describe("render inicial do formulário — /romaneio/novo", () => {
   const customers = [customer("ACME", [of()])];
 
   it("renderiza os três campos com o botão desabilitado sem seleção", () => {
-    const markup = html(createElement(RomaneioNewForm, { customers }));
+    const markup = html(createElement(RomaneioNewForm, { customers, processes: [] }));
 
     expect(markup).toContain('id="romaneio-novo-cliente"');
     expect(markup).toContain('id="romaneio-novo-of"');
@@ -214,13 +215,13 @@ describe("render inicial do formulário — /romaneio/novo", () => {
   });
 
   it("o seletor de cliente nasce ativo e o de OF desabilitado", () => {
-    const markup = html(createElement(RomaneioNewForm, { customers }));
+    const markup = html(createElement(RomaneioNewForm, { customers, processes: [] }));
     expect(buttonTagById(markup, "romaneio-novo-cliente")).not.toContain('disabled=""');
     expect(buttonTagById(markup, "romaneio-novo-of")).toContain('disabled=""');
   });
 
   it("sem clientes disponíveis, os dois seletores nascem desabilitados", () => {
-    const markup = html(createElement(RomaneioNewForm, { customers: [] }));
+    const markup = html(createElement(RomaneioNewForm, { customers: [], processes: [] }));
     expect(markup).toContain("Selecione o cliente…");
     expect(buttonTagById(markup, "romaneio-novo-cliente")).toContain('disabled=""');
     expect(buttonTagById(markup, "romaneio-novo-of")).toContain('disabled=""');

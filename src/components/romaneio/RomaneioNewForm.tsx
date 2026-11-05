@@ -14,6 +14,7 @@ import type {
   RomaneioCustomerOption,
   RomaneioOrderItem,
 } from "@/lib/types/romaneio";
+import type { ProcessDefinition } from "@/lib/types/production";
 import { formatDate, isValidISODate } from "@/lib/utils/dates";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
@@ -97,6 +98,8 @@ export function canConfirmRomaneio(
 
 interface RomaneioNewFormProps {
   customers: RomaneioCustomerOption[];
+  /** Catálogo ativo de processos — colunas da lista de itens (049). */
+  processes: ProcessDefinition[];
 }
 
 /**
@@ -105,7 +108,7 @@ interface RomaneioNewFormProps {
  * romaneio" cria o romaneio em ABERTO já com as quantidades desta remessa;
  * a OF com romaneio aberto leva direto ao rascunho existente.
  */
-export function RomaneioNewForm({ customers }: RomaneioNewFormProps) {
+export function RomaneioNewForm({ customers, processes }: RomaneioNewFormProps) {
   const router = useRouter();
 
   const [customerValue, setCustomerValue] = useState<string | null>(null);
@@ -334,6 +337,7 @@ export function RomaneioNewForm({ customers }: RomaneioNewFormProps) {
           </div>
           <RomaneioItemsEditor
             items={items}
+            processes={processes}
             canEdit
             quantities={quantities}
             onQuantityChange={(orderItemId, value) =>
