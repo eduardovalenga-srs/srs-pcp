@@ -140,6 +140,28 @@ export function materialDescription(raw: string): string | null {
 }
 
 /**
+ * QUANTIDADE e UNIDADE de uma matéria-prima vinda de PLANILHA.
+ *
+ * Quando o arquivo traz o PESO (kg) do item, a linha nasce em KG com o
+ * peso TOTAL — o MESMO mapeamento do importador de PDF (of-pdf.ts,
+ * `quantity: peso, unit: "KG"`). É isso que faz a lista de devolução do
+ * romaneio exibir a unidade em kg e o PESO POR MATERIAL, em vez de
+ * "un" e "—" (só as unidades KG/G entram no peso — `weightKgOf`).
+ *
+ * Sem peso (coluna vazia/inválida) mantém o comportamento antigo:
+ * QUANTIDADE DE PEÇAS em "UN" — trocar apenas o rótulo mentiria sobre
+ * a unidade. Peso ≤ 0 também fica de fora: a RPC de import rejeita
+ * quantidade de material ≤ 0.
+ */
+export function materialQuantityAndUnit(
+  weightKg: number | null,
+  fallbackQuantity: number,
+): { quantity: number; unit: "KG" | "UN" } {
+  if (weightKg !== null && weightKg > 0) return { quantity: weightKg, unit: "KG" };
+  return { quantity: fallbackQuantity, unit: "UN" };
+}
+
+/**
  * Monta a estrutura OF -> pais -> filhos -> materiais a partir da aba já
  * com o cabeçalho técnico detectado. Lança erro quando faltam colunas
  * obrigatórias (arquivo fora do formato esperado).
@@ -358,10 +380,13 @@ export function buildOfStructure(
         const notes = [cellText(row, col.COCOMPCODMAT), cellText(row, col.CPQUALIDADE)]
           .filter(Boolean)
           .join(" · ");
+        // Peso do filho vira a QUANTIDADE do material em KG (sem peso,
+        // continua a quantidade de peças em "UN").
+        const materialQuantity = materialQuantityAndUnit(totalWeightKg, quantity.value ?? 0);
         child.materials.push({
           description: material,
-          quantity: quantity.value ?? 0,
-          unit: "UN",
+          quantity: materialQuantity.quantity,
+          unit: materialQuantity.unit,
           notes: notes || null,
         });
       } else {
@@ -426,6 +451,7 @@ export function buildOfStructure(
       parent.materials.push({
         description: directMaterial,
         quantity: quantity.value ?? parent.quantity,
+        // Vira KG na finalização quando a posição é FOLHA (ver abaixo).
         unit: "UN",
         notes: notes || null,
       });
@@ -450,6 +476,20 @@ export function buildOfStructure(
     }
 
     for (const parent of order.parents) {
+      // Material direto do pai: a planilha não traz peso POR material,
+      // mas numa posição FOLHA (sem componentes) o peso total do item é
+      // o da própria matéria-prima — a linha nasce em KG, do mesmo
+      // jeito que no importador de PDF. Quando HÁ filhos, o peso já
+      // está nas linhas dos componentes e o do pai fica em peças (UN)
+      // para o peso da carga não ser contado duas vezes.
+      if (parent.children.length === 0 && parent.materials.length > 0) {
+        const direct = parent.materials[0];
+        if (direct && direct.unit === "UN") {
+          const upgraded = materialQuantityAndUnit(parent.totalWeightKg, direct.quantity);
+          direct.quantity = upgraded.quantity;
+          direct.unit = upgraded.unit;
+        }
+      }
       if (!parent.description) {
         order.issues.push(
           issue({

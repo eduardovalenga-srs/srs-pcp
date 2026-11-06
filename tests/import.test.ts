@@ -10,7 +10,7 @@ import {
   normalizeHeader,
   parseExcelFile,
 } from "@/lib/import/excel-parser";
-import { buildOfStructure, familyFromDescription, orderStatusOf } from "@/lib/import/of-structure";
+import { buildOfStructure, familyFromDescription, materialQuantityAndUnit, orderStatusOf } from "@/lib/import/of-structure";
 import { buildOfImportPlan, computeOfDifferences, undecidedOrders } from "@/lib/import/of-plan";
 import { assertSheetStructure, importFormSchema, validateImportFile } from "@/lib/validators/import.schema";
 import { formatQuantity } from "@/lib/utils/formatting";
@@ -316,7 +316,9 @@ describe("buildOfStructure", () => {
       deliveryDate: FORM.deliveryDate,
     });
     expect(pai.children[0]?.materials).toEqual([
-      { description: "TB42.20X3.56", quantity: 3, unit: "UN", notes: "T1318 · SCH40" },
+      // Peso do filho (3 × 4,16 kg = 12,48) vira a QUANTIDADE da MP
+      // em KG — mesma regra do importador de PDF.
+      { description: "TB42.20X3.56", quantity: 12.48, unit: "KG", notes: "T1318 · SCH40" },
     ]);
     expect(pai.children[1]).toMatchObject({
       code: "72-743",
@@ -329,8 +331,10 @@ describe("buildOfStructure", () => {
     expect(direto.code).toBe("72ST18-025");
     expect(direto.family).toBe("BP");
     expect(direto.children).toHaveLength(0);
+    // Posição FOLHA com peso (2 × 1,09 kg): o material nasce em KG com
+    // o peso total do item — mesma regra do importador de PDF.
     expect(direto.materials).toEqual([
-      { description: "TB42.20X3.56", quantity: 2, unit: "UN", notes: "T1318 · SCH40" },
+      { description: "TB42.20X3.56", quantity: 2.18, unit: "KG", notes: "T1318 · SCH40" },
     ]);
   });
 
@@ -527,6 +531,111 @@ describe("familyFromDescription", () => {
     expect(familyFromDescription("portão de entrada")).toBe("PDE");
     expect(familyFromDescription("STR0018 - PLATAFORMA")).toBe("SP");
     expect(familyFromDescription("")).toBeNull();
+  });
+});
+
+// -------------------------------------------------------------
+// Matéria-prima da PLANILHA em KG (051) — mesma regra do PDF
+// -------------------------------------------------------------
+
+describe("matéria-prima nasce em KG quando a planilha traz peso", () => {
+  it("materialQuantityAndUnit: peso > 0 vira KG; sem peso (ou ≤ 0) fica em UN", () => {
+    expect(materialQuantityAndUnit(12.48, 3)).toEqual({ quantity: 12.48, unit: "KG" });
+    expect(materialQuantityAndUnit(null, 3)).toEqual({ quantity: 3, unit: "UN" });
+    // Peso zerado/inválido não vale: a RPC de import rejeita qtd ≤ 0.
+    expect(materialQuantityAndUnit(0, 3)).toEqual({ quantity: 3, unit: "UN" });
+    expect(materialQuantityAndUnit(-2, 3)).toEqual({ quantity: 3, unit: "UN" });
+  });
+
+  it("filho com cp_comppeso vira KG com o peso total; sem massa continua em UN", () => {
+    const { orders } = buildRows([
+      makeRow({
+        OF_TIPO: "OF",
+        of_idOF: "OF KG",
+        of_Descr: "GUARDA CORPO 3M",
+        ps_idPos: "P1",
+        ps_Descr: "GUARDA CORPO",
+        ps_Tipo: "E",
+        ps_Qtde: 1,
+        ps_Peso: 12,
+        cp_comp: "C1",
+        cp_compqtdetotal: 2,
+        cp_comppeso: 4,
+        cp_DesMaterial: "CHAPA 3MM",
+      }),
+      makeRow({
+        OF_TIPO: "OF",
+        of_idOF: "OF KG",
+        ps_idPos: "P1",
+        cp_comp: "C2",
+        cp_compqtdetotal: 7,
+        cp_DesMaterial: "PARAFUSO M8",
+      }),
+    ]);
+
+    const children = orders[0]?.parents[0]?.children ?? [];
+    expect(children).toHaveLength(2);
+    // 2 × 4 kg: a MP vira KG com o PESO TOTAL do filho…
+    expect(children[0]?.materials).toEqual([
+      { description: "CHAPA 3MM", quantity: 8, unit: "KG", notes: null },
+    ]);
+    // …e sem massa na planilha continua a QUANTIDADE DE PEÇAS em "UN".
+    expect(children[1]?.materials).toEqual([
+      { description: "PARAFUSO M8", quantity: 7, unit: "UN", notes: null },
+    ]);
+  });
+
+  it("material direto do pai: KG só na posição FOLHA (com filhos fica em UN)", () => {
+    const { orders } = buildRows([
+      // Posição FOLHA: o peso do item É o da matéria-prima → KG.
+      makeRow({
+        OF_TIPO: "OF",
+        of_idOF: "OF KG",
+        of_Descr: "BOTÃO PORTA",
+        ps_idPos: "FOLHA",
+        ps_Descr: "BOTÃO PORTA",
+        ps_Tipo: "E",
+        ps_Qtde: 2,
+        ps_Peso: 1.5,
+        ps_DesMaterial: "TB42.20X3.56",
+      }),
+      // Posição COM filhos: o material do pai continua em "UN" — o peso
+      // já está nas linhas dos filhos (senão a carga contaria 2×).
+      makeRow({
+        OF_TIPO: "OF",
+        of_idOF: "OF KG",
+        ps_idPos: "CONJ",
+        ps_Descr: "CONJUNTO",
+        ps_Tipo: "E",
+        ps_Qtde: 1,
+        ps_Peso: 9,
+        ps_DesMaterial: "CHAPA 3MM",
+      }),
+      makeRow({
+        OF_TIPO: "OF",
+        of_idOF: "OF KG",
+        ps_idPos: "CONJ",
+        cp_comp: "C1",
+        cp_compqtdetotal: 1,
+        cp_comppeso: 9,
+        cp_DesMaterial: "CHAPA 3MM",
+      }),
+    ]);
+
+    const parents = orders[0]?.parents ?? [];
+    const folha = parents.find((parent) => parent.code === "FOLHA");
+    const conjunto = parents.find((parent) => parent.code === "CONJ");
+
+    // FOLHA: 2 × 1,5 kg = 3 kg no lugar das 2 peças.
+    expect(folha?.materials).toEqual([
+      { description: "TB42.20X3.56", quantity: 3, unit: "KG", notes: null },
+    ]);
+    // COM FILHOS: o material do pai fica em peças…
+    expect(conjunto?.materials).toEqual([
+      { description: "CHAPA 3MM", quantity: 1, unit: "UN", notes: null },
+    ]);
+    // …e o filho, com massa, nasce em KG.
+    expect(conjunto?.children[0]?.materials[0]?.unit).toBe("KG");
   });
 });
 
@@ -813,12 +922,32 @@ describe("arquivo real da fábrica (fixture OF 107482)", () => {
         expect(parent.family).toBeTruthy();
         expect(parent.deliveryDate).toBe(FORM.deliveryDate);
         expect(parent.quantity).toBeGreaterThan(0);
-        for (const material of parent.materials) expect(material.unit).toBe("UN");
+        // Material direto do pai: só vira KG quando a posição é FOLHA
+        // e tem peso (aqui as posições com material são as tipo X, que
+        // saíram — as que sobraram não têm material próprio).
+        for (const material of parent.materials) {
+          if (parent.children.length === 0 && parent.totalWeightKg) {
+            expect(material.unit).toBe("KG");
+            expect(material.quantity).toBeCloseTo(parent.totalWeightKg, 10);
+          } else {
+            expect(material.unit).toBe("UN");
+          }
+        }
         for (const child of parent.children) {
           expect(child.family).toBeTruthy();
           expect(child.deliveryDate).toBe(FORM.deliveryDate);
           expect(child.quantity).toBeGreaterThan(0);
-          for (const material of child.materials) expect(material.unit).toBe("UN");
+          // cp_comppeso preenchido ⇒ a MP nasce em KG com o peso TOTAL
+          // do filho (é o que faz a lista de devolução do romaneio
+          // mostrar o peso por material em vez de "un"/"—").
+          for (const material of child.materials) {
+            if (child.totalWeightKg !== null && child.totalWeightKg > 0) {
+              expect(material.unit).toBe("KG");
+              expect(material.quantity).toBeCloseTo(child.totalWeightKg, 10);
+            } else {
+              expect(material.unit).toBe("UN");
+            }
+          }
         }
       }
     }

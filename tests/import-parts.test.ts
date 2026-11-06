@@ -251,8 +251,9 @@ describe("buildPartsOfStructure", () => {
     expect(child.materials).toEqual([
       {
         description: "TB. RED. 42,2X3,56",
-        quantity: 1,
-        unit: "UN",
+        // MASSA(Kg) × QTDE = 0,91 vira a QUANTIDADE da MP em KG.
+        quantity: 0.91,
+        unit: "KG",
         notes: "DIN 2440 · 260 mm",
       },
     ]);

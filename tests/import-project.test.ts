@@ -214,7 +214,8 @@ describe("buildProjectOfStructure", () => {
     expect(child.unitWeightKg).toBeCloseTo(42.93, 10);
     expect(child.totalWeightKg).toBeCloseTo(42.93, 10);
     expect(child.materials).toEqual([
-      { description: "TB.RED.DN32_DIN", quantity: 1, unit: "UN", notes: null },
+      // MASSA TOTAL DO PROJETO vira a QUANTIDADE da MP em KG.
+      { description: "TB.RED.DN32_DIN", quantity: 42.93, unit: "KG", notes: null },
     ]);
 
     const second = first.children[1]!;
@@ -508,8 +509,15 @@ describe("arquivo real TUCUMANN (tests/fixtures/tucumann-gc-geral.xlsx)", () => 
     for (const child of children) {
       expect(child.materials).toHaveLength(1);
       const material = child.materials[0]!;
-      expect(material.unit).toBe("UN");
-      expect(material.quantity).toBe(child.quantity);
+      // Com MASSA TOTAL a MP nasce em KG com o peso do item (mesma
+      // regra do PDF); sem massa continua a quantidade de peças em UN.
+      if (child.totalWeightKg !== null && child.totalWeightKg > 0) {
+        expect(material.unit).toBe("KG");
+        expect(material.quantity).toBeCloseTo(child.totalWeightKg, 6);
+      } else {
+        expect(material.unit).toBe("UN");
+        expect(material.quantity).toBe(child.quantity);
+      }
       materialCounts.set(material.description, (materialCounts.get(material.description) ?? 0) + 1);
     }
     expect(Object.fromEntries(materialCounts)).toEqual({

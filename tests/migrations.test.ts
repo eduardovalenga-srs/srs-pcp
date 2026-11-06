@@ -1908,6 +1908,108 @@ describe("migrations", () => {
     );
     await db.query(`delete from public.orders where code in ('OF-041-A', 'OF-041-B')`);
   });
+
+  it("051: matéria-prima de item COM PESO vira KG — e é idempotente", async () => {
+    await asSuperUser(db);
+
+    const { rows: order } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-BF-051', 'OF') returning id`,
+    );
+    const orderId = order[0]?.id as string;
+
+    const insertItem = async (
+      description: string,
+      quantity: number,
+      unitWeightKg: number | null,
+    ): Promise<string> => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.order_items (order_id, description, quantity, unit_weight_kg)
+         values ($1, $2, $3, $4) returning id`,
+        [orderId, description, quantity, unitWeightKg],
+      );
+      return rows[0]!.id;
+    };
+
+    const insertMaterial = (itemId: string, description: string, quantity: number, unit: string) =>
+      db.query(
+        `insert into public.order_item_materials (order_item_id, description, quantity, unit)
+         values ($1, $2, $3, $4)`,
+        [itemId, description, quantity, unit],
+      );
+
+    // (a) caso da importação de PLANILHA: UMA linha de MP em "UN" com a
+    //     QUANTIDADE DE PEÇAS = quantidade do item (3 × 4,16 = 12,48 kg).
+    const imported = await insertItem("Item importado", 3, 4.16);
+    await insertMaterial(imported, "TB42.20X3.56", 3, "UN");
+
+    // (b) item SEM peso: a MP continua em peças.
+    const semPeso = await insertItem("Item sem peso", 2, null);
+    await insertMaterial(semPeso, "Parafuso M8", 2, "UN");
+
+    // (c) MP manual em "UN" que NÃO é a contagem do item (100 ≠ 2):
+    //     não tem relação com o peso do item, fica intocada.
+    const manual = await insertItem("Item manual", 2, 5);
+    await insertMaterial(manual, "Parafuso M8", 100, "UN");
+
+    // (d) item com VÁRIOS materiais: não dá para saber a fatia de peso
+    //     de cada um — as duas linhas ficam como estão.
+    const varios = await insertItem("Item com vários", 1, 10);
+    await insertMaterial(varios, "Chapa 3mm", 1, "UN");
+    await insertMaterial(varios, "Parafuso M8", 50, "UN");
+
+    const migration = readFileSync(
+      path.join(process.cwd(), "supabase", "migrations", "051_backfill_material_unit_kg.sql"),
+      "utf8",
+    );
+
+    const state = async () => {
+      const { rows } = await db.query<{
+        description: string;
+        quantity: string | number;
+        unit: string;
+      }>(
+        `select m.description, m.quantity, m.unit
+           from public.order_item_materials m
+           join public.order_items i on i.id = m.order_item_id
+          where i.order_id = $1
+          order by i.description, m.description`,
+        [orderId],
+      );
+      return rows.map((row) => ({
+        description: row.description,
+        quantity: Number(row.quantity),
+        unit: row.unit,
+      }));
+    };
+
+    await db.exec(migration);
+
+    expect(await state()).toEqual([
+      // (d) múltiplos materiais: nada muda.
+      { description: "Chapa 3mm", quantity: 1, unit: "UN" },
+      { description: "Parafuso M8", quantity: 50, unit: "UN" },
+      // (a) vira KG com o PESO TOTAL do item (12,48) — mesma fonte do
+      //     fallback de peso que a tela já usava (qtd × peso unit.).
+      { description: "TB42.20X3.56", quantity: 12.48, unit: "KG" },
+      // (c) quantidade ≠ quantidade do item: continua em peças.
+      { description: "Parafuso M8", quantity: 100, unit: "UN" },
+      // (b) sem peso no item: continua em peças.
+      { description: "Parafuso M8", quantity: 2, unit: "UN" },
+    ]);
+
+    // Idempotente: rodar de novo não muda nada (a linha já saiu de "UN").
+    await db.exec(migration);
+    expect(await state()).toEqual([
+      { description: "Chapa 3mm", quantity: 1, unit: "UN" },
+      { description: "Parafuso M8", quantity: 50, unit: "UN" },
+      { description: "TB42.20X3.56", quantity: 12.48, unit: "KG" },
+      { description: "Parafuso M8", quantity: 100, unit: "UN" },
+      { description: "Parafuso M8", quantity: 2, unit: "UN" },
+    ]);
+
+    await db.query(`delete from public.orders where code = 'OF-BF-051'`);
+    await asSuperUser(db);
+  });
 });
 
 describe("RLS", () => {

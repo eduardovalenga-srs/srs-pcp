@@ -84,6 +84,7 @@ cp .env.example .env.local
 #    supabase/migrations/048_romaneio_conference_form.sql
 #    supabase/migrations/049_romaneio_process_columns.sql
 #    supabase/migrations/050_romaneio_weight_from_materials.sql
+#    supabase/migrations/051_backfill_material_unit_kg.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 

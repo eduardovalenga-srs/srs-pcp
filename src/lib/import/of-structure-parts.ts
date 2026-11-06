@@ -5,6 +5,7 @@ import {
   familyFromDescription,
   isEmptyRow,
   materialDescription,
+  materialQuantityAndUnit,
 } from "@/lib/import/of-structure";
 import type { BuiltOf, FileChild, FileParent, ParsedSheet, StructureIssue } from "@/lib/types/import";
 import { calculateTotalWeight, formatWeight, toNumber } from "@/lib/utils/formatting";
@@ -232,6 +233,8 @@ export function buildPartsOfStructure(
       const perfil = cellText(row, col.PERFIL); // matéria-prima do filho
       const quantity = cellNumber(row, col.QTDE);
       const unitWeight = cellNumber(row, col.MASSAKG);
+      // 023: total derivado (mesma regra do item pai).
+      const totalWeightKg = calculateTotalWeight(quantity.value ?? 0, unitWeight.value);
       const child: FileChild = {
         code: peca,
         // Sem PERFIL, a descrição cai para o próprio código (regra do layout).
@@ -239,7 +242,7 @@ export function buildPartsOfStructure(
         family: familyFromDescription(perfil),
         quantity: quantity.value ?? 0,
         unitWeightKg: unitWeight.value,
-        totalWeightKg: calculateTotalWeight(quantity.value ?? 0, unitWeight.value),
+        totalWeightKg,
         deliveryDate: form.deliveryDate,
         materials: [],
       };
@@ -249,10 +252,13 @@ export function buildPartsOfStructure(
         const quality = cellText(row, col.MATERIAL);
         const rawLength = cellText(row, col.COMPRMM);
         const notes = [quality, rawLength ? `${rawLength} mm` : ""].filter(Boolean).join(" · ");
+        // MASSA(Kg) × QTDE vira a QUANTIDADE do material em KG (sem
+        // massa, continua a quantidade de peças em "UN").
+        const materialQuantity = materialQuantityAndUnit(totalWeightKg, quantity.value ?? 0);
         child.materials.push({
           description: material,
-          quantity: quantity.value ?? 0,
-          unit: "UN",
+          quantity: materialQuantity.quantity,
+          unit: materialQuantity.unit,
           notes: notes || null,
         });
       } else {

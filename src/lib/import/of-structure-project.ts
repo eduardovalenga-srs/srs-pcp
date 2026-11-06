@@ -5,6 +5,7 @@ import {
   familyFromDescription,
   isEmptyRow,
   materialDescription,
+  materialQuantityAndUnit,
 } from "@/lib/import/of-structure";
 import type { BuiltOf, FileChild, ParsedSheet, StructureIssue } from "@/lib/types/import";
 import { calculateTotalWeight } from "@/lib/utils/formatting";
@@ -24,7 +25,8 @@ import { orderCodeFromFileName } from "@/lib/utils/order-code";
  *     QUANTIDADE o peso UNITÁRIO do filho;
  *   * PEÇA PRINCIPAL é a MATÉRIA-PRIMA do filho (ex.: TB.RED.DN32_DIN,
  *     CH4.8X200) — mesma função do cp_DesMaterial do layout da fábrica;
- *     entra com a quantidade do filho e unidade "UN".
+ *     entra com a MASSA TOTAL DO PROJETO como quantidade em KG (sem
+ *     massa, a quantidade do filho em "UN").
  *
  * O código da OF NÃO vem do arquivo (nem o cliente/entrega): é gerado do
  * NOME DO ARQUIVO sem a extensão (`orderCodeFromFileName` — "GC-GERAL.xlsx"
@@ -206,10 +208,13 @@ export function buildProjectOfStructure(
     const rawProfile = cellText(row, col.PECAPRINCIPAL);
     const material = materialDescription(rawProfile);
     if (material) {
+      // MASSA TOTAL DO PROJETO vira a QUANTIDADE do material em KG
+      // (sem massa, continua a quantidade de peças em "UN").
+      const materialQuantity = materialQuantityAndUnit(totalWeight.value, quantity.value ?? 0);
       child.materials.push({
         description: material,
-        quantity: quantity.value ?? 0,
-        unit: "UN",
+        quantity: materialQuantity.quantity,
+        unit: materialQuantity.unit,
         notes: null,
       });
     } else {

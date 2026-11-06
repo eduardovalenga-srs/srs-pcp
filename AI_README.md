@@ -16,6 +16,7 @@
    - A rota `/fabrica-1` agrupa itens filhos por código dentro da mesma OF (RPC `get_child_item_groups`).
    - A rota `/fabrica-2` lê itens pai linha por linha (RPC `get_production_rows`).
 5. **Peso do Romaneio (050):** a coluna **Peso** da lista `/romaneio` (e do filtro por faixa) e a exportação `.xlsx` usam a MESMA fonte: **Σ da coluna "Utilizada" só nas linhas em unidade de peso** (KG vale; G ÷ 1000), calculado nas RPCs `get_romaneios_page`/`get_romaneio_summary`. Sem nenhuma linha em KG/G cai no Σ qtd × peso unitário dos itens; se algum item não tem peso, o peso é NULL (fora do filtro, não conta como 0). No detalhe e na ficha o mesmo número é derivado ao vivo (`resolveRomaneioWeights`) — nunca grave peso à mão.
+6. **Unidade da Matéria-prima (051):** `order_item_materials.unit` nasce **KG com o PESO TOTAL do item** quando a origem traz peso — importador de PDF (`of-pdf.ts`) e os três importadores de PLANILHA (`of-structure.ts`, `of-structure-parts.ts`, `of-structure-project.ts`, todos via `materialQuantityAndUnit`); sem peso, a QUANTIDADE DE PEÇAS em "UN" (trocar só o rótulo mentiria sobre a unidade). A lista de devolução do romaneio só calcula peso por linha em KG/G (`weightKgOf`), por isso "UN" aparecia como "—" e parecia problema "por cliente". A migração **051** corrigiu o histórico: só itens com `total_weight_kg > 0` e **uma única** linha de MP cuja quantidade é a do item.
 
 ## 🚛 Fluxo do Romaneio (Expedição)
 - **Status:** `ABERTO` ➔ `CONFERIDO` ➔ `CONFIRMADO` (e `CANCELADO`).
