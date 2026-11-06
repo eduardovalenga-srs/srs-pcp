@@ -81,6 +81,13 @@ export interface RomaneioOrderItem {
   itemQuantity: number;
   /** Peso unitário (kg) — coluna derivada da OF (023). */
   unitWeightKg: number | null;
+  /**
+   * Peso da carga atribuído a ESTE item (kg) — derivado dos materiais
+   * em unidade de peso da subárvore dele; quando a carga não tem
+   * material em KG/G, volta ao qtd × peso unitário. null = sem peso
+   * (célula "—").
+   */
+  loadWeightKg: number | null;
   /** Quantidade já expedida em OUTROS romaneios CONFIRMADOS da OF. */
   shippedQuantity: number;
   /** Situação do processo EXP do item (null = o item não tem linha de EXP). */

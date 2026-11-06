@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Save, Trash2 } from "lucide-react";
+import { Loader2, Save, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -13,7 +13,11 @@ import {
 import type { RomaneioView } from "@/lib/types/romaneio";
 import { formatDate, formatDateTime } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight, parseQuantity } from "@/lib/utils/formatting";
-import { previewRomaneioMaterials, type RomaneioMaterialLineView } from "@/lib/utils/romaneio";
+import {
+  previewRomaneioMaterials,
+  resolveRomaneioWeights,
+  type RomaneioMaterialLineView,
+} from "@/lib/utils/romaneio";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,7 +87,15 @@ function initialQuantities(view: RomaneioView): Record<string, string> {
  * quantidade desta carga e a devolução de matéria-prima com o bloco de
  * peso (somente leitura — conferência, emissão de NF e baixa acontecem
  * pelos botões da listagem `/romaneio`). Ações do ciclo de vida aqui:
- * ABERTO edita/exclui, CONFIRMADO/CANCELADO seguem para cancelamento.
+ * ABERTO salva, descarta (Cancelar) e exclui; CONFIRMADO/CANCELADO
+ * seguem para o cancelamento de status. Salvar e Cancelar trabalham o
+ * FORMULÁRIO LOCAL: o Cancelar só desfaz as edições digitadas (com
+ * confirmação), sem tocar no banco — nenhuma Server Action nova.
+ *
+ * QUALQUER botão de ação concluído leva o usuário de volta para a
+ * listagem (`router.push("/romaneio")`): Salvar, Cancelar (descarte),
+ * Excluir e Cancelar romaneio. As validações/erros mantêm a tela
+ * aberta, para que a mensagem seja corrigida no próprio formulário.
  */
 export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps) {
   const router = useRouter();
@@ -95,14 +107,17 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
   );
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  // Descarte de edições locais — diálogo do botão Cancelar (só cliente).
+  const [discardOpen, setDiscardOpen] = useState(false);
   // Última visão do servidor já aplicada ao formulário (ver ajuste abaixo).
   const [syncedView, setSyncedView] = useState<RomaneioView>(view);
 
   // Ressincroniza o formulário quando o servidor envia uma visão nova
-  // (salvar/excluir/cancelar chamam router.refresh()) — ajuste durante a
-  // renderização, o mesmo padrão dos filtros de listagem. Editar sem
-  // salvar e receber um refresh de fora descarta o rascunho local: o
-  // formulário nunca fica divergente do gravado.
+  // (um refresh de fora — os botões do detalhe em si navegam para
+  // /romaneio) — ajuste durante a renderização, o mesmo padrão dos
+  // filtros de listagem. Editar sem salvar e receber um refresh de fora
+  // descarta o rascunho local: o formulário nunca fica divergente do
+  // gravado.
   if (syncedView !== view) {
     setSyncedView(view);
     setHeader(initialHeader(view));
@@ -110,7 +125,7 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
   }
 
   // Auto-reload AO VIVO: cada tecla nas quantidades dos itens recalcula
-  // os itens efetivos (peso da carga) e as linhas de material na MESMA
+  // os itens efetivos, os pesos e as linhas de material na MESMA
   // renderização — sem esperar Salvar. O salvamento grava exatamente
   // estes valores (mesmo parser) e o servidor confirma no refresh;
   // fora de ABERTO o preview congela no gravado (igual ao serviço).
@@ -118,12 +133,31 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
     ...item,
     quantity: parseQuantity(quantities[item.orderItemId] ?? "") ?? 0,
   }));
-  const materials: MaterialLineState[] = previewRomaneioMaterials({
+  const previewLines: RomaneioMaterialLineView[] = previewRomaneioMaterials({
     status: view.status,
     allocationItems: view.allocationItems,
     storedMaterials: view.storedMaterials,
     quantities,
-  }).map(toLineState);
+  });
+  const materials: MaterialLineState[] = previewLines.map(toLineState);
+
+  // Pesos com a MESMA fonte do servidor: total = Σ da utilizada em
+  // KG/G (fallback: qtd × peso unitário) e o peso de cada item raiz =
+  // material alocado da subárvore dele — acompanha a digitação.
+  const weights = resolveRomaneioWeights({
+    materials: previewLines,
+    items: effectiveItems,
+    allocation: {
+      includedItems: effectiveItems.map((item) => ({
+        orderItemId: item.orderItemId,
+        quantity: item.quantity,
+      })),
+      orderItems: view.allocationItems,
+    },
+  });
+  for (const item of effectiveItems) {
+    item.loadWeightKg = weights.byItem.get(item.orderItemId) ?? null;
+  }
 
   const canEdit = view.canEdit;
   const canCancel = canEditCapability && (view.status === "CONFERIDO" || view.status === "CONFIRMADO");
@@ -155,10 +189,6 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
           toast.error(`Quantidade recebida inválida em ${line.description}.`);
           return;
         }
-        if (line.used.trim() !== "" && parseQuantity(line.used) === null) {
-          toast.error(`Quantidade utilizada inválida em ${line.description}.`);
-          return;
-        }
       }
 
       const result = await saveRomaneioAction({
@@ -185,8 +215,22 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
         return;
       }
       toast.success(result.message);
-      router.refresh();
+      // Salvar concluído: volta para a listagem (padrão de TODOS os
+      // botões do detalhe) — lá os números já saem do servidor.
+      router.push("/romaneio");
     });
+
+  /**
+   * Cancelar = descarta as edições LOCAIS (nada vai ao banco) e volta
+   * para a listagem, como acontece após Salvar/Excluir.
+   */
+  const handleDiscard = () => {
+    setHeader(initialHeader(view));
+    setQuantities(initialQuantities(view));
+    setDiscardOpen(false);
+    toast.success("Alterações descartadas — o romaneio está como está gravado no sistema.");
+    router.push("/romaneio");
+  };
 
   const handleDelete = () =>
     run("delete", async () => {
@@ -209,18 +253,15 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
       }
       toast.success(result.message);
       setCancelOpen(false);
-      router.refresh();
+      router.push("/romaneio");
     });
 
   const quantityTotal = effectiveItems.reduce(
     (sum, item) => sum + item.quantity,
     0,
   );
-  const weightTotal = effectiveItems.reduce(
-    (sum, item) => sum + (item.unitWeightKg === null ? 0 : item.unitWeightKg * item.quantity),
-    0,
-  );
-  const hasAnyWeight = effectiveItems.some((item) => item.unitWeightKg !== null);
+  const weightTotal = weights.totalKg;
+  const hasAnyWeight = weightTotal !== null;
 
   return (
     <div className="space-y-3">
@@ -354,6 +395,7 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
           items={effectiveItems}
           processes={view.processes}
           canEdit={canEdit}
+          weightKg={weightTotal}
           quantities={quantities}
           onQuantityChange={(orderItemId, value) =>
             setQuantities((current) => ({ ...current, [orderItemId]: value }))
@@ -371,13 +413,13 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
         </div>
         <RomaneioMaterialsEditor
           materials={materials}
-          canEdit={false}
           ofTotals={view.ofMaterialTotals}
-          weightItems={effectiveItems}
+          weightKg={weightTotal}
         />
       </section>
 
-      {/* Ações */}
+      {/* Ações — em edição: Salvar, Cancelar (descarta) e Excluir; fora
+          dela, só o cancelamento de status (CONFERIDO/CONFIRMADO). */}
       {canEdit || canCancel ? (
         <section
           aria-label="Ações do romaneio"
@@ -396,6 +438,15 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
                   <Save className="h-4 w-4" aria-hidden />
                 )}
                 Salvar
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy !== null}
+                onClick={() => setDiscardOpen(true)}
+              >
+                <X className="h-4 w-4" aria-hidden />
+                Cancelar
               </Button>
               <Button
                 type="button"
@@ -430,6 +481,33 @@ export function RomaneioDetail({ view, canEditCapability }: RomaneioDetailProps)
           ) : null}
         </section>
       ) : null}
+
+      {/* Confirmação de descarte (Cancelar — só edições locais) */}
+      <Dialog open={discardOpen} onOpenChange={(nextOpen) => !busy && setDiscardOpen(nextOpen)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Descartar alterações do romaneio nº {view.number}?</DialogTitle>
+            <DialogDescription>
+              Os dados digitados (cabeçalho, quantidades dos itens e materiais) voltam para o que
+              já está gravado no sistema — nada é salvo. Use este botão se desistiu das alterações.
+              Confirma?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDiscardOpen(false)} disabled={busy !== null}>
+              Voltar
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busy !== null}
+              onClick={handleDiscard}
+            >
+              Descartar alterações
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirmação de exclusão (só ABERTO) */}
       <Dialog open={deleteOpen} onOpenChange={(nextOpen) => !busy && setDeleteOpen(nextOpen)}>

@@ -136,11 +136,14 @@ describe("RPC get_romaneios_page (043) — listagem de romaneios ordenável", ()
     // Default: nº desc → a última inserida (OF-ROM-2, nº 2) vem primeiro.
     expect(rows[0]?.order_code).toBe("OF-ROM-2");
     expect(Number(rows[0]?.quantity_total)).toBe(2);
+    // Sem linha de material em peso → regra antiga (qtd × peso unitário).
     expect(Number(rows[0]?.weight_total)).toBe(16);
     expect(rows[0]?.pending_return).toBe(false);
     expect(rows[1]?.order_code).toBe("OF-ROM-1");
     expect(Number(rows[1]?.quantity_total)).toBe(4);
-    expect(Number(rows[1]?.weight_total)).toBe(50);
+    // 050: COM material em KG na carga o peso é a UTILIZADA gravada
+    // (aqui 2 kg) — mesma fonte do detalhe e da ficha.
+    expect(Number(rows[1]?.weight_total)).toBe(2);
     expect(rows[1]?.pending_return).toBe(true);
   });
 

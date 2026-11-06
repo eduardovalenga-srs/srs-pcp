@@ -4,10 +4,13 @@
  *  - alocação PROPORCIONAL das matérias-primas da OF a cada carga
  *    parcial (ratio = qtd neste romaneio ÷ qtd total do item raiz;
  *    os materiais do raiz e de todos os seus descendentes entram × ratio);
- *  - merge das linhas alocadas com o que já foi informado (por
- *    descrição+unidade) — o previsto é sempre o alocado atual, os
- *    valores informados vêm do gravado;
- *  - derivação do SALDO de devolução (recebida − utilizada).
+ *  - merge das linhas alocadas com as gravadas (por descrição+unidade)
+ *    — em ABERTO o PREVISTO e a UTILIZADA são sempre o alocado atual
+ *    (mudam junto com os itens da carga) e a RECEBIDA vem do gravado,
+ *    nunca abaixo da utilizada;
+ *  - derivação do SALDO de devolução (recebida − utilizada);
+ *  - PESO DA CARGA = Σ da utilizada nas linhas em unidade de peso
+ *    (KG/G), com o peso dos itens só como fallback.
  *
  * Sem dependências de servidor — as funções são testáveis direto.
  */
@@ -54,7 +57,7 @@ export interface StoredMaterialLine {
   quantityUsed: number | null;
 }
 
-/** Linha de material exibida (editável em simulação, somente leitura depois). */
+/** Linha de material exibida (somente leitura no detalhe — o lançamento é na ficha). */
 export interface RomaneioMaterialLineView {
   description: string;
   unit: string;
@@ -90,6 +93,62 @@ function resolveRoot(
 }
 
 /**
+ * Travessia comum da alocação: para cada material alocado chama
+ * `visit(raiz, material, quantidade escalada pela razão)`. Itens fora
+ * do romaneio (razão 0) e materiais sem quantidade não entram.
+ */
+function forEachAllocatedMaterial(
+  input: RomaneioAllocationInput,
+  visit: (rootId: string, material: RomaneioMaterialSource, quantity: number) => void,
+): void {
+  const parentByItem = new Map<string, string | null>();
+  const quantityByItem = new Map<string, number>();
+  for (const item of input.orderItems) {
+    parentByItem.set(item.orderItemId, item.parentItemId);
+    quantityByItem.set(item.orderItemId, item.quantity);
+  }
+
+  // Razão por item RAIZ incluído (0 a 1 — acima de 1 é dado inválido).
+  const ratioByRoot = new Map<string, number>();
+  for (const included of input.includedItems) {
+    const total = quantityByItem.get(included.orderItemId) ?? 0;
+    if (total <= 0 || included.quantity <= 0) continue;
+    const ratio = Math.min(included.quantity / total, 1);
+    ratioByRoot.set(included.orderItemId, ratio);
+  }
+  if (ratioByRoot.size === 0) return;
+
+  for (const item of input.orderItems) {
+    if (item.materials.length === 0) continue;
+    const root = resolveRoot(item.orderItemId, parentByItem);
+    const ratio = ratioByRoot.get(root) ?? 0;
+    if (ratio === 0) continue;
+
+    for (const material of item.materials) {
+      if (material.quantity <= 0) continue;
+      visit(root, material, material.quantity * ratio);
+    }
+  }
+}
+
+/**
+ * Peso (kg) de uma QUANTIDADE de material: só as unidades de PESO
+ * contam — KG vale o próprio valor e G divide por 1000. Qualquer
+ * outra unidade (M, UN, CX…) devolve null e fica fora do peso.
+ * Quantidade null conta como 0 (a linha é de peso, só sem valor).
+ *
+ * Exportado para a tabela de devolução do detalhe e para a exportação
+ * do documento exibirem o PESO INDIVIDUAL de cada matéria-prima com a
+ * MESMA regra do peso total da carga.
+ */
+export function weightKgOf(unit: string, quantity: number | null): number | null {
+  const normalized = unit.trim().toUpperCase();
+  if (normalized === "KG") return quantity ?? 0;
+  if (normalized === "G") return (quantity ?? 0) / 1000;
+  return null;
+}
+
+/**
  * Aloca as matérias-primas da OF às cargas parciais do romaneio.
  *
  * Para cada item RAIZ incluído, o ratio é `quantidade no romaneio ÷
@@ -101,50 +160,128 @@ function resolveRoot(
 export function allocateRomaneioMaterials(
   input: RomaneioAllocationInput,
 ): AllocatedMaterialLine[] {
-  const parentByItem = new Map<string, string | null>();
-  const quantityByItem = new Map<string, number>();
-  for (const item of input.orderItems) {
-    parentByItem.set(item.orderItemId, item.parentItemId);
-    quantityByItem.set(item.orderItemId, item.quantity);
-  }
-
-  // Ratio por item RAIZ incluído (0 a 1 — acima de 1 é dado inválido).
-  const ratioByRoot = new Map<string, number>();
-  for (const included of input.includedItems) {
-    const total = quantityByItem.get(included.orderItemId) ?? 0;
-    if (total <= 0 || included.quantity <= 0) continue;
-    const ratio = Math.min(included.quantity / total, 1);
-    ratioByRoot.set(included.orderItemId, ratio);
-  }
-  if (ratioByRoot.size === 0) return [];
-
   const totals = new Map<string, AllocatedMaterialLine>();
-  for (const item of input.orderItems) {
-    if (item.materials.length === 0) continue;
-    const root = resolveRoot(item.orderItemId, parentByItem);
-    const ratio = ratioByRoot.get(root) ?? 0;
-    if (ratio === 0) continue;
-
-    for (const material of item.materials) {
-      if (material.quantity <= 0) continue;
-      const key = materialKey(material.description, material.unit);
-      const current = totals.get(key);
-      if (current) {
-        current.quantityPlanned += material.quantity * ratio;
-      } else {
-        totals.set(key, {
-          description: material.description.trim(),
-          unit: material.unit.trim().toUpperCase(),
-          quantityPlanned: material.quantity * ratio,
-        });
-      }
+  forEachAllocatedMaterial(input, (_root, material, quantity) => {
+    const key = materialKey(material.description, material.unit);
+    const current = totals.get(key);
+    if (current) {
+      current.quantityPlanned += quantity;
+    } else {
+      totals.set(key, {
+        description: material.description.trim(),
+        unit: material.unit.trim().toUpperCase(),
+        quantityPlanned: quantity,
+      });
     }
-  }
+  });
 
   return [...totals.values()].sort(
     (left, right) =>
       left.description.localeCompare(right.description) || left.unit.localeCompare(right.unit),
   );
+}
+
+/**
+ * Peso (kg) alocado a CADA item RAIZ da carga: soma dos materiais em
+ * unidade de peso (KG/G) da subárvore do item × razão. Só entram itens
+ * com alocação — quem não aparece no mapa não tem peso de material
+ * (célula "—" na tabela de itens).
+ */
+export function allocateRomaneioItemWeightsKg(
+  input: RomaneioAllocationInput,
+): Map<string, number> {
+  const totals = new Map<string, number>();
+  forEachAllocatedMaterial(input, (root, material, quantity) => {
+    const kg = weightKgOf(material.unit, quantity);
+    if (kg === null) return;
+    totals.set(root, (totals.get(root) ?? 0) + kg);
+  });
+  return totals;
+}
+
+/**
+ * Σ da coluna "Utilizada na produção" só nas linhas em unidade de
+ * PESO (KG/G) — é o PESO DA CARGA. Devolve null quando a carga não
+ * tem nenhum material em unidade de peso (o chamador cai no peso dos
+ * itens).
+ */
+export function sumUsedWeightKg(
+  lines: readonly { unit: string; quantityUsed: number | null }[],
+): number | null {
+  let total = 0;
+  let found = false;
+  for (const line of lines) {
+    const kg = weightKgOf(line.unit, line.quantityUsed);
+    if (kg === null) continue;
+    found = true;
+    total += kg;
+  }
+  return found ? total : null;
+}
+
+/**
+ * Peso total da carga (kg): a fonte é a UTILIZADA em unidades de
+ * peso; sem nenhuma linha em KG/G, cai no peso dos itens (qtd × peso
+ * unitário) e, sem nada, devolve null ("—").
+ */
+export function loadWeightKg(
+  lines: readonly { unit: string; quantityUsed: number | null }[],
+  items: readonly { unitWeightKg: number | null; quantity: number }[],
+): number | null {
+  const fromMaterials = sumUsedWeightKg(lines);
+  if (fromMaterials !== null) return fromMaterials;
+  if (!items.some((item) => item.unitWeightKg !== null)) return null;
+  return items.reduce(
+    (sum, item) => sum + (item.unitWeightKg === null ? 0 : item.unitWeightKg * item.quantity),
+    0,
+  );
+}
+
+export interface RomaneioWeightsResolution {
+  /** Peso total da carga (kg) — null = nenhuma fonte de peso. */
+  totalKg: number | null;
+  /** Peso exibido por item RAIZ — null = célula "—". */
+  byItem: Map<string, number | null>;
+}
+
+/**
+ * Resolve os PESOS de uma carga a partir de UMA fonte só:
+ *
+ *  - total = Σ da "Utilizada" em unidades de peso (fallback: itens);
+ *  - por item = peso alocado dos materiais em KG da subárvore do item
+ *    (a MESMA alocação do previsto); sem material em peso na carga,
+ *    volta ao qtd × peso unitário; item sem peso nenhum fica null.
+ *
+ * Servidor (`getRomaneioView`) e cliente (preview do detalhe) usam a
+ * mesma função — o detalhe refaz com as quantidades digitadas, então
+ * cabeçalho, tabelas, ficha e exportação fecham no mesmo número.
+ */
+export function resolveRomaneioWeights(input: {
+  materials: readonly { unit: string; quantityUsed: number | null }[];
+  items: readonly { orderItemId: string; unitWeightKg: number | null; quantity: number }[];
+  allocation: RomaneioAllocationInput;
+}): RomaneioWeightsResolution {
+  const materialRegime = sumUsedWeightKg(input.materials) !== null;
+  const allocated = materialRegime
+    ? allocateRomaneioItemWeightsKg(input.allocation)
+    : new Map<string, number>();
+
+  const byItem = new Map<string, number | null>();
+  for (const item of input.items) {
+    if (item.quantity <= 0) {
+      // Fora da carga: 0 (ou "—" quando o item nem tem peso unitário).
+      byItem.set(item.orderItemId, item.unitWeightKg === null ? null : 0);
+    } else if (materialRegime) {
+      byItem.set(item.orderItemId, allocated.get(item.orderItemId) ?? null);
+    } else {
+      byItem.set(
+        item.orderItemId,
+        item.unitWeightKg === null ? null : item.unitWeightKg * item.quantity,
+      );
+    }
+  }
+
+  return { totalKg: loadWeightKg(input.materials, input.items), byItem };
 }
 
 /**
@@ -160,10 +297,19 @@ export function materialReturnQuantity(
 }
 
 /**
- * Merge das linhas alocadas (previsto fresco) com as gravadas (valores
- * informados) — chave descrição+unidade. Linhas gravadas que deixaram de
- * existir na alocação (item removido da carga) são MANTIDAS para não
- * perder o que o usuário já informou.
+ * Merge das linhas alocadas (previsto fresco) com as gravadas — chave
+ * descrição+unidade. Em ABERTO as três colunas acompanham a carga:
+ *
+ *  - PREVISTO = alocado atual (sempre foi assim);
+ *  - UTILIZADA = alocado atual também — é o que a produção consumiu
+ *    para ESTES itens, então muda junto quando entra/sai item da carga;
+ *  - RECEBIDA = a gravada, nunca abaixo da utilizada (nasce igual a
+ *    ela quando ainda não informada) — o que o usuário vê é o que o
+ *    Salvar grava, e o saldo a devolver nunca fica negativo.
+ *
+ * Linhas gravadas que deixaram de existir na alocação (item removido
+ * da carga) são MANTIDAS para não perder a recebida: previsto e
+ * utilizada zeram e a recebida vira tudo a devolver.
  */
 export function mergeRomaneioMaterialLines(
   allocated: readonly AllocatedMaterialLine[],
@@ -179,28 +325,29 @@ export function mergeRomaneioMaterialLines(
   for (const line of allocated) {
     const key = materialKey(line.description, line.unit);
     const saved = storedByKey.get(key);
+    const used = line.quantityPlanned;
+    const received = Math.max(saved?.quantityReceived ?? used, used);
     merged.set(key, {
       description: line.description,
       unit: line.unit,
       quantityPlanned: line.quantityPlanned,
-      quantityReceived: saved ? saved.quantityReceived : line.quantityPlanned,
-      quantityUsed: saved ? saved.quantityUsed : line.quantityPlanned,
-      quantityReturned: saved
-        ? materialReturnQuantity(saved.quantityReceived, saved.quantityUsed)
-        : materialReturnQuantity(line.quantityPlanned, line.quantityPlanned),
+      quantityReceived: received,
+      quantityUsed: used,
+      quantityReturned: materialReturnQuantity(received, used),
     });
   }
 
-  // Linhas gravadas sem alocação correspondente: mantém como estavam.
+  // Linhas gravadas sem alocação correspondente: mantém a recebida e
+  // zera o que passou a não pertencer mais a esta carga.
   for (const [key, line] of storedByKey) {
     if (merged.has(key)) continue;
     merged.set(key, {
       description: line.description,
       unit: line.unit,
-      quantityPlanned: line.quantityPlanned,
+      quantityPlanned: 0,
       quantityReceived: line.quantityReceived,
-      quantityUsed: line.quantityUsed,
-      quantityReturned: materialReturnQuantity(line.quantityReceived, line.quantityUsed),
+      quantityUsed: 0,
+      quantityReturned: materialReturnQuantity(line.quantityReceived, 0),
     });
   }
 

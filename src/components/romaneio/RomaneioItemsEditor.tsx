@@ -25,6 +25,12 @@ interface RomaneioItemsEditorProps {
    */
   processes: ProcessDefinition[];
   canEdit: boolean;
+  /**
+   * Peso total da carga (kg) — mesma fonte do cabeçalho (Σ da
+   * utilizada em unidade de peso, fallback nos itens); null = sem peso
+   * (a linha do rodapé nem aparece). Recalculado ao vivo no detalhe.
+   */
+  weightKg: number | null;
   /** Texto digitado: orderItemId -> valor do input ("", "10", "2,5"). */
   quantities: Record<string, string>;
   onQuantityChange: (orderItemId: string, value: string) => void;
@@ -62,21 +68,18 @@ export function RomaneioItemsEditor({
   items,
   processes,
   canEdit,
+  weightKg,
   quantities,
   onQuantityChange,
 }: RomaneioItemsEditorProps) {
   // 049: colunas de processo = regra da tela Fábrica 2 (catálogo ativo
   // menos a cadeia F1) menos MP e KIT, na ordem do catálogo.
   const processColumns = romaneioProcessColumns(processes);
-  // Totalizador da coluna "Peso carga (kg)" — soma as MESMAS células
-  // acima (peso unitário × quantidade efetiva digitada); itens sem
-  // peso ficam de fora e, sem nenhum peso na carga, a linha nem
-  // aparece.
-  const hasAnyWeight = items.some((item) => item.unitWeightKg !== null);
-  const weightTotal = items.reduce((sum, item) => {
-    if (item.unitWeightKg === null) return sum;
-    return sum + item.unitWeightKg * item.quantity;
-  }, 0);
+  // Totalizador da coluna "Peso carga (kg)" — o MESMO número do
+  // cabeçalho e da tabela de materiais (Σ da utilizada em KG/G; sem
+  // material em peso, volta ao qtd × peso unitário dos itens).
+  const hasAnyWeight = weightKg !== null;
+  const weightTotal = weightKg;
   // Colunas antes do "Peso carga (kg)" — base do colSpan do rodapé.
   const leadingColumns = 3 + processColumns.length + 4;
 
@@ -160,7 +163,7 @@ export function RomaneioItemsEditor({
                     ) : null}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
-                    {item.unitWeightKg === null ? "—" : formatWeight(item.unitWeightKg * quantity)}
+                    {item.loadWeightKg === null ? "—" : formatWeight(item.loadWeightKg)}
                   </td>
                 </tr>
               );
@@ -254,7 +257,7 @@ export function RomaneioItemsEditor({
                   />
                 </div>
                 <p className="text-sm tabular-nums text-muted-foreground">
-                  Peso: {item.unitWeightKg === null ? "—" : `${formatWeight(item.unitWeightKg * quantity)} kg`}
+                  Peso: {item.loadWeightKg === null ? "—" : `${formatWeight(item.loadWeightKg)} kg`}
                 </p>
               </div>
               {overLimit ? (

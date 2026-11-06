@@ -3,10 +3,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 
 import {
+  allocateRomaneioItemWeightsKg,
   allocateRomaneioMaterials,
   checkRomaneioConfirmation,
+  loadWeightKg,
   materialReturnQuantity,
   mergeRomaneioMaterialLines,
+  resolveRomaneioWeights,
+  sumUsedWeightKg,
 } from "@/lib/utils/romaneio";
 import { asSuperUser, asUser, createTestDatabase, createUser } from "./helpers/test-db";
 
@@ -364,14 +368,183 @@ describe("regras puras do romaneio", () => {
         quantityReturned: 0,
       },
       {
-        description: "Tinta pó", // órfã gravada: mantida para não perder dados
+        description: "Tinta pó", // órfã gravada: mantém a recebida, zera o resto
         unit: "KG",
-        quantityPlanned: 8,
+        quantityPlanned: 0,
         quantityReceived: null,
-        quantityUsed: null,
+        quantityUsed: 0,
         quantityReturned: null,
       },
     ]);
+  });
+
+  it("deriva a utilizada da alocação e nunca deixa a recebida abaixo dela", () => {
+    const merged = mergeRomaneioMaterialLines(
+      [
+        { description: "Chapa aço 3mm", unit: "KG", quantityPlanned: 10 },
+        { description: "Parafuso M8", unit: "UN", quantityPlanned: 4 },
+      ],
+      [
+        // Gravado ATRÁS do alocado (caso do romaneio 4): utilizada
+        // acompanha o previsto e a recebida nasce igual a ela.
+        {
+          description: "Chapa aço 3mm",
+          unit: "KG",
+          quantityPlanned: 6,
+          quantityReceived: 6,
+          quantityUsed: 6,
+        },
+        // Gravado ACIMA do alocado: sobra a devolver (saldo positivo).
+        {
+          description: "Parafuso M8",
+          unit: "UN",
+          quantityPlanned: 4,
+          quantityReceived: 30,
+          quantityUsed: 4,
+        },
+      ],
+    );
+
+    expect(merged).toEqual([
+      {
+        description: "Chapa aço 3mm",
+        unit: "KG",
+        quantityPlanned: 10,
+        quantityReceived: 10,
+        quantityUsed: 10,
+        quantityReturned: 0,
+      },
+      {
+        description: "Parafuso M8",
+        unit: "UN",
+        quantityPlanned: 4,
+        quantityReceived: 30,
+        quantityUsed: 4,
+        quantityReturned: 26,
+      },
+    ]);
+  });
+
+  it("soma só as linhas em unidade de peso (KG/G) para o peso da carga", () => {
+    expect(
+      sumUsedWeightKg([
+        { unit: "KG", quantityUsed: 10 },
+        { unit: "G", quantityUsed: 500 },
+        { unit: "UN", quantityUsed: 30 },
+        { unit: "M", quantityUsed: 4 },
+      ]),
+    ).toBeCloseTo(10.5);
+
+    // Linha em peso SEM valor conta 0 (a unidade é de peso).
+    expect(sumUsedWeightKg([{ unit: "KG", quantityUsed: null }])).toBe(0);
+    // Nenhuma linha em unidade de peso → null (o chamador cai nos itens).
+    expect(
+      sumUsedWeightKg([
+        { unit: "UN", quantityUsed: 30 },
+        { unit: "M", quantityUsed: null },
+      ]),
+    ).toBeNull();
+    expect(sumUsedWeightKg([])).toBeNull();
+  });
+
+  it("cai no peso dos itens só quando não há material em peso (loadWeightKg)", () => {
+    const items = [
+      { unitWeightKg: 10, quantity: 4 },
+      { unitWeightKg: null, quantity: 3 },
+    ];
+    // Sem linha em KG/G → qtd × peso unitário (item sem peso conta 0).
+    expect(loadWeightKg([{ unit: "UN", quantityUsed: 30 }], items)).toBe(40);
+    // Com linha em peso → a UTILIZADA manda (mesmo que os itens digam outra coisa).
+    expect(loadWeightKg([{ unit: "KG", quantityUsed: 7.5 }], items)).toBe(7.5);
+    // Nada de peso em lugar nenhum → "—".
+    expect(loadWeightKg([], [{ unitWeightKg: null, quantity: 2 }])).toBeNull();
+  });
+
+  it("deriva o peso de CADA item raiz dos materiais em KG da subárvore", () => {
+    const allocation = {
+      includedItems: [
+        { orderItemId: "raiz-1", quantity: 5 },
+        { orderItemId: "raiz-2", quantity: 6 },
+        { orderItemId: "raiz-3", quantity: 1 },
+      ],
+      orderItems: [
+        {
+          orderItemId: "raiz-1",
+          parentItemId: null,
+          quantity: 10,
+          materials: [{ description: "Chapa aço 3mm", unit: "KG", quantity: 20 }],
+        },
+        {
+          orderItemId: "filho-1",
+          parentItemId: "raiz-1",
+          quantity: 5,
+          materials: [
+            { description: "Perfil L", unit: "KG", quantity: 10 },
+            { description: "Parafuso M8", unit: "UN", quantity: 50 },
+          ],
+        },
+        {
+          orderItemId: "raiz-2",
+          parentItemId: null,
+          quantity: 6,
+          // Só material NÃO peso → o item não tem peso de material.
+          materials: [{ description: "Tinta pó", unit: "L", quantity: 8 }],
+        },
+        {
+          orderItemId: "raiz-3",
+          parentItemId: null,
+          quantity: 1,
+          materials: [{ description: "Arame", unit: "G", quantity: 2000 }],
+        },
+      ],
+    };
+
+    const byItem = allocateRomaneioItemWeightsKg(allocation);
+    // raiz-1: (20 + 10) × 0,5 = 15 kg — raiz e filho juntos.
+    expect(byItem.get("raiz-1")).toBeCloseTo(15);
+    // raiz-2: nada em unidade de peso → fora do mapa ("—").
+    expect(byItem.has("raiz-2")).toBe(false);
+    // raiz-3: 2000 g = 2 kg (conversão G ÷ 1000).
+    expect(byItem.get("raiz-3")).toBeCloseTo(2);
+  });
+
+  it("resolve os pesos da carga com UMA fonte só (resolveRomaneioWeights)", () => {
+    const allocation = {
+      includedItems: [{ orderItemId: "raiz-1", quantity: 5 }],
+      orderItems: [
+        {
+          orderItemId: "raiz-1",
+          parentItemId: null,
+          quantity: 10,
+          materials: [{ description: "Chapa aço 3mm", unit: "KG", quantity: 20 }],
+        },
+      ],
+    };
+    const items = [
+      { orderItemId: "raiz-1", unitWeightKg: 10, quantity: 5 },
+      { orderItemId: "fora", unitWeightKg: 8, quantity: 0 },
+    ];
+
+    // Com material em KG: total = Σ da utilizada e o item recebe o peso
+    // alocado dele (10 kg), mesmo que o peso unitário diga 50.
+    const comMaterial = resolveRomaneioWeights({
+      materials: [{ unit: "KG", quantityUsed: 10 }],
+      items,
+      allocation,
+    });
+    expect(comMaterial.totalKg).toBe(10);
+    expect(comMaterial.byItem.get("raiz-1")).toBeCloseTo(10);
+    expect(comMaterial.byItem.get("fora")).toBe(0);
+
+    // Sem material em peso: cai no qtd × peso unitário dos itens.
+    const semMaterial = resolveRomaneioWeights({
+      materials: [{ unit: "UN", quantityUsed: 30 }],
+      items,
+      allocation,
+    });
+    expect(semMaterial.totalKg).toBe(50);
+    expect(semMaterial.byItem.get("raiz-1")).toBe(50);
+    expect(semMaterial.byItem.get("fora")).toBe(0);
   });
 
   it("deriva o saldo de devolução (recebida − utilizada) com null quando falta dado", () => {

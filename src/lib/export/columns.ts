@@ -17,6 +17,7 @@ import type {
 import { formatDateTime } from "@/lib/utils/dates";
 import { formatQuantity } from "@/lib/utils/formatting";
 import { fabrica1ProcessColumns } from "@/lib/utils/production";
+import { weightKgOf } from "@/lib/utils/romaneio";
 import { childItemProposalDate, itemProposalDate, orderProposalDate } from "@/lib/utils/proposal-date";
 
 /**
@@ -270,8 +271,10 @@ export function romaneiosListSheet(romaneios: readonly RomaneioSummary[]): Expor
 /**
  * Romaneio — documento de UM romaneio (/romaneio/[id]): cabeçalho da
  * carga, bloco de itens da carga e bloco de devolução de matéria-prima
- * com o Σ da OF inteira. Os blocos entram como linhas de seção na mesma
- * aba (uma folha por romaneio, pronta para anexar à NF).
+ * (Material, Unidade, Recebida e Peso (kg) por material — previsto,
+ * utilizada e saldo a devolver saíram da lista) com o Σ da OF inteira.
+ * Os blocos entram como linhas de seção na mesma aba (uma folha por
+ * romaneio, pronta para anexar à NF).
  */
 export function romaneioDocumentSheet(view: RomaneioView): ExportSheet {
   const headers = [
@@ -333,7 +336,7 @@ export function romaneioDocumentSheet(view: RomaneioView): ExportSheet {
       number(item.shippedQuantity),
       number(item.quantity),
       number(item.unitWeightKg),
-      number(item.unitWeightKg === null ? null : item.unitWeightKg * item.quantity),
+      number(item.loadWeightKg),
     ]);
   }
 
@@ -342,19 +345,20 @@ export function romaneioDocumentSheet(view: RomaneioView): ExportSheet {
   rows.push([
     "Material",
     "Unidade",
-    "Previsto (carga)",
     "Recebida",
-    "Utilizada",
-    "Saldo a devolver",
+    "Peso (kg)",
   ]);
   for (const material of view.materials) {
+    // Peso INDIVIDUAL da linha — a utilizada em unidade de peso (KG
+    // vale, G ÷ 1000); em UN/M/CX… não há peso ("—"), a MESMA regra
+    // da coluna "Peso (kg)" da tela e do peso total da carga.
+    const lineWeightKg =
+      material.quantityUsed === null ? null : weightKgOf(material.unit, material.quantityUsed);
     rows.push([
       text(material.description),
       text(material.unit),
-      number(material.quantityPlanned),
       number(material.quantityReceived),
-      number(material.quantityUsed),
-      number(material.quantityReturned),
+      number(lineWeightKg),
     ]);
   }
 

@@ -55,6 +55,8 @@ function item(overrides: Partial<RomaneioOrderItem> = {}): RomaneioOrderItem {
     processes: { SOLDA: "CONCLUIDO", ACAB: "NAO_INICIADO", EXP: "NAO_APLICAVEL" },
     quantity: 4,
     conferenceChecked: false,
+    // Peso da carga derivado dos materiais (fixture coerente: 2 × 4).
+    loadWeightKg: 8,
     ...overrides,
   };
 }
@@ -65,6 +67,8 @@ function renderEditor(items: RomaneioOrderItem[], processes = PROCESSES): string
       items,
       processes,
       canEdit: true,
+      // Peso fora do escopo destes testes (só colunas de processo).
+      weightKg: null,
       quantities: Object.fromEntries(items.map((entry) => [entry.orderItemId, String(entry.quantity)])),
       onQuantityChange: () => undefined,
     }),

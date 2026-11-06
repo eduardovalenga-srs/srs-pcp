@@ -87,6 +87,8 @@ function orderItem(overrides: Partial<RomaneioOrderItem> = {}): RomaneioOrderIte
     processes: {},
     quantity: 0,
     conferenceChecked: false,
+    // Sem romaneio ainda: o /romaneio/novo deriva o peso ao vivo.
+    loadWeightKg: null,
     ...overrides,
   };
 }

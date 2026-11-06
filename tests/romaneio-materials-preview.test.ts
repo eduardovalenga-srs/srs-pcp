@@ -80,15 +80,48 @@ describe("previewRomaneioMaterials — recálculo ao vivo das quantidades dos it
       quantities: { "root-a": "5" },
     });
 
+    // A linha sai da alocação: a RECEBIDA é preservada (vira tudo a
+    // devolver) e previsto/utilizada zeram — nada se perde, nada inventa.
     const cinta = lines.find((line) => line.description === "Cinta galvanizada");
     expect(cinta).toMatchObject({
-      quantityPlanned: 10,
+      quantityPlanned: 0,
       quantityReceived: 4,
-      quantityUsed: 4,
-      quantityReturned: 0,
+      quantityUsed: 0,
+      quantityReturned: 4,
     });
     // O que está na carga continua vindo da alocação fresca.
     expect(lines.find((line) => line.description === "Chapa aço 3mm")?.quantityPlanned).toBe(1.25);
+  });
+
+  it("a utilizada nasce da alocação e a recebida nunca fica abaixo dela", () => {
+    // Gravado com recebida 1 (abaixo do alocado 5): nasce 5/5/saldo 0.
+    const lines = preview({
+      storedMaterials: [
+        { ...gravado, description: "Chapa aço 3mm", unit: "KG", quantityReceived: 1, quantityUsed: 1 },
+      ],
+      quantities: { "root-a": "20" },
+    });
+    const chapa = lines.find((line) => line.description === "Chapa aço 3mm");
+    expect(chapa).toMatchObject({
+      quantityPlanned: 5,
+      quantityReceived: 5,
+      quantityUsed: 5,
+      quantityReturned: 0,
+    });
+
+    // Recebida MAIOR que a alocada é preservada (sobra a devolver).
+    const sobra = preview({
+      storedMaterials: [
+        { ...gravado, description: "Chapa aço 3mm", unit: "KG", quantityReceived: 8, quantityUsed: 1 },
+      ],
+      quantities: { "root-a": "20" },
+    });
+    expect(sobra.find((line) => line.description === "Chapa aço 3mm")).toMatchObject({
+      quantityPlanned: 5,
+      quantityReceived: 8,
+      quantityUsed: 5,
+      quantityReturned: 3,
+    });
   });
 
   it("fora de ABERTO o registro congela no gravado, ignorando as quantidades", () => {

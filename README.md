@@ -82,6 +82,8 @@ cp .env.example .env.local
 #    supabase/migrations/046_romaneio_open_status.sql
 #    supabase/migrations/047_romaneio_column_filters.sql
 #    supabase/migrations/048_romaneio_conference_form.sql
+#    supabase/migrations/049_romaneio_process_columns.sql
+#    supabase/migrations/050_romaneio_weight_from_materials.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -644,8 +646,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   - **Romaneio** (lista em `/romaneio`) — **Nº** (faixa), **Situação**, **uma coluna por
     processo da Fábrica 2** (049 — regra da tela F2: catálogo ativo menos a cadeia F1,
     **menos MP e KIT**; célula com **só o símbolo** da pior situação entre os **itens da
-    carga**), OF/OS, Cliente, Saída, **Peso** (faixa),
-    **NF saída/devolução**;
+    carga**), OF/OS, Cliente, Saída, **Peso** (faixa — Σ da utilizada em KG da carga,
+    050), **NF saída/devolução**;
     em `/romaneio/novo` o seletor em cascata
     (cliente → OFs do cliente, com filtro por digitação) substitui a tabela;
   Defaults preservados (zero mudança visual sem clique): F1 = `seq` asc; F2/Gestão = `seq`/
@@ -679,7 +681,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
 - **Histórico**: toda mutação de produção gera linha em `production_events`;
   o histórico é somente inserção (nunca é apagado).
 
-## Romaneio de expedição (migrações 042, 045, 046, 047 e 048)
+## Romaneio de expedição (migrações 042, 045, 046, 047, 048, 049 e 050)
 
 - **O que é**: a tela `/romaneio` organiza a expedição **por OF** — monta a carga (itens +
   quantidades), auxilia a emissão da NF (registro dos números, a nota sai no emissor
@@ -699,8 +701,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   dá para montar a carga mesmo com itens não concluídos — é rascunho.
 - **Conferência como formulário** (048): a ação **Conferência** da lista abre
   `/romaneio/[id]/conferencia` — a folha **imprimível** (`window.print()`,
-  estilos `print:`) virou **formulário**: checkbox de marcação por item, quantidades
-  **recebida/utilizada** da devolução e observação do aceite. **Salvar rascunho** grava tudo
+  estilos `print:`) virou **formulário**: checkbox de marcação por item, quantidade
+  **recebida** da devolução (a **utilizada é derivada dos itens da carga** e sai em
+  texto — na ficha só se informa a recebida) e observação do aceite. **Salvar rascunho**
+  grava tudo
   sem mudar a situação (dá para pausar a conferência); **Marcar como conferida** grava e
   move para **CONFERIDO**, exigindo todos os itens marcados (RPC
   `save_romaneio_conference` — rascunho e concluir na MESMA transação; a marcação mora em
@@ -739,27 +743,47 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
 - **Devolução de MP**: saldo = **recebida do cliente − utilizada na produção**, por material
   (descrição + unidade). A alocação do "previsto" a cada carga é **proporcional**
   (`ratio = qtd nesta carga ÷ qtd total do item raiz`, materiais do raiz e de todos os
-  seus filhos × ratio — `allocateRomaneioMaterials`). Em ABERTO o detalhe mostra o
-  merge do alocado fresco com o já informado **e recalcula AO VIVO a cada tecla nas
-  quantidades dos itens** (`previewRomaneioMaterials`, espelho cliente do serviço: a
-  `RomaneioView` leva `allocationItems` + `storedMaterials` e o cliente refaz
-  alocação+merge com o MESMO parser do salvamento — o que se vê é o que o Salvar grava, e
-  o refresh do servidor só confirma); conferido/confirmado/cancelado o registro
-  **congela** (só o gravado). O pé da tabela fecha com o **TOTAL DA CARGA** (soma das
-  linhas visíveis de Previsto/Utilizada/Saldo — linha sem informação fica de fora e a
-  célula sai "—") e a visão da **OF inteira** (Σ de todos os romaneios não cancelados)
-  mora **só na nota abaixo**. A **NF de devolução** só entra com a NF de saída e todas
-  as linhas com recebida/utilizada preenchidas. No **detalhe** a tabela de materiais
-  **perdeu a coluna "Recebida do cliente"** (só Material, Unidade, Previsto, Utilizada e
-  Saldo — o saldo continua calculando com o `received` vindo da ficha) e a listagem de
-  peso **por item** também saiu da tela: sobram **três totalizadores** — as linhas
-  **Total da carga** e **Peso total da carga** no pé da tabela de materiais (e as duas
-  compactas no mobile) e o **tfoot da tabela de itens raiz**, que fecha a coluna "Peso
-  carga (kg)" com a soma das próprias células (peso unitário × quantidade digitada; itens
-  sem peso ficam de fora e a linha nem aparece se não houver nenhum). A **ficha** mantém a
-  `RomaneioItemsWeightTable` (qtd × peso unitário da OF, com total ao pé; itens fora da
-  carga ficam de fora) e continua sendo o **único** lugar com a listagem por item e com a
-  coluna recebida — sem migration: é só exibição).
+  seus filhos × ratio — `allocateRomaneioMaterials`). A **UTILIZADA É DERIVADA** da mesma
+  alocação (é o que a produção consumiu para ESTES itens): em ABERTO nasce igual ao
+  alocado, muda junto com os itens e **não é digitável** — nem no detalhe nem na ficha;
+  o único lançamento é a **RECEBIDA**, na ficha de conferência, e ela **nunca fica abaixo
+  da utilizada** (no merge `received = max(gravado, usado)` e o saldo zera nesse caso).
+  Linha gravada que **saiu da alocação** (item removido da carga) é mantida: previsto e
+  utilizada zeram e a recebida vira tudo a devolver — nada se perde, nada inventa.
+  A **NF de devolução** só entra com a NF de saída e todas as linhas com
+  recebida/utilizada preenchidas.
+  Em ABERTO o detalhe mostra o merge do alocado fresco com o já informado **e recalcula
+  AO VIVO a cada tecla nas quantidades dos itens** (`previewRomaneioMaterials`, espelho
+  cliente do serviço: a `RomaneioView` leva `allocationItems` + `storedMaterials` e o
+  cliente refaz alocação+merge com o MESMO parser do salvamento — o que se vê é o que o
+  Salvar grava, e o refresh do servidor só confirma); conferido/confirmado/cancelado o
+  registro **congela** (só o gravado). O pé da tabela fecha com o **TOTAL DA CARGA**
+  (soma das linhas visíveis de Previsto/Utilizada/Saldo — linha sem informação fica de
+  fora e a célula sai "—") e a visão da **OF inteira** (Σ de todos os romaneios não
+  cancelados) mora **só na nota abaixo**.
+- **Peso da carga (050)**: **UMA fonte só** — o peso é a **Σ da coluna "Utilizada" nas
+  linhas em unidade de PESO** (KG vale o valor; G ÷ 1000; `sumUsedWeightKg`), com o
+  **peso dos itens** (Σ qtd × peso unitário) só como fallback quando a carga não tem
+  NENHUMA linha em KG/G; sem nada de peso, "—". Esse número fecha **cabeçalho, tabela de
+  materiais ("Peso total da carga"), tabela de itens raiz (rodapé da coluna "Peso carga
+  (kg)") e a ficha** — `resolveRomaneioWeights` roda no servidor (`getRomaneioView`) e
+  de novo no cliente a cada tecla. O **peso POR ITEM** é derivado dos materiais em KG
+  da **subárvore** do item × razão (`allocateRomaneioItemWeightsKg` — mesma alocação do
+  previsto; sem material em peso, volta ao qtd × peso unitário; item sem peso nenhum
+  fica "—", conta 0). No **detalhe** a tabela de materiais **perdeu a coluna "Recebida
+  do cliente"** (só Material, Unidade, Previsto, Utilizada e Saldo — a recebida continua
+  vindo da ficha) e a listagem de peso **por item** saiu da tela: sobram **três
+  totalizadores** — as linhas **Total da carga** e **Peso total da carga** no pé da
+  tabela de materiais (e as duas compactas no mobile) e o **tfoot da tabela de itens
+  raiz**, que fecha a coluna "Peso carga (kg)" com o **mesmo** peso total do cabeçalho.
+  A **ficha** mantém a `RomaneioItemsWeightTable` (por item, com peso alocado em
+  **"Peso carga (kg)"** e o total ao pé; itens fora da carga ficam de fora) e continua
+  sendo o **único** lugar com a listagem por item e com a coluna recebida. A lista
+  `/romaneio` (coluna **Peso** + filtro por faixa) e a exportação `.xlsx` usam o MESMO
+  número, calculado na RPC pela migração **050** (`mat_weight`: Σ da utilizada em KG/G;
+  sem linha em peso, regra antiga qtd × peso unitário, NULL se algum item não tem peso).
+  Sem migração de dados: o valor antigo da lista só muda no **próximo Salvar** do
+  romaneio (detalhe/ficha já mostram o derivado antes de gravar).
 - **Exclusão × cancelamento**: ABERTO (antes da conferência) pode ser **excluído
   definitivamente** (RPC `delete_romaneio` — sem registro no histórico; o número não
   retorna); CONFERIDO/CONFIRMADO só **cancelam** (RPC `cancel_romaneio` — mantém o histórico
@@ -779,8 +803,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   dois números de **NF** (contém). Tudo mora na query string (`situacao`, `numerode/ate`,
   `pesode/ate`, `nfsaida`, `nfdev` — link compartilhável), volta para a página 1 ao aplicar
   e vira chip em "filtros ativos"; a barra de filtros do mobile tem os mesmos campos. As
-  faixas são inclusivas com lados opcionais; **itens sem peso unitário deixam o peso do
-  romaneio NULL e ficam FORA quando há filtro de peso** (não contam como 0). Os filtros
+  faixas são inclusivas com lados opcionais; o **Peso** (coluna e faixa, 050) é a **Σ da
+  utilizada em unidade de peso** (KG/G) da carga — sem nenhuma linha em KG/G cai no
+  qtd × peso unitário e, se algum item não tem peso, o peso fica **NULL e fica FORA do
+  filtro de peso** (não conta como 0). Os filtros
   são aplicados pela RPC `get_romaneios_page` (assinatura nova — DROP da antiga é
   obrigatório, senão o PostgREST fica com duas homônimas) e, de forma idêntica, pela
   **`get_romaneio_summary`** (nova), que devolve **1 linha** com os cartões
@@ -788,15 +814,17 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   **respeita** a situação filtrada (bate com o total da lista paginada) e os três
   contadores são o **breakdown por situação que a IGNORA** (senão os outros dois
   cartões zerariam) — antes eram 3 contagens em PostgREST, que não alcançavam o filtro
-  de peso agregado. Ver as migrações 047 e 049.
+  de peso agregado. Ver as migrações 047, 049 e 050.
   - **Ordenação por processo** (049): o `?ordem=` também aceita **código de processo** do
     catálogo exibido na lista (pior situação, `asc` = melhor primeiro; NAO_APLICAVEL fica
     de fora do rank mas vira valor na célula; chave ausente = "—"), validado em `processes`
     + `quote_literal` (padrão da 041) — fora do catálogo ou em **MP/KIT** (sem coluna)
     cai no default (nº desc).
 - **Exportação**: `GET /api/export/romaneio` devolve a **lista filtrada inteira** (mesmas
-  colunas da tela) e, com `?id=<uuid>`, o **documento do romaneio** (cabeçalho da carga,
-  itens e devolução com o Σ da OF inteira) — botões em `/romaneio` e em `/romaneio/[id]`.
+  colunas da tela, inclusive **Peso** com a regra 050) e, com `?id=<uuid>`, o
+  **documento do romaneio** (cabeçalho da carga,
+  itens e devolução com o Σ da OF inteira — a coluna **"Peso carga (kg)"** usa o peso
+  alocado por item, `loadWeightKg`) — botões em `/romaneio` e em `/romaneio/[id]`.
 - **Conhecidos/v1 aceitos**: reimportar a OF (cascade) apaga as linhas do romaneio;
   confirmação simultânea de dois usuários na mesma OF não tem trava além do índice único de
   em aberto + o teto validado na RPC; materiais congelam ao conferir (edição posterior exige

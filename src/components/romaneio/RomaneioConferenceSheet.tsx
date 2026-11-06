@@ -9,6 +9,7 @@ import { saveRomaneioConferenceAction } from "@/lib/actions/romaneio.actions";
 import type { RomaneioView } from "@/lib/types/romaneio";
 import { formatDate, formatDateTime } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
+import { loadWeightKg } from "@/lib/utils/romaneio";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,8 +36,9 @@ function amountText(value: number | null): string {
 
 /**
  * Folha de conferência do romaneio — FORMULÁRIO na tela e impressa
- * para o check da carga no caminhão: marcação por item, recebida/
- * utilizada dos materiais e observação. "Salvar rascunho" grava sem
+ * para o check da carga no caminhão: marcação por item, recebida dos
+ * materiais (a UTILIZADA é derivada dos itens da carga — somente
+ * leitura) e observação. "Salvar rascunho" grava sem
  * mudar a situação; "Marcar como conferida" grava tudo e move para
  * CONFERIDO (exige todos os itens marcados). Imprimir em branco e
  * lançar depois também vale — no papel saem caixas vazias onde falta
@@ -55,24 +57,22 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
           .map((item) => item.orderItemId),
       ),
   );
-  const [amounts, setAmounts] = useState<Record<string, { received: string; used: string }>>(
-    () =>
-      Object.fromEntries(
-        view.materials.map((line) => [
-          materialKey(line.description, line.unit),
-          { received: amountText(line.quantityReceived), used: amountText(line.quantityUsed) },
-        ]),
-      ),
+  const [received, setReceivedState] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      view.materials.map((line) => [
+        materialKey(line.description, line.unit),
+        amountText(line.quantityReceived),
+      ]),
+    ),
   );
 
   const included = view.items.filter((item) => item.quantity > 0);
   const editable = canEdit && view.status === "ABERTO";
   const pendingCount = included.filter((item) => !checked.has(item.orderItemId)).length;
-  const weightTotal = included.reduce(
-    (sum, item) => sum + (item.unitWeightKg === null ? 0 : item.unitWeightKg * item.quantity),
-    0,
-  );
-  const hasAnyWeight = included.some((item) => item.unitWeightKg !== null);
+  // Peso da carga = Σ da "Utilizada" em unidade de peso (mesmo número
+  // do detalhe); sem linha em KG/G, cai no peso dos itens.
+  const weightTotal = loadWeightKg(view.materials, included);
+  const hasAnyWeight = weightTotal !== null;
 
   const handlePrint = () => {
     window.print();
@@ -91,16 +91,9 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
     });
   };
 
-  const setAmount = (
-    key: string,
-    field: "received" | "used",
-    value: string,
-  ) => {
+  const setReceived = (key: string, value: string) => {
     if (!editable) return;
-    setAmounts((current) => ({
-      ...current,
-      [key]: { ...current[key], [field]: value },
-    }));
+    setReceivedState((current) => ({ ...current, [key]: value }));
   };
 
   const handleSave = async (sign: boolean) => {
@@ -114,18 +107,17 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
         checkedItemIds: included
           .filter((item) => checked.has(item.orderItemId))
           .map((item) => item.orderItemId),
-        materials: view.materials.map((line) => {
-          const value = amounts[materialKey(line.description, line.unit)] ?? {
-            received: "",
-            used: "",
-          };
-          return {
-            description: line.description,
-            unit: line.unit,
-            quantityReceived: value.received.trim() === "" ? null : value.received,
-            quantityUsed: value.used.trim() === "" ? null : value.used,
-          };
-        }),
+        materials: view.materials.map((line) => ({
+          description: line.description,
+          unit: line.unit,
+          quantityReceived:
+            (received[materialKey(line.description, line.unit)] ?? "").trim() === ""
+              ? null
+              : received[materialKey(line.description, line.unit)],
+          // Derivada dos itens da carga (view.materials em ABERTO já
+          // nasce da alocação) — a ficha só lança a recebida.
+          quantityUsed: line.quantityUsed,
+        })),
         sign,
       });
       if (!result.success) {
@@ -305,7 +297,7 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
                       {formatQuantity(item.quantity)}
                     </td>
                     <td className="py-1.5 text-right tabular-nums">
-                      {item.unitWeightKg === null ? "—" : formatWeight(item.unitWeightKg * item.quantity)}
+                      {item.loadWeightKg === null ? "—" : formatWeight(item.loadWeightKg)}
                     </td>
                   </tr>
                 ))}
@@ -336,7 +328,7 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
                 <tbody>
                   {view.materials.map((line) => {
                     const key = materialKey(line.description, line.unit);
-                    const value = amounts[key] ?? { received: "", used: "" };
+                    const receivedText = received[key] ?? "";
                     return (
                       <tr key={key} className="border-b last:border-0 print:border-black/40">
                         <td className="py-1.5 pr-2">{line.description}</td>
@@ -350,25 +342,16 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
                               type="text"
                               inputMode="decimal"
                               aria-label={`Quantidade recebida de ${line.description}`}
-                              value={value.received}
+                              value={receivedText}
                               readOnly={!editable}
-                              onChange={(event) => setAmount(key, "received", event.target.value)}
+                              onChange={(event) => setReceived(key, event.target.value)}
                               className="h-8 w-24 text-right tabular-nums"
                             />
                           </div>
                         </td>
-                        <td className="py-1.5">
-                          <div className="flex justify-end">
-                            <Input
-                              type="text"
-                              inputMode="decimal"
-                              aria-label={`Quantidade utilizada de ${line.description}`}
-                              value={value.used}
-                              readOnly={!editable}
-                              onChange={(event) => setAmount(key, "used", event.target.value)}
-                              className="h-8 w-24 text-right tabular-nums"
-                            />
-                          </div>
+                        <td className="py-1.5 text-right tabular-nums">
+                          {/* Derivada dos itens da carga — só a recebida é lançada. */}
+                          {line.quantityUsed === null ? "—" : formatQuantity(line.quantityUsed)}
                         </td>
                       </tr>
                     );
@@ -378,7 +361,7 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
             </div>
           )}
 
-          <RomaneioItemsWeightTable items={view.items} />
+          <RomaneioItemsWeightTable items={view.items} totalKg={weightTotal} />
         </section>
 
         {/* Observações + aceite */}

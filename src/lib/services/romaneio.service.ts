@@ -37,8 +37,10 @@ import {
   allocateRomaneioMaterials,
   checkRomaneioConfirmation,
   mergeRomaneioMaterialLines,
+  resolveRomaneioWeights,
   storedMaterialLines,
   summarizeOfMaterialTotals,
+  type RomaneioAllocationInput,
   type RomaneioOrderItemSource,
   type StoredMaterialLine,
 } from "@/lib/utils/romaneio";
@@ -127,6 +129,8 @@ export async function getRomaneioOrderItems(
       processes: processStatusMap(item),
       quantity: 0,
       conferenceChecked: false,
+      // Sem carga não há peso a derivar — o detalhe resolve ao vivo.
+      loadWeightKg: null,
     };
   });
 }
@@ -200,27 +204,40 @@ export async function getRomaneioView(
         processes: processStatusMap(item),
         quantity: includedByItem.get(item.id) ?? 0,
         conferenceChecked: checkedByItem.has(item.id),
+        loadWeightKg: null,
       };
     });
+
+  // Insumos da alocação desta carga (materiais e PESOS saem do mesmo
+  // laço — servidor e cliente recalculam com a mesma entrada).
+  const allocation: RomaneioAllocationInput = {
+    includedItems: [...includedByItem].map(([orderItemId, quantity]) => ({
+      orderItemId,
+      quantity,
+    })),
+    orderItems: orderStructure,
+  };
 
   // Em ABERTO as linhas de material nascem da alocação desta carga
   // (merge com o já informado); conferido/confirmado/cancelado mostra
   // o registro gravado.
-  const allocated =
-    raw.status === "ABERTO"
-      ? allocateRomaneioMaterials({
-          includedItems: [...includedByItem].map(([orderItemId, quantity]) => ({
-            orderItemId,
-            quantity,
-          })),
-          orderItems: orderStructure,
-        })
-      : [];
+  const allocated = raw.status === "ABERTO" ? allocateRomaneioMaterials(allocation) : [];
 
   const materials =
     raw.status === "ABERTO"
       ? mergeRomaneioMaterialLines(allocated, storedMaterials)
       : storedMaterialLines(storedMaterials);
+
+  // Pesos da carga derivados da MESMA fonte (Σ da utilizada em KG) —
+  // cada item raiz recebe o peso alocado da subárvore dele.
+  const weights = resolveRomaneioWeights({
+    materials,
+    items,
+    allocation,
+  });
+  for (const item of items) {
+    item.loadWeightKg = weights.byItem.get(item.orderItemId) ?? null;
+  }
 
   const confirmation = checkRomaneioConfirmation({
     status: raw.status,

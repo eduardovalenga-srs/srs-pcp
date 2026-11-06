@@ -480,6 +480,9 @@ function romaneioItem(
     processes: { SOLDA: "CONCLUIDO", EXP: "NAO_APLICAVEL" },
     quantity: 4,
     conferenceChecked: false,
+    // Peso da carga derivado dos materiais em KG da subárvore — no
+    // fixture fecha com o qtd × peso unitário (2,5 × 4).
+    loadWeightKg: 10,
     ...overrides,
   };
 }
@@ -559,5 +562,66 @@ describe("romaneioDocumentSheet — documento do detalhe", () => {
     const row = sheet.rows[itemsHeaderIndex + 2]!;
     expect(row[3]).toBe("—"); // SOLDA ausente
     expect(row[4]).toBe("—"); // EXP ausente
+  });
+
+  it("devolução sai com Material, Unidade, Recebida e Peso por material", () => {
+    const sheet = romaneioDocumentSheet(
+      romaneioView({
+        materials: [
+          {
+            description: "Chapa aço 3mm",
+            unit: "KG",
+            quantityPlanned: 15,
+            quantityReceived: 18,
+            quantityUsed: 15,
+            quantityReturned: 3,
+          },
+          // Linha em unidade de peso: a utilizada vira PESO (kg)…
+          {
+            description: "Chapa 1mm",
+            unit: "G",
+            quantityPlanned: 2000,
+            quantityReceived: null,
+            quantityUsed: 2000,
+            quantityReturned: null,
+          },
+          // …e linha em UN não tem peso ("—"), como na tela.
+          {
+            description: "Parafuso M8",
+            unit: "UN",
+            quantityPlanned: 30,
+            quantityReceived: null,
+            quantityUsed: 30,
+            quantityReturned: null,
+          },
+        ],
+      }),
+    );
+
+    const devIndex = sheet.rows.findIndex((row) => row[0] === "DEVOLUÇÃO DE MATÉRIA-PRIMA");
+    expect(devIndex).toBeGreaterThanOrEqual(0);
+
+    const headers = sheet.rows[devIndex + 1]!;
+    expect(headers).toEqual(["Material", "Unidade", "Recebida", "Peso (kg)"]);
+    expect(headers).not.toContain("Previsto (carga)");
+    expect(headers).not.toContain("Utilizada");
+    expect(headers).not.toContain("Saldo a devolver");
+
+    // KG vale o próprio valor, G divide por 1000 e UN não pesa.
+    expect(sheet.rows[devIndex + 2]).toEqual(["Chapa aço 3mm", "KG", 18, 15]);
+    expect(sheet.rows[devIndex + 3]).toEqual(["Chapa 1mm", "G", "—", 2]);
+    expect(sheet.rows[devIndex + 4]).toEqual(["Parafuso M8", "UN", "—", "—"]);
+
+    // O bloco da OF inteira continua com a visão agregada completa.
+    const ofIndex = sheet.rows.findIndex((row) => row[0] === "OF INTEIRA (TODOS OS ROMANEIOS)");
+    expect(ofIndex).toBeGreaterThanOrEqual(0);
+    expect(sheet.rows[ofIndex]).toEqual([
+      "OF INTEIRA (TODOS OS ROMANEIOS)",
+      "",
+      "",
+      "Recebida",
+      "Utilizada",
+      "Saldo a devolver",
+    ]);
   });
 });

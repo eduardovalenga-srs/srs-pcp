@@ -88,6 +88,9 @@ function orderItem(overrides: Partial<RomaneioOrderItem> = {}): RomaneioOrderIte
     processes: {},
     quantity: 4,
     conferenceChecked: false,
+    // Peso unitário × qtd não manda mais: o peso por item vem dos
+    // materiais em KG alocados (fixture: 15 KG para este item).
+    loadWeightKg: 15,
     ...overrides,
   };
 }
@@ -119,20 +122,30 @@ function view(overrides: Partial<RomaneioView> = {}): RomaneioView {
     // Sem catálogo: as colunas de processo do editor de itens ficam vazias
     // (a cobertura delas está em romaneio-detail-processes.test.ts).
     processes: [],
+    // A UTILIZADA é derivada dos itens: com a estrutura abaixo o
+    // preview do detalhe fecha nos MESMOS números do gravado.
     materials: [
       {
         description: "Chapa aço 3mm",
         unit: "KG",
-        quantityPlanned: 20,
+        quantityPlanned: 15,
         quantityReceived: 18,
         quantityUsed: 15,
         quantityReturned: 3,
       },
     ],
     ofMaterialTotals: { received: 18, used: 15, returned: 3 },
-    // Insumos do preview ao vivo do detalhe: sem estrutura da OF a
-    // alocação fica vazia e as linhas vêm do gravado (planned 20).
-    allocationItems: [],
+    // Insumos do preview ao vivo do detalhe: item-1 é RAIZ da OF (qtd 4,
+    // mesma da carga → razão 1) com 15 KG de material — o alocado fecha
+    // em 15 e a recebida gravada (18) continua acima (saldo 3).
+    allocationItems: [
+      {
+        orderItemId: "item-1",
+        parentItemId: null,
+        quantity: 4,
+        materials: [{ description: "Chapa aço 3mm", unit: "KG", quantity: 15 }],
+      },
+    ],
     storedMaterials: [
       {
         description: "Chapa aço 3mm",
@@ -162,11 +175,12 @@ describe("ficha de conferência como formulário (048)", () => {
     // Checkbox por item INCLUÍDO (o item fora da carga fica de fora).
     expect(markup.match(/type="checkbox"/g)).toHaveLength(1);
 
-    // Coluna "Conferido" virou recebida/utilizada com os valores salvos.
+    // Coluna "Conferido" virou recebida/utilizada: só a RECEBIDA é
+    // input (valor gravado); a UTILIZADA é texto derivado dos itens.
     expect(markup).toContain('aria-label="Quantidade recebida de Chapa aço 3mm"');
-    expect(markup).toContain('aria-label="Quantidade utilizada de Chapa aço 3mm"');
     expect(inputBlock(markup, "Quantidade recebida de Chapa aço 3mm")).toContain('value="18"');
-    expect(inputBlock(markup, "Quantidade utilizada de Chapa aço 3mm")).toContain('value="15"');
+    expect(markup).not.toContain('aria-label="Quantidade utilizada de Chapa aço 3mm"');
+    expect(markup).toContain(">15</td>");
 
     // No papel: checkbox vira caixinha com ✔/vazia e a barra some.
     expect(markup).toContain("print:hidden");
@@ -247,9 +261,30 @@ describe("detalhe do romaneio — enxuto (conferência e NF saem daqui)", () => 
     expect(markup).not.toContain("Confirmar romaneio");
     expect(markup).not.toContain("Para confirmar, falta:");
     expect(markup).not.toContain("Pronto para confirmar");
-    // As ações que sobram: Salvar/Excluir (ABERTO) e Cancelar.
+    // As ações que sobram: Salvar/Cancelar/Excluir (ABERTO) e o
+    // cancelamento de status (CONFERIDO/CONFIRMADO).
     expect(markup).toContain("Salvar");
     expect(markup).toContain("Excluir");
+  });
+
+  it("em edição são exatamente três botões: Salvar, Cancelar e Excluir", () => {
+    const markup = html(
+      createElement(RomaneioDetail, { view: view(), canEditCapability: true }),
+    );
+
+    const start = markup.indexOf('aria-label="Ações do romaneio"');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = markup.indexOf("</section>", start);
+    const actions = markup.slice(start, end);
+
+    expect(actions).toContain("Salvar");
+    expect(actions).toContain("Cancelar"); // descarta as edições locais
+    expect(actions).toContain("Excluir");
+    expect(actions.match(/<button/g)).toHaveLength(3);
+
+    // Em ABERTO não entra o cancelamento de STATUS (ciclo de vida) —
+    // nunca há dois "Cancelar" na mesma tela.
+    expect(markup).not.toContain("Cancelar romaneio");
   });
 
   it("materiais do detalhe são somente leitura (o lançamento é na ficha)", () => {
@@ -258,7 +293,8 @@ describe("detalhe do romaneio — enxuto (conferência e NF saem daqui)", () => 
     );
 
     expect(markup).toContain("As quantidades são lançadas na ficha de conferência");
-    expect(inputBlock(markup, "Quantidade utilizada de Chapa aço 3mm")).toContain("disabled");
+    // Nenhum input de material no detalhe — a utilizada é texto derivado.
+    expect(markup).not.toContain('aria-label="Quantidade utilizada de Chapa aço 3mm"');
     // A coluna "Recebida do cliente" sumiu da tabela de materiais.
     expect(markup).not.toContain("Recebida do cliente");
     expect(markup).not.toContain('aria-label="Quantidade recebida de Chapa aço 3mm"');
@@ -286,9 +322,10 @@ describe("totalizadores de peso no detalhe (sem listagem por item)", () => {
     );
     expect(itemsTable).toContain("Peso total da carga");
 
-    // item-1: 4 × 10 kg = 40 kg nas DUAS tabelas.
-    expect(materialsTable).toContain("40 kg");
-    expect(itemsTable).toContain("40 kg");
+    // O peso vem dos MATERIAIS em KG da carga (fixture: 15 KG) nas
+    // DUAS tabelas — o antigo 4 × 10 kg (peso unitário) ficou para trás.
+    expect(materialsTable).toContain("15 kg");
+    expect(itemsTable).toContain("15 kg");
   });
 
   it("na ficha: a tabela de peso continua intacta", () => {
@@ -296,7 +333,9 @@ describe("totalizadores de peso no detalhe (sem listagem por item)", () => {
 
     expect(markup).toContain("Peso dos itens da carga");
     expect(markup).toContain("Peso total da carga");
-    expect(markup).toContain("40 kg");
+    // Σ da utilizada em KG da ficha (fixture: 15 KG) — fecha com a
+    // tabela de materiais, não com o peso unitário × qtd.
+    expect(markup).toContain("15 kg");
     // A ficha é o único lugar com a coluna de recebida.
     expect(markup).toContain('aria-label="Quantidade recebida de Chapa aço 3mm"');
     // Linhas com borda preta no papel (mesma marcação das demais tabelas da ficha).
@@ -312,13 +351,29 @@ describe("totalizadores de peso no detalhe (sem listagem por item)", () => {
             orderItem({ orderItemId: "b", description: "Fora da carga", quantity: 0 }),
             orderItem({ orderItemId: "c", quantity: 3, unitWeightKg: null }),
           ],
+          // Estrutura da OF para ESTES itens: só "a" tem material em
+          // peso (11 KG alocados → 11 kg); "c" só tem material em UN.
+          allocationItems: [
+            {
+              orderItemId: "a",
+              parentItemId: null,
+              quantity: 2,
+              materials: [{ description: "Chapa aço 3mm", unit: "KG", quantity: 11 }],
+            },
+            {
+              orderItemId: "c",
+              parentItemId: null,
+              quantity: 3,
+              materials: [{ description: "Parafuso M8", unit: "UN", quantity: 30 }],
+            },
+          ],
         }),
         canEditCapability: true,
       }),
     );
 
-    // 2 × 5,5 = 11 (pt-BR); o item fora da carga entra com 0 e o sem
-    // peso não entra na soma.
+    // O peso da carga é a UTILIZADA em KG do item "a" (11 kg) — o item
+    // fora da carga entra com 0 e o sem material em peso fica "—".
     const materialsTable = tableAround(markup, "Chapa aço 3mm");
     expect(materialsTable).toContain("Peso total da carga");
     expect(materialsTable).toContain("11 kg");
@@ -335,7 +390,7 @@ describe("totalizadores de peso no detalhe (sem listagem por item)", () => {
     );
   });
 
-  it("carga vazia não totaliza nos materiais; sem peso unitário avisa", () => {
+  it("carga vazia totaliza 0 kg; sem nenhuma fonte de peso tudo sai —", () => {
     const empty = html(
       createElement(RomaneioDetail, {
         view: view({
@@ -345,22 +400,60 @@ describe("totalizadores de peso no detalhe (sem listagem por item)", () => {
       }),
     );
     expect(empty).not.toContain("Peso dos itens da carga");
-    // Sem itens incluídos a tabela de materiais não tem linha de peso.
-    expect(tableAround(empty, "Chapa aço 3mm")).not.toContain("Peso total da carga");
+    // Carga sem itens: a linha gravada vira órfã (utilizada 0) e o
+    // peso da carga fecha em 0 kg — a tabela continua totalizando.
+    const emptyMaterials = tableAround(empty, "Chapa aço 3mm");
+    expect(emptyMaterials).toContain("Peso total da carga");
+    expect(emptyMaterials).toContain("0 kg");
 
+    // Nada de material em peso E nada de peso unitário: sem fonte
+    // nenhuma, o total da carga sai "—".
+    const noWeightView = view({
+      items: [
+        orderItem({ unitWeightKg: null, loadWeightKg: null }),
+        orderItem({ orderItemId: "item-2", quantity: 0, unitWeightKg: null }),
+      ],
+      allocationItems: [
+        {
+          orderItemId: "item-1",
+          parentItemId: null,
+          quantity: 4,
+          materials: [{ description: "Parafuso M8", unit: "UN", quantity: 30 }],
+        },
+      ],
+      storedMaterials: [
+        {
+          description: "Parafuso M8",
+          unit: "UN",
+          quantityPlanned: 30,
+          quantityReceived: 30,
+          quantityUsed: 30,
+        },
+      ],
+      materials: [
+        {
+          description: "Parafuso M8",
+          unit: "UN",
+          quantityPlanned: 30,
+          quantityReceived: 30,
+          quantityUsed: 30,
+          quantityReturned: 0,
+        },
+      ],
+    });
     const noWeight = html(
-      createElement(RomaneioDetail, {
-        view: view({
-          items: [orderItem({ unitWeightKg: null }), orderItem({ orderItemId: "item-2", quantity: 0 })],
-        }),
-        canEditCapability: true,
-      }),
+      createElement(RomaneioDetail, { view: noWeightView, canEditCapability: true }),
     );
-    const materialsTable = tableAround(noWeight, "Chapa aço 3mm");
+    const materialsTable = tableAround(noWeight, "Parafuso M8");
     expect(materialsTable).toContain("Peso total da carga");
     expect(materialsTable).toContain(">—<");
-    expect(noWeight).toContain("Itens sem peso unitário cadastrado.");
     expect(noWeight).not.toContain("Peso dos itens da carga");
+
+    // O aviso de "sem peso" mora na tabela de peso da FICHA.
+    const noWeightSheet = html(
+      createElement(RomaneioConferenceSheet, { view: noWeightView, canEdit: true }),
+    );
+    expect(noWeightSheet).toContain("Itens sem peso unitário cadastrado.");
   });
 });
 
@@ -369,15 +462,18 @@ describe("RomaneioItemsWeightTable — componente usado só na ficha", () => {
     const markup = html(
       createElement(RomaneioItemsWeightTable, {
         items: [
-          orderItem({ orderItemId: "a", quantity: 2, unitWeightKg: 5.5 }),
+          orderItem({ orderItemId: "a", quantity: 2, unitWeightKg: 5.5, loadWeightKg: 11 }),
           orderItem({ orderItemId: "b", description: "Fora da carga", quantity: 0 }),
-          orderItem({ orderItemId: "c", quantity: 3, unitWeightKg: null }),
+          orderItem({ orderItemId: "c", quantity: 3, unitWeightKg: null, loadWeightKg: null }),
         ],
+        // Peso total derivado dos materiais — o chamador passa a MESMA
+        // fonte do cabeçalho (aqui 11 kg, do item "a").
+        totalKg: 11,
       }),
     );
 
     expect(markup).not.toContain("Fora da carga");
-    // 2 × 5,5 = 11 (pt-BR); o sem peso sai "—" e não entra no total.
+    // 11 kg do item "a"; o sem peso sai "—" e não entra no total.
     expect(markup).toContain("11");
     expect(markup).toContain("Peso total da carga");
     expect(markup).toContain("11 kg");
@@ -389,14 +485,15 @@ describe("RomaneioItemsWeightTable — componente usado só na ficha", () => {
     const empty = html(
       createElement(RomaneioItemsWeightTable, {
         items: [orderItem({ quantity: 0 }), orderItem({ orderItemId: "item-2", quantity: 0 })],
+        totalKg: null,
       }),
     );
     expect(empty).toBe("");
   });
 });
 
-describe("total da carga na tabela de materiais (detalhe)", () => {
-  it("soma ESTA carga coluna a coluna; a OF inteira fica só na nota", () => {
+describe("pé da tabela de materiais (detalhe)", () => {
+  it("sem a linha “Total da carga” zerada — só o peso total ao pé; OF inteira fica na nota", () => {
     const markup = html(
       createElement(RomaneioDetail, {
         view: view({ ofMaterialTotals: { received: 50, used: 40, returned: 10 } }),
@@ -405,20 +502,25 @@ describe("total da carga na tabela de materiais (detalhe)", () => {
     );
 
     const materialsTable = tableAround(markup, "Chapa aço 3mm");
-    // A tabela fecha com o total DESTA carga: 20 previsto · 15
-    // utilizada · 3 saldo (18 − 15) — a linha vem ANTES do peso.
-    const totalStart = materialsTable.indexOf("Total da carga");
-    expect(totalStart).toBeGreaterThanOrEqual(0);
-    expect(totalStart).toBeLessThan(materialsTable.indexOf("Peso total da carga"));
-    const totalRow = materialsTable.slice(
-      totalStart,
-      materialsTable.indexOf("</tr>", totalStart),
-    );
-    expect(totalRow).toContain(">20</td>");
-    expect(totalRow).toContain(">15</td>");
-    expect(totalRow).toContain(">3</td>");
+
+    // A linha "Total da carga" (saldo somado, quase sempre zerada) saiu
+    // — do desktop e do mobile — e sobrou UMA única linha de total.
+    expect(materialsTable).not.toContain("Total da carga");
+    expect(markup).not.toContain("Total da carga");
+    expect(materialsTable.match(/Peso total da carga/g)).toHaveLength(1);
+    expect(materialsTable).toContain("15 kg");
+
+    // Cada linha traz o PESO INDIVIDUAL (a utilizada em KG = 15, a
+    // mesma coluna de antes) — previsto, utilizada e saldo a devolver
+    // não são mais colunas.
+    expect(materialsTable).toContain("Peso (kg)");
+    expect(materialsTable).toContain(">15</td>");
+    expect(materialsTable).not.toContain("Saldo a devolver");
+    expect(materialsTable).not.toContain("Previsto (carga)");
+    expect(materialsTable).not.toContain("Utilizada na produção");
+
     // Os números da OF inteira (40 utilizada) NÃO entram na tabela…
-    expect(totalRow).not.toContain(">40</td>");
+    expect(materialsTable).not.toContain(">40</td>");
     expect(materialsTable).not.toContain("OF inteira");
 
     // …continuam na nota abaixo, com a visão de todos os romaneios.
@@ -455,16 +557,16 @@ describe("total da carga na tabela de materiais (detalhe)", () => {
     );
 
     const materialsTable = tableAround(markup, "Chapa aço 3mm");
-    // Previsto vem do preview (2 KG) — o gravado (20) não aparece.
+    // Peso individual = a utilizada já em kg (2) — o gravado (20) não
+    // aparece; saldo e previsto não são mais colunas. Tudo recalculado
+    // ao vivo, sem salvar.
     expect(materialsTable).toContain(">2</td>");
     expect(materialsTable).not.toContain(">20</td>");
-    // Utilizada e saldo continuam os gravados (15 · 18 − 15 = 3).
-    const totalStart = materialsTable.indexOf("Total da carga");
-    const totalRow = materialsTable.slice(
-      totalStart,
-      materialsTable.indexOf("</tr>", totalStart),
-    );
-    expect(totalRow).toContain(">15</td>");
-    expect(totalRow).toContain(">3</td>");
+    expect(materialsTable).not.toContain("Saldo a devolver");
+    expect(materialsTable).not.toContain("Previsto (carga)");
+    expect(materialsTable).not.toContain("Utilizada na produção");
+    // ÚNICA linha ao pé: o peso total da carga fecha nos mesmos 2 kg.
+    expect(materialsTable).toContain("2 kg");
+    expect(materialsTable.match(/Peso total da carga/g)).toHaveLength(1);
   });
 });

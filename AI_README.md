@@ -15,11 +15,13 @@
 4. **Fábrica 1 vs Fábrica 2:** 
    - A rota `/fabrica-1` agrupa itens filhos por código dentro da mesma OF (RPC `get_child_item_groups`).
    - A rota `/fabrica-2` lê itens pai linha por linha (RPC `get_production_rows`).
+5. **Peso do Romaneio (050):** a coluna **Peso** da lista `/romaneio` (e do filtro por faixa) e a exportação `.xlsx` usam a MESMA fonte: **Σ da coluna "Utilizada" só nas linhas em unidade de peso** (KG vale; G ÷ 1000), calculado nas RPCs `get_romaneios_page`/`get_romaneio_summary`. Sem nenhuma linha em KG/G cai no Σ qtd × peso unitário dos itens; se algum item não tem peso, o peso é NULL (fora do filtro, não conta como 0). No detalhe e na ficha o mesmo número é derivado ao vivo (`resolveRomaneioWeights`) — nunca grave peso à mão.
 
 ## 🚛 Fluxo do Romaneio (Expedição)
 - **Status:** `ABERTO` ➔ `CONFERIDO` ➔ `CONFIRMADO` (e `CANCELADO`).
 - **Regra de Baixa:** A expedição não decrementa `order_items.quantity`. O saldo expedido é derivado dinamicamente somando as cargas dos romaneios `CONFIRMADOS`.
 - **Limitação:** Máximo de 1 romaneio `ABERTO` por OF.
+- **Devolução de MP:** a **"Utilizada na produção" é DERIVADA** dos itens da carga (alocação proporcional da OF) e recalcula a cada tecla — é somente leitura no detalhe e na ficha. O único lançamento é a **"Recebida"**, na ficha de conferência, e ela **nunca fica abaixo da utilizada** (`received = max(gravado, utilizada)` no merge; saldo zera). O **Peso da carga** fecha com essa mesma utilizada (regra 5 acima).
 
 ## 🔐 Permissões (Roles)
 - Perfis: `ADMIN`, `GESTOR`, `OPERADOR`, `VISUALIZADOR`.

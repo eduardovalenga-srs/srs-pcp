@@ -200,6 +200,23 @@ export function RomaneioNewForm({ customers, processes }: RomaneioNewFormProps) 
     }
   };
 
+  // Preview dos pesos em /romaneio/novo: sem romaneio ainda não há
+  // alocação de materiais, então o peso por item é o fallback qtd ×
+  // peso unitário (mesma regra do detalhe quando não há material em
+  // KG/G na carga).
+  const previewItems = items
+    ? items.map((item) => {
+        const quantity = parseQuantity(quantities[item.orderItemId]);
+        // null = sem peso unitário ("—"); quantidade 0 fora da carga conta 0.
+        const loadWeightKg =
+          item.unitWeightKg === null ? null : item.unitWeightKg * quantity;
+        return { ...item, quantity, loadWeightKg };
+      })
+    : [];
+  const previewWeightKg = previewItems.some((item) => item.unitWeightKg !== null)
+    ? previewItems.reduce((sum, item) => sum + (item.loadWeightKg ?? 0), 0)
+    : null;
+
   return (
     <section aria-label="Gerar romaneio" className="space-y-3">
       <div className="rounded border bg-card p-3">
@@ -336,9 +353,10 @@ export function RomaneioNewForm({ customers, processes }: RomaneioNewFormProps) 
             </p>
           </div>
           <RomaneioItemsEditor
-            items={items}
+            items={previewItems}
             processes={processes}
             canEdit
+            weightKg={previewWeightKg}
             quantities={quantities}
             onQuantityChange={(orderItemId, value) =>
               setQuantities((previous) => ({ ...previous, [orderItemId]: value }))
