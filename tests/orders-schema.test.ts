@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { ZodError } from "zod";
+import { z, type ZodError } from "zod";
 
 import {
   decimalInput,
@@ -198,6 +198,16 @@ describe("decimalInput / optionalDecimalInput", () => {
     expect(expectOk(weight.safeParse(""))).toBeNull();
     expect(expectOk(weight.safeParse(null))).toBeNull();
     expect(expectOk(weight.safeParse(undefined))).toBeNull();
+  });
+
+  it("chave AUSENTE num objeto passa (regressão do zod v4)", () => {
+    // No zod v4 uma união que aceita z.undefined() NÃO opcionaliza a
+    // chave do objeto: o campo ausente falhava com
+    // "valor inválido (esperado nonoptional)" e derrubava o salvamento
+    // da ficha de conferência (materiais sem quantityPlanned).
+    const schema = z.object({ weight });
+    expect(expectOk(schema.safeParse({}))).toEqual({ weight: null });
+    expect(expectOk(schema.safeParse({ weight: "12,5" }))).toEqual({ weight: 12.5 });
   });
 
   it("mantém as mensagens próprias em pt-BR", () => {

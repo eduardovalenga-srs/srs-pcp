@@ -85,6 +85,7 @@ cp .env.example .env.local
 #    supabase/migrations/049_romaneio_process_columns.sql
 #    supabase/migrations/050_romaneio_weight_from_materials.sql
 #    supabase/migrations/051_backfill_material_unit_kg.sql
+#    supabase/migrations/052_romaneio_conference_upsert.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -703,13 +704,21 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
 - **Conferência como formulário** (048): a ação **Conferência** da lista abre
   `/romaneio/[id]/conferencia` — a folha **imprimível** (`window.print()`,
   estilos `print:`) virou **formulário**: checkbox de marcação por item, quantidade
-  **recebida** da devolução (a **utilizada é derivada dos itens da carga** e sai em
-  texto — na ficha só se informa a recebida) e observação do aceite. **Salvar rascunho**
+  **recebida** da devolução (a **utilizada é derivada dos itens da carga** e não vira
+  coluna na ficha — dela só sai o **Peso (kg)** de cada linha; na ficha só se informa a
+  recebida) e observação do aceite. As listas da ficha **espelham as do detalhe** (itens
+  com ✔ + Família, Item pai, Descrição, Qtd OF, Já expedida, Pendência, Nesta carga e
+  Peso carga (kg) — sem as colunas de processo, que moram só no detalhe; devolução com
+  Material, Unidade, Peso (kg), **Recebida** e o **Peso total da carga** ao pé). **Salvar
+  rascunho**
   grava tudo
   sem mudar a situação (dá para pausar a conferência); **Marcar como conferida** grava e
   move para **CONFERIDO**, exigindo todos os itens marcados (RPC
   `save_romaneio_conference` — rascunho e concluir na MESMA transação; a marcação mora em
-  `romaneio_items.conference_checked` e a `save_romaneio` a preserva ao editar os itens).
+  `romaneio_items.conference_checked` e a `save_romaneio` a preserva ao editar os itens;
+  os materiais são gravados em **upsert** pela chave descrição+unidade, migração **052** —
+  uma linha da ficha que ainda não existisse no banco NASCE ali, em vez de ser ignorada em
+  silêncio).
   Também dá para **imprimir em branco**, conferir no papel e lançar depois. Depois de
   CONFERIDO a ficha vira somente leitura (correção = cancelar e recriar) e os materiais do
   detalhe são somente leitura — o lançamento é na ficha.
@@ -777,9 +786,12 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   totalizadores** — as linhas **Total da carga** e **Peso total da carga** no pé da
   tabela de materiais (e as duas compactas no mobile) e o **tfoot da tabela de itens
   raiz**, que fecha a coluna "Peso carga (kg)" com o **mesmo** peso total do cabeçalho.
-  A **ficha** mantém a `RomaneioItemsWeightTable` (por item, com peso alocado em
-  **"Peso carga (kg)"** e o total ao pé; itens fora da carga ficam de fora) e continua
-  sendo o **único** lugar com a listagem por item e com a coluna recebida. A lista
+  A **ficha** passou a **espelhar as listas do detalhe**: os itens saem com as mesmas
+  colunas (✔ + Família, Item pai, Descrição, Qtd OF, Já expedida, Pendência, Nesta carga
+  e Peso carga (kg) — sem as colunas de processo) e a devolução com Material, Unidade,
+  Peso (kg), **Recebida** e o **Peso total da carga** ao pé; a `RomaneioItemsWeightTable`
+  (listagem de peso **por item**) foi **removida** — não existe mais em nenhuma tela — e
+  a ficha continua sendo o **único** lugar com a coluna recebida. A lista
   `/romaneio` (coluna **Peso** + filtro por faixa) e a exportação `.xlsx` usam o MESMO
   número, calculado na RPC pela migração **050** (`mat_weight`: Σ da utilizada em KG/G;
   sem linha em peso, regra antiga qtd × peso unitário, NULL se algum item não tem peso).

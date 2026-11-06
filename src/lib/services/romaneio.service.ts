@@ -352,6 +352,7 @@ export async function saveRomaneioConference(
     materials: input.materials.map((material) => ({
       description: material.description,
       unit: material.unit,
+      quantityPlanned: material.quantityPlanned,
       quantityReceived: material.quantityReceived,
       quantityUsed: material.quantityUsed,
     })),

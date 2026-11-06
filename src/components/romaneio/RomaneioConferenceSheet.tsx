@@ -6,22 +6,27 @@ import { ClipboardCheck, Loader2, Printer, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveRomaneioConferenceAction } from "@/lib/actions/romaneio.actions";
+import { MATERIAL_UNIT_LABELS, type MaterialUnit } from "@/lib/constants/materials";
 import type { RomaneioView } from "@/lib/types/romaneio";
 import { formatDate, formatDateTime } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
-import { loadWeightKg } from "@/lib/utils/romaneio";
+import { loadWeightKg, weightKgOf } from "@/lib/utils/romaneio";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RomaneioStatusBadge } from "@/components/romaneio/RomaneioStatusBadge";
-import { RomaneioItemsWeightTable } from "@/components/romaneio/RomaneioItemsWeightTable";
 
 interface RomaneioConferenceSheetProps {
   view: RomaneioView;
   /** O perfil edita romaneios (capacidade romaneio.edit) — gate do formulário. */
   canEdit: boolean;
+}
+
+/** Rótulo da unidade como no detalhe (KG vira "kg"). */
+function unitLabel(unit: string): string {
+  return MATERIAL_UNIT_LABELS[unit as MaterialUnit] ?? unit;
 }
 
 /** Chave estável de uma linha de material (única por romaneio). */
@@ -38,7 +43,10 @@ function amountText(value: number | null): string {
  * Folha de conferência do romaneio — FORMULÁRIO na tela e impressa
  * para o check da carga no caminhão: marcação por item, recebida dos
  * materiais (a UTILIZADA é derivada dos itens da carga — somente
- * leitura) e observação. "Salvar rascunho" grava sem
+ * leitura, nem sai como coluna) e observação. As listas espelham as
+ * do detalhe (itens sem colunas de processo; devolução com o peso
+ * individual e o total ao pé) — o que é exclusivo da ficha é o ✔ por
+ * item, o campo RECEBIDA e a impressão. "Salvar rascunho" grava sem
  * mudar a situação; "Marcar como conferida" grava tudo e move para
  * CONFERIDO (exige todos os itens marcados). Imprimir em branco e
  * lançar depois também vale — no papel saem caixas vazias onde falta
@@ -110,6 +118,9 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
         materials: view.materials.map((line) => ({
           description: line.description,
           unit: line.unit,
+          // Alocado do pedido — o upsert da 052 usa este valor quando a
+          // linha ainda não existe em romaneio_materials.
+          quantityPlanned: line.quantityPlanned,
           quantityReceived:
             (received[materialKey(line.description, line.unit)] ?? "").trim() === ""
               ? null
@@ -254,7 +265,8 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
           </div>
         </dl>
 
-        {/* Itens da carga */}
+        {/* Itens da carga — espelho das colunas do detalhe (sem as
+            colunas de processo, que moram só no detalhe). */}
         <section className="space-y-1">
           <h2 className="text-sm font-semibold">Itens da carga</h2>
           <div className="overflow-x-auto">
@@ -264,49 +276,71 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
                   <th scope="col" className="w-8 py-1 pr-2 font-semibold">
                     ✔
                   </th>
+                  <th scope="col" className="py-1 pr-2 font-semibold">Família</th>
+                  <th scope="col" className="py-1 pr-2 font-semibold">Item pai</th>
                   <th scope="col" className="py-1 pr-2 font-semibold">Descrição</th>
-                  <th scope="col" className="py-1 pr-2 font-semibold">Família / item pai</th>
-                  <th scope="col" className="py-1 pr-2 text-right font-semibold">Qtd</th>
-                  <th scope="col" className="py-1 text-right font-semibold">Peso (kg)</th>
+                  <th scope="col" className="py-1 pr-2 text-right font-semibold">Qtd OF</th>
+                  <th scope="col" className="py-1 pr-2 text-right font-semibold">Já expedida</th>
+                  <th scope="col" className="py-1 pr-2 text-right font-semibold">Pendência</th>
+                  <th scope="col" className="py-1 pr-2 text-right font-semibold">Nesta carga</th>
+                  <th scope="col" className="py-1 text-right font-semibold">Peso carga (kg)</th>
                 </tr>
               </thead>
               <tbody>
-                {included.map((item) => (
-                  <tr key={item.orderItemId} className="border-b last:border-0 print:border-black/40">
-                    <td className="py-1.5 pr-2">
-                      <input
-                        type="checkbox"
-                        aria-label={`Marcar como conferido: ${item.description || item.orderItemId}`}
-                        checked={checked.has(item.orderItemId)}
-                        disabled={!editable}
-                        onChange={() => toggleItem(item.orderItemId)}
-                        className="h-4 w-4 print:hidden"
-                      />
-                      <span
-                        aria-hidden
-                        className="hidden h-4 w-4 border text-center text-[11px] leading-[14px] print:block"
-                      >
-                        {checked.has(item.orderItemId) ? "✔" : ""}
-                      </span>
-                    </td>
-                    <td className="py-1.5 pr-2">{item.description || "—"}</td>
-                    <td className="py-1.5 pr-2 text-muted-foreground">
-                      {[item.family, item.parentItem].filter(Boolean).join(" · ") || "—"}
-                    </td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums">
-                      {formatQuantity(item.quantity)}
-                    </td>
-                    <td className="py-1.5 text-right tabular-nums">
-                      {item.loadWeightKg === null ? "—" : formatWeight(item.loadWeightKg)}
-                    </td>
-                  </tr>
-                ))}
+                {included.map((item) => {
+                  const pending = Math.max(item.itemQuantity - item.shippedQuantity, 0);
+                  return (
+                    <tr
+                      key={item.orderItemId}
+                      className="border-b last:border-0 print:border-black/40"
+                    >
+                      <td className="py-1.5 pr-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`Marcar como conferido: ${item.description || item.orderItemId}`}
+                          checked={checked.has(item.orderItemId)}
+                          disabled={!editable}
+                          onChange={() => toggleItem(item.orderItemId)}
+                          className="h-4 w-4 print:hidden"
+                        />
+                        <span
+                          aria-hidden
+                          className="hidden h-4 w-4 border text-center text-[11px] leading-[14px] print:block"
+                        >
+                          {checked.has(item.orderItemId) ? "✔" : ""}
+                        </span>
+                      </td>
+                      <td className="py-1.5 pr-2 text-muted-foreground">{item.family || "—"}</td>
+                      <td className="py-1.5 pr-2 text-muted-foreground">{item.parentItem || "—"}</td>
+                      <td className="py-1.5 pr-2">{item.description || "—"}</td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums">
+                        {formatQuantity(item.itemQuantity)}
+                      </td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums">
+                        {formatQuantity(item.shippedQuantity)}
+                      </td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums">
+                        {formatQuantity(pending)}
+                      </td>
+                      {/* Quantidade desta carga — na ficha é só leitura
+                          (a edição mora no detalhe). */}
+                      <td className="py-1.5 pr-2 text-right tabular-nums">
+                        {formatQuantity(item.quantity)}
+                      </td>
+                      <td className="py-1.5 text-right tabular-nums">
+                        {item.loadWeightKg === null ? "—" : formatWeight(item.loadWeightKg)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </section>
 
-        {/* Devolução de matéria-prima */}
+        {/* Devolução de matéria-prima — espelho do detalhe (Material,
+            Unidade, Peso (kg) e o total ao pé) + RECEBIDA, que é o
+            único lançamento da ficha. */}
         <section className="space-y-1">
           <h2 className="text-sm font-semibold">Devolução de matéria-prima</h2>
           {view.materials.length === 0 ? (
@@ -319,24 +353,26 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
                 <thead>
                   <tr className="border-b text-left text-[11px] uppercase tracking-wide text-muted-foreground print:border-black">
                     <th scope="col" className="py-1 pr-2 font-semibold">Material</th>
-                    <th scope="col" className="py-1 pr-2 font-semibold">Un.</th>
-                    <th scope="col" className="py-1 pr-2 text-right font-semibold">Previsto</th>
-                    <th scope="col" className="py-1 pr-2 text-right font-semibold">Recebida</th>
-                    <th scope="col" className="py-1 text-right font-semibold">Utilizada</th>
+                    <th scope="col" className="py-1 pr-2 font-semibold">Unidade</th>
+                    <th scope="col" className="py-1 pr-2 text-right font-semibold">Peso (kg)</th>
+                    <th scope="col" className="py-1 text-right font-semibold">Recebida</th>
                   </tr>
                 </thead>
                 <tbody>
                   {view.materials.map((line) => {
                     const key = materialKey(line.description, line.unit);
                     const receivedText = received[key] ?? "";
+                    // Peso individual = a utilizada já em kg (mesma
+                    // regra do detalhe); unidades sem peso saem "—".
+                    const lineWeightKg = weightKgOf(line.unit, line.quantityUsed);
                     return (
                       <tr key={key} className="border-b last:border-0 print:border-black/40">
                         <td className="py-1.5 pr-2">{line.description}</td>
-                        <td className="py-1.5 pr-2">{line.unit}</td>
+                        <td className="py-1.5 pr-2">{unitLabel(line.unit)}</td>
                         <td className="py-1.5 pr-2 text-right tabular-nums">
-                          {formatQuantity(line.quantityPlanned)}
+                          {lineWeightKg === null ? "—" : formatWeight(lineWeightKg)}
                         </td>
-                        <td className="py-1.5 pr-2">
+                        <td className="py-1.5 text-right">
                           <div className="flex justify-end">
                             <Input
                               type="text"
@@ -349,19 +385,24 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
                             />
                           </div>
                         </td>
-                        <td className="py-1.5 text-right tabular-nums">
-                          {/* Derivada dos itens da carga — só a recebida é lançada. */}
-                          {line.quantityUsed === null ? "—" : formatQuantity(line.quantityUsed)}
-                        </td>
                       </tr>
                     );
                   })}
+                  {/* ÚNICA linha ao pé: o peso total da carga (mesmo
+                      número do cabeçalho e do detalhe). */}
+                  <tr className="border-t text-[11px] uppercase tracking-wide text-muted-foreground print:border-black">
+                    <td className="py-1.5 pr-2 font-semibold" colSpan={2}>
+                      Peso total da carga
+                    </td>
+                    <td className="py-1.5 pr-2 text-right font-semibold tabular-nums text-foreground">
+                      {hasAnyWeight ? `${formatWeight(weightTotal)} kg` : "—"}
+                    </td>
+                    <td aria-hidden />
+                  </tr>
                 </tbody>
               </table>
             </div>
           )}
-
-          <RomaneioItemsWeightTable items={view.items} totalKg={weightTotal} />
         </section>
 
         {/* Observações + aceite */}

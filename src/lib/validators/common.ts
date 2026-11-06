@@ -73,10 +73,19 @@ export const decimalInput = (label: string, { min = 0 }: { min?: number } = {}) 
  * Número opcional: texto com vírgula, número já convertido, ou vazio
  * ("" / null / undefined -> null). Mesma lógica do formulário x planilha
  * explicada em `decimalInput`/`nullableText`.
+ *
+ * O `.optional()` vem ANTES do `.transform()`: no zod v4 uma união que
+ * aceita `z.undefined()` NÃO opcionaliza a chave do objeto — a chave
+ * ausente falhava com `invalid_type, expected "nonoptional"` ("Quantidade
+ * planejada: valor inválido (esperado nonoptional)") e derrubava o
+ * salvamento da ficha de conferência, que envia os materiais sem essa
+ * chave. Com `.optional()` a ausência vira `undefined` e o transform
+ * devolve `null`, como no resto do arquivo.
  */
 export const optionalDecimalInput = (label: string, { min = 0 }: { min?: number } = {}) =>
   z
-    .union([z.string(), z.number(), z.null(), z.undefined()])
+    .union([z.string(), z.number(), z.null()])
+    .optional()
     .transform((raw, ctx) => {
       if (raw === null || raw === undefined) return null;
 

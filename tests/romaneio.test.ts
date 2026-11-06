@@ -150,6 +150,7 @@ interface ConferenceParams {
   materials?: {
     description: string;
     unit: string;
+    quantityPlanned?: number | null;
     quantityReceived?: number | null;
     quantityUsed?: number | null;
   }[];
@@ -830,6 +831,81 @@ describe("RPC save_romaneio_conference (048) — ficha como formulário", () => 
     );
     expect(Number(materials[0]!.quantity_received)).toBe(18);
     expect(Number(materials[0]!.quantity_used)).toBe(15);
+  });
+
+  it("052: material sem linha gravada NASCE no upsert (recebida não se perde)", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    const { rows } = await db.query<{ id: string }>(
+      `select id from public.romaneios where order_id = $1 and status = 'ABERTO'`,
+      [orderR1],
+    );
+    const romaneioId = rows[0]!.id;
+
+    // "Parafuso M8" NÃO existe em romaneio_materials para esta carga:
+    // o update puro da 048 casava 0 linhas em silêncio e o lançamento
+    // da ficha se perdia. A 052 faz upsert pela chave (romaneio_id,
+    // description, unit) e a linha nova nasce com o previsto do payload.
+    await saveRomaneioConference({
+      romaneioId,
+      checkedItemIds: [rootA],
+      materials: [
+        {
+          description: "Parafuso M8",
+          unit: "UN",
+          quantityPlanned: 40,
+          quantityReceived: 30,
+          quantityUsed: 30,
+        },
+      ],
+      sign: false,
+    });
+
+    const { rows: created } = await db.query<{
+      quantity_planned: number | string;
+      quantity_received: number | string;
+      quantity_used: number | string;
+    }>(
+      `select quantity_planned, quantity_received, quantity_used
+         from public.romaneio_materials
+        where romaneio_id = $1 and description = 'Parafuso M8' and unit = 'UN'`,
+      [romaneioId],
+    );
+    expect(created).toHaveLength(1);
+    expect(Number(created[0]!.quantity_planned)).toBe(40);
+    expect(Number(created[0]!.quantity_received)).toBe(30);
+    expect(Number(created[0]!.quantity_used)).toBe(30);
+
+    // A linha EXISTENTE continua sendo atualizada (chave repetida) e o
+    // previsto gravado dela NÃO é reescrito pelo payload da ficha.
+    const { rows: before } = await db.query<{ quantity_planned: number | string }>(
+      `select quantity_planned from public.romaneio_materials
+        where romaneio_id = $1 and description = 'Chapa aço 3mm'`,
+      [romaneioId],
+    );
+    expect(Number(before[0]!.quantity_planned)).toBe(20);
+
+    await saveRomaneioConference({
+      romaneioId,
+      checkedItemIds: [rootA],
+      materials: [{ description: "Chapa aço 3mm", unit: "KG", quantityReceived: 12, quantityUsed: 12 }],
+      sign: false,
+    });
+
+    const { rows: updated } = await db.query<{
+      quantity_planned: number | string;
+      quantity_received: number | string;
+      quantity_used: number | string;
+    }>(
+      `select quantity_planned, quantity_received, quantity_used
+         from public.romaneio_materials
+        where romaneio_id = $1 and description = 'Chapa aço 3mm'`,
+      [romaneioId],
+    );
+    expect(updated).toHaveLength(1);
+    expect(Number(updated[0]!.quantity_planned)).toBe(20);
+    expect(Number(updated[0]!.quantity_received)).toBe(12);
+    expect(Number(updated[0]!.quantity_used)).toBe(12);
   });
 
   it("conclui a conferência (ABERTO → CONFERIDO) com todos os itens marcados", async () => {

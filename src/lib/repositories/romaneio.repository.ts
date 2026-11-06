@@ -423,7 +423,14 @@ export interface SaveRomaneioConferenceRpcInput {
   romaneioId: string;
   notes: string | null;
   checkedItemIds: string[];
-  materials: { description: string; unit: string; quantityReceived: number | null; quantityUsed: number | null }[];
+  materials: {
+    description: string;
+    unit: string;
+    /** Alocado do pedido — o upsert da 052 usa ao criar a linha. */
+    quantityPlanned: number | null;
+    quantityReceived: number | null;
+    quantityUsed: number | null;
+  }[];
   /** true = conclui (ABERTO → CONFERIDO); false = rascunho. */
   sign: boolean;
 }

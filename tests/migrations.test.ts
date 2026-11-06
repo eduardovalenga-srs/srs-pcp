@@ -2010,6 +2010,26 @@ describe("migrations", () => {
     await db.query(`delete from public.orders where code = 'OF-BF-051'`);
     await asSuperUser(db);
   });
+
+  it("052: save_romaneio_conference grava materiais com upsert", async () => {
+    const { rows } = await db.query<{ prosrc: string | null }>(
+      `select prosrc from pg_proc
+        where proname = 'save_romaneio_conference'
+          and pronamespace = 'public'::regnamespace`,
+    );
+    expect(rows).toHaveLength(1);
+
+    // A 048 só atualizava linhas EXISTENTES em romaneio_materials
+    // (silent-ignore — a recebida da ficha se perdia); a 052 faz
+    // upsert pela chave unique (romaneio_id, description, unit).
+    // O comportamento é coberto de ponta a ponta em romaneio.test.ts.
+    const source = rows[0]?.prosrc ?? "";
+    expect(source).toContain("insert into public.romaneio_materials");
+    expect(source).toContain("on conflict (romaneio_id, description, unit)");
+    expect(source).not.toContain(
+      "update public.romaneio_materials",
+    );
+  });
 });
 
 describe("RLS", () => {
