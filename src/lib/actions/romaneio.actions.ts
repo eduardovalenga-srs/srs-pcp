@@ -92,7 +92,7 @@ export async function getRomaneioEmissionAction(
     const gate = checkRomaneioConfirmation({
       status: view.status,
       orderStatus: view.orderStatus,
-      // O diálogo sempre envia a NF de saída preenchida.
+      // O diálogo sempre envia a nota de industrialização preenchida.
       hasNfNumber: true,
       items: view.items.map((item) => ({
         itemQuantity: item.itemQuantity,
@@ -327,7 +327,7 @@ export async function cancelRomaneioAction(romaneioId: string): Promise<Romaneio
   }
 }
 
-/** Registra os números de NF de saída/devolução no romaneio. */
+/** Registra os números da nota de industrialização e da NF de devolução no romaneio. */
 export async function saveRomaneioNfAction(
   romaneioId: string,
   input: unknown,

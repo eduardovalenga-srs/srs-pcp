@@ -46,7 +46,7 @@ export interface RomaneioFilters {
   /** Coluna Peso (kg) — faixa inclusiva (lados opcionais). */
   weightFrom: number | null;
   weightTo: number | null;
-  /** Coluna NF saída por "contém". */
+  /** Coluna NF ind. (nota de industrialização) por "contém". */
   nfNumber: string;
   /** Coluna NF devolução por "contém". */
   returnNfNumber: string;

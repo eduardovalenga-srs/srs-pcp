@@ -123,7 +123,7 @@ describe("cabeçalhos de ordenação — RomaneioList (/romaneio)", () => {
     );
     const table = tableMarkup(markup);
     expect(table).toContain("Peso (kg)");
-    expect(table).toContain("NF saída");
+    expect(table).toContain("NF ind.");
     expect(table).toContain("NF devolução");
     // 047: Situação virou coluna ordenável — Itens/Qtd continuam fora.
     expect(table).toContain('aria-label="Ordenar por Situação"');
@@ -146,7 +146,7 @@ describe("cabeçalhos de ordenação — RomaneioList (/romaneio)", () => {
     expect(table).toContain('aria-label="Filtrar por cliente"');
     expect(table).toContain('aria-label="Filtrar por saída"');
     expect(table).toContain('aria-label="Filtrar por peso total"');
-    expect(table).toContain('aria-label="Filtrar por NF de saída"');
+    expect(table).toContain('aria-label="Filtrar por Nota de industrialização"');
     expect(table).toContain('aria-label="Filtrar por NF de devolução"');
     // Sem filtro ligado, nenhum funil aparece preenchido.
     expect(table).not.toContain("fill-current");
@@ -167,7 +167,7 @@ describe("cabeçalhos de ordenação — RomaneioList (/romaneio)", () => {
     const table = tableMarkup(markup);
     expect(table).toContain('aria-label="Filtrar por situação do romaneio — filtro ativo"');
     expect(table).toContain('aria-label="Filtrar por número do romaneio — filtro ativo"');
-    expect(table).toContain('aria-label="Filtrar por NF de saída — filtro ativo"');
+    expect(table).toContain('aria-label="Filtrar por Nota de industrialização — filtro ativo"');
     expect(table).toContain("fill-current");
   });
 
@@ -410,7 +410,7 @@ describe("chips de filtros ativos — listagem de romaneios", () => {
     expect(markup).toContain("Período de saída: a partir de 01/10/2026");
     expect(markup).toContain("Nº: #10 – #99");
     expect(markup).toContain("Peso: ≥ 1,5");
-    expect(markup).toContain("NF saída: 12345");
+    expect(markup).toContain("NF ind.: 12345");
     expect(markup).toContain("NF devolução: 9876");
     expect(markup).toContain('aria-label="Remover filtro: Cliente: ACME"');
     expect(markup).toContain('aria-label="Remover filtro: Situação: Aberto"');

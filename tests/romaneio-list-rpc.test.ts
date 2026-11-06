@@ -207,7 +207,7 @@ describe("RPC 047 — filtros de coluna (Nº, peso, NF) e resumo", () => {
     await db.query(`delete from public.order_items`);
     await db.query(`delete from public.orders`);
 
-    // r10 → ABERTO, peso 50, NF saída 12345, sem NF de devolução.
+    // r10 → ABERTO, peso 50, NF ind. 12345, sem NF de devolução.
     const of10 = await insertOrder({ code: "OF-FILT-10", customer: "Cliente Alfa", deliveryDate: "2026-11-10" });
     const item10 = await insertRootItem(of10, "P-FILT-10", "Porta 10", 4, 12.5, "2026-11-10");
     await insertRomaneio({
@@ -219,7 +219,7 @@ describe("RPC 047 — filtros de coluna (Nº, peso, NF) e resumo", () => {
       nfNumber: "12345",
     });
 
-    // r20 → CONFERIDO, peso 16, NF saída 9999 + NF devolução 5555.
+    // r20 → CONFERIDO, peso 16, NF ind. 9999 + NF devolução 5555.
     const of20 = await insertOrder({ code: "OF-FILT-20", customer: "Cliente Beta", deliveryDate: "2026-11-01" });
     const item20 = await insertRootItem(of20, "P-FILT-20", "Porta 20", 2, 8, "2026-11-01");
     await insertRomaneio({
@@ -296,7 +296,7 @@ describe("RPC 047 — filtros de coluna (Nº, peso, NF) e resumo", () => {
     expect(ate.rows[0]?.order_code).toBe("OF-FILT-20");
   });
 
-  it("filtra por NF de saída e por NF de devolução (contém)", async () => {
+  it("filtra por nota de industrialização e por NF de devolução (contém)", async () => {
     const nfSaida = await db.query<{ order_code: string }>(
       `select order_code from public.get_romaneios_page(p_nf_number => '123')`,
     );

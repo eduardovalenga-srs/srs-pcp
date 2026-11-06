@@ -94,8 +94,8 @@ interface RomaneioEmissionDialogProps {
 /**
  * Diário de emissão da listagem de romaneios (050): o caminho único para
  * registrar NF e emitir. Em **emit** (status CONFERIDO) busca os
- * pré-requisitos na Server Action, mostra o checklist e — com a NF de
- * saída preenchida e nada bloqueando — grava as NFs e confirma o
+ * pré-requisitos na Server Action, mostra o checklist e — com a nota de
+ * industrialização preenchida e nada bloqueando — grava as NFs e confirma o
  * romaneio (baixa dos itens). Em **edit** (status CONFIRMADO) só ajusta
  * os números de NF. A conferência sempre vem antes: sem status
  * CONFERIDO o botão nem aparece na lista.
@@ -149,14 +149,14 @@ export function RomaneioEmissionDialog({
   }, [mode, romaneio.id]);
 
   const nfMissing = mode === "emit" && nfNumber.trim() === "";
-  const blockers = gate ? [...gate.blockers, ...(nfMissing ? ["Registre o número da NF de saída."] : [])] : [];
+  const blockers = gate ? [...gate.blockers, ...(nfMissing ? ["Registre o número da nota de industrialização."] : [])] : [];
   const ready = mode === "edit" || (gate !== null && gate.canConfirm && !nfMissing);
 
   const submit = async () => {
     if (busy) return;
     const nf = nfNumber.trim();
     if (mode === "emit" && nf === "") {
-      toast.error("Informe o número da NF de saída.");
+      toast.error("Informe o número da nota de industrialização.");
       return;
     }
     setBusy(true);
@@ -208,7 +208,7 @@ export function RomaneioEmissionDialog({
           </DialogTitle>
           <DialogDescription>
             {isEmit
-              ? `A emissão registra a NF como saída e BAIXA as quantidades na pendência de expedição da OF ${romaneio.orderCode}. Depois disso cabeçalho, itens e materiais ficam travados — cancelar depois devolve as quantidades à OF.`
+              ? `A emissão registra a nota de industrialização e BAIXA as quantidades na pendência de expedição da OF ${romaneio.orderCode}. Depois disso cabeçalho, itens e materiais ficam travados — cancelar depois devolve as quantidades à OF.`
               : `Ajuste os números de NF do romaneio ${romaneio.orderCode}. A emissão em si acontece no emissor externo.`}
           </DialogDescription>
         </DialogHeader>
@@ -223,7 +223,7 @@ export function RomaneioEmissionDialog({
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <Label htmlFor="romaneio-emit-nf" className="text-xs text-muted-foreground">
-              NF de saída
+              Nota de industrialização
             </Label>
             <Input
               id="romaneio-emit-nf"
@@ -232,7 +232,7 @@ export function RomaneioEmissionDialog({
               disabled={busy}
               maxLength={60}
               onChange={(event) => setNfNumber(event.target.value)}
-              placeholder={isEmit ? "Obrigatória para emitir" : "Número da NF de saída"}
+              placeholder={isEmit ? "Obrigatória para emitir" : "Número da nota de industrialização"}
               autoComplete="off"
             />
           </div>

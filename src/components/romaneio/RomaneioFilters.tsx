@@ -408,7 +408,7 @@ export function RomaneioFilters({ filters }: RomaneioFiltersProps) {
 
         <div className="space-y-1">
           <Label htmlFor="romaneio-nfsaida" className="text-xs text-muted-foreground">
-            NF saída
+            Nota de industrialização
           </Label>
           <Input
             id="romaneio-nfsaida"

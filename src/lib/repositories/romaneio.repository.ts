@@ -486,8 +486,9 @@ export async function cancelRomaneioRpc(
 }
 
 /**
- * Atualiza os números de NF do romaneio (saída/devolução). O guard de
- * status (não cancelado) vale no banco junto com o RLS.
+ * Atualiza os números do romaneio (nota de industrialização e NF de
+ * devolução). O guard de status (não cancelado) vale no banco junto
+ * com o RLS.
  */
 export async function updateRomaneioNfNumbers(
   client: SupabaseServer,

@@ -184,7 +184,7 @@ async function cancelRomaneio(romaneioId: string): Promise<void> {
   await db.query(`select public.cancel_romaneio($1::uuid)`, [romaneioId]);
 }
 
-/** Registra a NF de saída direto no banco (o emissor é externo). */
+/** Registra a nota de industrialização direto no banco (o emissor é externo). */
 async function setNfNumber(romaneioId: string, nfNumber: string): Promise<void> {
   await asSuperUser(db);
   await db.query(`update public.romaneios set nf_number = $2 where id = $1`, [
@@ -568,7 +568,7 @@ describe("regras puras do romaneio", () => {
 
     expect(result.canConfirm).toBe(false);
     expect(result.blockers).toContain("Conclua a conferência (aceite) antes de confirmar.");
-    expect(result.blockers).toContain("Registre o número da NF de saída.");
+    expect(result.blockers).toContain("Registre o número da nota de industrialização.");
     // EXP pendente conta TODOS os itens raiz da OF, mesmo fora da carga.
     expect(result.blockers).toContain("1 item raiz com EXPEDIÇÃO pendente.");
     // 8 já expedidas + 5 nesta carga > 10 do item.
@@ -1050,7 +1050,7 @@ describe("RPC save_romaneio_conference (048) — ficha como formulário", () => 
 });
 
 describe("RPC confirm_romaneio (045) — gates e baixa", () => {
-  it("bloqueia a confirmação antes do aceite e sem a NF de saída", async () => {
+  it("bloqueia a confirmação antes do aceite e sem a nota de industrialização", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const created = await saveRomaneio({
@@ -1065,7 +1065,7 @@ describe("RPC confirm_romaneio (045) — gates e baixa", () => {
 
     await signConference(created.id, "Carga conferida com o cliente.");
     await expect(confirmRomaneio(created.id)).rejects.toThrow(
-      /registre o número da nf de saída/i,
+      /registre o número da nota de industrialização/i,
     );
 
     await setNfNumber(created.id, "12345");

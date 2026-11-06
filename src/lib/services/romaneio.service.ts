@@ -393,9 +393,10 @@ export async function cancelRomaneio(
 }
 
 /**
- * Registra os números de NF (saída/devolução) — o sistema auxilia, a
- * emissão é no emissor externo. A NF de devolução exige a NF de saída
- * e todas as linhas de material com recebida/utilizada informadas.
+ * Registra os números da nota de industrialização e da NF de
+ * devolução — o sistema auxilia, a emissão é no emissor externo. A NF
+ * de devolução exige a nota de industrialização e todas as linhas de
+ * material com recebida/utilizada informadas.
  */
 export async function saveRomaneioNfNumbers(
   client: SupabaseServer,
@@ -411,7 +412,7 @@ export async function saveRomaneioNfNumbers(
   }
   if (values.returnNfNumber) {
     if (!values.nfNumber) {
-      throw new Error("Registre a NF de saída antes da NF de devolução.");
+      throw new Error("Registre a nota de industrialização antes da NF de devolução.");
     }
     const pendingLines = (raw.romaneio_materials ?? []).filter(
       (line) => line.quantity_received === null || line.quantity_used === null,

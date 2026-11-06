@@ -96,7 +96,7 @@ export const romaneioNfSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["nfNumber"],
-        message: "Registre a NF de saída antes da NF de devolução",
+        message: "Registre a nota de industrialização antes da NF de devolução",
       });
     }
   });

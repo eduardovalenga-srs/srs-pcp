@@ -449,7 +449,7 @@ describe("romaneiosListSheet — lista de romaneios", () => {
       "Situação",
       "Saída",
       "Peso (kg)",
-      "NF saída",
+      "NF ind.",
       "NF devolução",
       "Saldo a devolver",
     ]);

@@ -945,7 +945,7 @@ describe("romaneioFilterChips + hasRomaneioFilters (047)", () => {
     expect(chips[1]?.clear).toEqual({ status: "ALL" });
     expect(chips[2]?.label).toBe("Nº: #10 – #99");
     expect(chips[3]?.label).toBe("Peso: ≥ 1,5");
-    expect(chips[4]?.label).toBe("NF saída: 12345");
+    expect(chips[4]?.label).toBe("NF ind.: 12345");
     expect(chips[5]?.label).toBe("NF devolução: 9876");
     expect(romaneioFilterChips(parseRomaneioFilters({}))).toEqual([]);
   });

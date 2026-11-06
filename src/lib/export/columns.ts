@@ -238,7 +238,7 @@ export function pedidosSheet(
 
 /**
  * Romaneio — listagem (RomaneioList): Nº, OF/OS, Cliente, Situação,
- * Saída, Peso, NF saída, NF devolução e o marcador de saldo a devolver
+ * Saída, Peso, NF ind., NF devolução e o marcador de saldo a devolver
  * (mesmas colunas da tela, mesma ordem do servidor). As colunas de
  * processo ficaram na lista de itens do DETALHE — aqui não entram.
  */
@@ -250,7 +250,7 @@ export function romaneiosListSheet(romaneios: readonly RomaneioSummary[]): Expor
     "Situação",
     "Saída",
     "Peso (kg)",
-    "NF saída",
+    "NF ind.",
     "NF devolução",
     "Saldo a devolver",
   ];
@@ -285,7 +285,7 @@ export function romaneioDocumentSheet(view: RomaneioView): ExportSheet {
     "Saída",
     "Transportadora",
     "Veículo",
-    "NF saída",
+    "NF ind.",
     "NF devolução",
     "Conferência",
     "Confirmado em",

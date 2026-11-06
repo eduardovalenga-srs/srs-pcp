@@ -89,7 +89,7 @@ function RowActions({
           variant="outline"
           size="sm"
           onClick={() => onEmit(romaneio, "edit")}
-          title="Ajustar os números de NF de saída / devolução"
+          title="Ajustar os números da nota de industrialização e da NF de devolução"
         >
           <FileText className="h-4 w-4" aria-hidden />
           NFs
@@ -201,16 +201,16 @@ export function RomaneioList({ romaneios, filters, canEdit }: RomaneioListProps)
               </th>
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("nf_number")}>
                 <RomaneioColumnHeader
-                  label="NF saída"
-                  fullLabel="NF de saída"
+                  label="NF ind."
+                  fullLabel="Nota de industrialização"
                   columnId="nf_number"
                   filters={filters}
                   filter={
                     <RomaneioTextFilter
                       filters={filters}
                       field="nfNumber"
-                      column="NF saída"
-                      context="NF de saída"
+                      column="Nota de industrialização"
+                      context="Nota de industrialização"
                     />
                   }
                 />
@@ -319,7 +319,7 @@ export function RomaneioList({ romaneios, filters, canEdit }: RomaneioListProps)
 
             <footer className="mt-3 flex items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground tabular-nums">
-                NF saída: {romaneio.nfNumber || "—"} · NF dev.: {romaneio.returnNfNumber || "—"}
+                NF ind.: {romaneio.nfNumber || "—"} · NF dev.: {romaneio.returnNfNumber || "—"}
               </p>
               <span className="flex items-center gap-1.5">
                 <RowActions

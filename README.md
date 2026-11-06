@@ -86,6 +86,7 @@ cp .env.example .env.local
 #    supabase/migrations/050_romaneio_weight_from_materials.sql
 #    supabase/migrations/051_backfill_material_unit_kg.sql
 #    supabase/migrations/052_romaneio_conference_upsert.sql
+#    supabase/migrations/053_nf_industrializacao_messages.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -649,7 +650,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
     processo da Fábrica 2** (049 — regra da tela F2: catálogo ativo menos a cadeia F1,
     **menos MP e KIT**; célula com **só o símbolo** da pior situação entre os **itens da
     carga**), OF/OS, Cliente, Saída, **Peso** (faixa — Σ da utilizada em KG da carga,
-    050), **NF saída/devolução**;
+    050), **NF ind./devolução**;
     em `/romaneio/novo` o seletor em cascata
     (cliente → OFs do cliente, com filtro por digitação) substitui a tabela;
   Defaults preservados (zero mudança visual sem clique): F1 = `seq` asc; F2/Gestão = `seq`/
@@ -726,7 +727,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   O botão **Emitir NF** só nasce em **CONFERIDO** e monta `RomaneioEmissionDialog` em modo
   **emit**: ao abrir ele chama `getRomaneioEmissionAction` (reusa `getRomaneioView` →
   `checkRomaneioConfirmation`, sem migration nova), mostra o **checklist "Para emitir,
-  falta:"** e os campos **NF de saída (obrigatória)** + **NF devolução (opcional)**; com
+  falta:"** e os campos **Nota de industrialização (obrigatória)** + **NF devolução (opcional)**; com
   tudo atendido grava as NFs (`saveRomaneioNfAction`) e emite (`confirmRomaneioAction`).
   Em **CONFIRMADO** o mesmo diálogo abre em modo **edit** ("NFs") para só ajustar os
   números. Tudo exige a capacidade `romaneio.edit` (a página passa `canEdit` para
@@ -739,7 +740,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   quantidades dos itens (preview local — o Salvar grava e o refresh do servidor só
   confirma).
 - **Confirmação** (RPC `confirm_romaneio`, validada NO BANCO): exige (1) romaneio em
-  CONFERIDO, (2) OF não cancelada, (3) **NF de saída registrada**, (4) ao menos um item
+  CONFERIDO, (2) OF não cancelada, (3) **nota de industrialização registrada**, (4) ao menos um item
   incluído, (5) **EXP = CONCLUIDO em TODOS os itens raiz aplicáveis da OF** (inclusive os
   fora da carga) e (6) **Σ (este + já confirmados) ≤ quantidade do item**. Confirmar é o
   momento da **BAIXA**: as quantidades passam a contar como expedidas na pendência de
@@ -760,7 +761,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   da utilizada** (no merge `received = max(gravado, usado)` e o saldo zera nesse caso).
   Linha gravada que **saiu da alocação** (item removido da carga) é mantida: previsto e
   utilizada zeram e a recebida vira tudo a devolver — nada se perde, nada inventa.
-  A **NF de devolução** só entra com a NF de saída e todas as linhas com
+  A **NF de devolução** só entra com a nota de industrialização e todas as linhas com
   recebida/utilizada preenchidas.
   Em ABERTO o detalhe mostra o merge do alocado fresco com o já informado **e recalcula
   AO VIVO a cada tecla nas quantidades dos itens** (`previewRomaneioMaterials`, espelho
@@ -800,7 +801,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
 - **Exclusão × cancelamento**: ABERTO (antes da conferência) pode ser **excluído
   definitivamente** (RPC `delete_romaneio` — sem registro no histórico; o número não
   retorna); CONFERIDO/CONFIRMADO só **cancelam** (RPC `cancel_romaneio` — mantém o histórico
-  e reverte a baixa derivada). Não há mais o bloqueio de cancelamento por NF de saída.
+  e reverte a baixa derivada). Não há mais o bloqueio de cancelamento por nota de industrialização.
 - **Escrita**: sempre pelas Server Actions de `lib/actions/romaneio.actions.ts` →
   serviço → RPCs transacionais `save_romaneio` / `save_romaneio_conference` /
   `confirm_romaneio` / `delete_romaneio` / `cancel_romaneio` (plpgsql `security invoker`,

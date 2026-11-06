@@ -98,14 +98,14 @@ describe("painel de pré-requisitos da emissão", () => {
         loadError: null,
         blockers: [
           "Conclua a conferência (aceite) antes de confirmar.",
-          "Registre o número da NF de saída.",
+          "Registre o número da nota de industrialização.",
         ],
       }),
     );
 
     expect(markup).toContain("Para emitir, falta:");
     expect(markup).toContain("Conclua a conferência (aceite) antes de confirmar.");
-    expect(markup).toContain("Registre o número da NF de saída.");
+    expect(markup).toContain("Registre o número da nota de industrialização.");
     expect(markup).not.toContain("Pronto para emitir");
   });
 
@@ -146,7 +146,7 @@ describe("painel de pré-requisitos da emissão", () => {
 });
 
 describe("diálogo de emissão de NF (lista /romaneio)", () => {
-  it("em emit: título, busca de pré-requisitos e NF de saída obrigatória", () => {
+  it("em emit: título, busca de pré-requisitos e nota de industrialização obrigatória", () => {
     const markup = html(
       createElement(RomaneioEmissionDialog, {
         romaneio: summary(),

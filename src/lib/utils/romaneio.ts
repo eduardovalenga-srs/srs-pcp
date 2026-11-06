@@ -442,7 +442,7 @@ export interface RomaneioConfirmationItem {
 export interface RomaneioConfirmationInput {
   status: RomaneioStatus;
   orderStatus: OrderStatus;
-  /** NF de saída registrada (requisito do CONFIRMADO = NF + baixa). */
+  /** Nota de industrialização registrada (requisito do CONFIRMADO = NF + baixa). */
   hasNfNumber: boolean;
   /** TODOS os itens raiz da OF — quantity = incluído neste romaneio (0 = fora). */
   items: readonly RomaneioConfirmationItem[];
@@ -461,7 +461,7 @@ export interface RomaneioConfirmationGateResult {
  *
  *  1) romaneio em CONFERIDO (conferência aceita);
  *  2) OF não cancelada;
- *  3) NF de saída registrada;
+ *  3) nota de industrialização registrada;
  *  4) ao menos um item incluído;
  *  5) EXP de todos os itens raiz aplicáveis = CONCLUIDO;
  *  6) Σ (este + já confirmados) ≤ quantidade do item (expedição parcial).
@@ -477,7 +477,7 @@ export function checkRomaneioConfirmation(
     blockers.push("Conclua a conferência (aceite) antes de confirmar.");
   }
   if (input.orderStatus === "CANCELADO") blockers.push("A OF está cancelada.");
-  if (!input.hasNfNumber) blockers.push("Registre o número da NF de saída.");
+  if (!input.hasNfNumber) blockers.push("Registre o número da nota de industrialização.");
 
   const included = input.items.filter((item) => item.quantity > 0);
   if (included.length === 0) {

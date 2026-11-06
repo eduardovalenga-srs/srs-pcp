@@ -931,7 +931,7 @@ export function romaneioFilterChips(filters: RomaneioFilters): RomaneioFilterChi
   }
 
   if (filters.nfNumber) {
-    chips.push({ key: "nfNumber", label: `NF saída: ${filters.nfNumber}`, clear: { nfNumber: "" } });
+    chips.push({ key: "nfNumber", label: `NF ind.: ${filters.nfNumber}`, clear: { nfNumber: "" } });
   }
 
   if (filters.returnNfNumber) {
