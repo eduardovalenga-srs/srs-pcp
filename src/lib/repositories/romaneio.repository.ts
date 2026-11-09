@@ -310,6 +310,35 @@ export async function listConfirmedQuantityByItem(
 }
 
 /**
+ * 054 — Quantidade já EXPEDIDA por um CONJUNTO de itens (Σ de romaneios
+ * CONFIRMADOS, cruzando por `order_item_id`): base da baixa proporcional
+ * dos FILHOS da Fábrica 1, cujos pais podem estar em OFs diferentes.
+ *
+ * A RLS de `romaneio_items`/`romaneios` é `using (true)` para select
+ * (042), então a leitura vale para qualquer papel autenticado — o helper
+ * é revogado do `anon` na migração 054.
+ */
+export async function listConfirmedQuantityByItemIds(
+  client: SupabaseServer,
+  itemIds: readonly string[],
+): Promise<Map<string, number>> {
+  const totals = new Map<string, number>();
+  if (itemIds.length === 0) return totals;
+
+  const { data, error } = await client
+    .from("romaneio_items")
+    .select("order_item_id, quantity, romaneios!inner ( status )")
+    .in("order_item_id", itemIds)
+    .eq("romaneios.status", "CONFIRMADO");
+  assertOk(error, "Não foi possível calcular a expedição já confirmada");
+
+  for (const row of (data ?? []) as { order_item_id: string; quantity: number | string }[]) {
+    totals.set(row.order_item_id, (totals.get(row.order_item_id) ?? 0) + (toNumber(row.quantity) ?? 0));
+  }
+  return totals;
+}
+
+/**
  * Linhas de material gravadas em TODOS os romaneios não cancelados da
  * OF — base do Σ (recebida/utilizada/saldo) por OF inteira.
  */

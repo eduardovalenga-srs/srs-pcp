@@ -3,7 +3,9 @@ import type { SupabaseServer } from "@/lib/supabase/types";
 import type { ItemProcess, OrderDetails, OrderFilters, OrderItemDetails, OrderSummary } from "@/lib/types/order";
 import type { ExistingOfItem, ExistingOfStructure } from "@/lib/types/import";
 import type { ProcessStatus } from "@/lib/constants/production";
+import { listConfirmedQuantityByItem } from "@/lib/repositories/romaneio.repository";
 import { escapeFilterTerm } from "@/lib/utils/filters";
+import { pendingQuantity, pendingRootQuantity, pendingRootWeight, pendingWeight } from "@/lib/utils/shipping";
 import { assertOk } from "@/lib/utils/supabase-result";
 
 function toNumber(value: number | string | null): number | null {
@@ -111,10 +113,13 @@ export async function listOrders(
 
 /** Pedido com itens, processos e materiais (detalhes). */
 export async function getOrderDetails(client: SupabaseServer, orderId: string): Promise<OrderDetails | null> {
-  const { data, error } = await client
-    .from("orders")
-    .select(
-      `id, code, type, customer_name, description, order_date, delivery_date, status,
+  // 054: o expedido (romaneios CONFIRMADOS) vem em paralelo com o pedido —
+  // uma única consulta por leitura, mesma base da migração 054.
+  const [result, shippedByItem] = await Promise.all([
+    client
+      .from("orders")
+      .select(
+        `id, code, type, customer_name, description, order_date, delivery_date, status,
        order_items (
          id, order_id, parent_order_item_id, family, parent_item, description, quantity, unit_weight_kg, total_weight_kg, delivery_date, status, op,
          production_processes (
@@ -123,9 +128,12 @@ export async function getOrderDetails(client: SupabaseServer, orderId: string): 
          ),
          order_item_materials ( id, description, quantity, unit, notes )
        )`,
-    )
-    .eq("id", orderId)
-    .maybeSingle();
+      )
+      .eq("id", orderId)
+      .maybeSingle(),
+    listConfirmedQuantityByItem(client, orderId, null),
+  ]);
+  const { data, error } = result;
 
   assertOk(error, "Não foi possível carregar o pedido");
   if (!data) return null;
@@ -176,43 +184,76 @@ export async function getOrderDetails(client: SupabaseServer, orderId: string): 
   };
 
   const raw = data as unknown as RawOrder;
+  const rawItems = raw.order_items ?? [];
 
-  const items: OrderItemDetails[] = (raw.order_items ?? [])
-    .map((item) => ({
-      id: item.id,
-      orderId: item.order_id,
-      parentItemId: item.parent_order_item_id,
-      family: item.family,
-      parentItem: item.parent_item,
-      description: item.description,
-      quantity: toNumber(item.quantity) ?? 0,
-      unitWeightKg: toNumber(item.unit_weight_kg),
-      totalWeightKg: toNumber(item.total_weight_kg),
-      deliveryDate: item.delivery_date,
-      status: item.status,
-      op: item.op ?? null,
-      processes: (item.production_processes ?? [])
-        .map((process): ItemProcess => ({
-          id: process.id,
-          processId: process.process_id,
-          code: process.processes.code,
-          name: process.processes.name,
-          displayOrder: process.processes.display_order,
-          status: process.status,
-          quantityPlanned: toNumber(process.quantity_planned),
-          quantityCompleted: toNumber(process.quantity_completed),
-          notes: process.notes,
-          completedAt: process.completed_at ?? null,
-        }))
-        .sort((a, b) => a.displayOrder - b.displayOrder),
-      materials: (item.order_item_materials ?? []).map((material) => ({
-        id: material.id,
-        description: material.description,
-        quantity: toNumber(material.quantity) ?? 0,
-        unit: material.unit,
-        notes: material.notes,
-      })),
-    }))
+  // 054: planejado dos PAIS raiz (os filhos resolvem a fração pelo pai
+  // imediato — só existem 2 níveis, raiz → filho).
+  const rootPlannedById = new Map<string, number>();
+  for (const item of rawItems) {
+    if (item.parent_order_item_id === null) {
+      rootPlannedById.set(item.id, toNumber(item.quantity) ?? 0);
+    }
+  }
+
+  const items: OrderItemDetails[] = rawItems
+    .map((item) => {
+      const quantity = toNumber(item.quantity) ?? 0;
+      const totalWeightKg = toNumber(item.total_weight_kg);
+      const unitWeightKg = toNumber(item.unit_weight_kg);
+
+      // 054: saldo derivado da expedição (espelho da migração 054) — o
+      // planejado nunca é decrementado; a tela exibe o pendente.
+      const parentId = item.parent_order_item_id;
+      const rootPlanned = parentId !== null ? rootPlannedById.get(parentId) ?? 0 : quantity;
+      const rootShipped = parentId !== null ? shippedByItem.get(parentId) ?? 0 : shippedByItem.get(item.id) ?? 0;
+      const pendingQty =
+        parentId !== null
+          ? pendingRootQuantity(quantity, rootPlanned, rootShipped)
+          : pendingQuantity(quantity, rootShipped);
+      const pendingWeightKg =
+        parentId !== null
+          ? pendingRootWeight(totalWeightKg, rootPlanned, rootShipped)
+          : pendingWeight(totalWeightKg, rootShipped, unitWeightKg);
+
+      return {
+        id: item.id,
+        orderId: item.order_id,
+        parentItemId: item.parent_order_item_id,
+        family: item.family,
+        parentItem: item.parent_item,
+        description: item.description,
+        quantity,
+        unitWeightKg,
+        totalWeightKg,
+        shippedQuantity: quantity - pendingQty,
+        pendingQuantity: pendingQty,
+        pendingWeightKg,
+        deliveryDate: item.delivery_date,
+        status: item.status,
+        op: item.op ?? null,
+        processes: (item.production_processes ?? [])
+          .map((process): ItemProcess => ({
+            id: process.id,
+            processId: process.process_id,
+            code: process.processes.code,
+            name: process.processes.name,
+            displayOrder: process.processes.display_order,
+            status: process.status,
+            quantityPlanned: toNumber(process.quantity_planned),
+            quantityCompleted: toNumber(process.quantity_completed),
+            notes: process.notes,
+            completedAt: process.completed_at ?? null,
+          }))
+          .sort((a, b) => a.displayOrder - b.displayOrder),
+        materials: (item.order_item_materials ?? []).map((material) => ({
+          id: material.id,
+          description: material.description,
+          quantity: toNumber(material.quantity) ?? 0,
+          unit: material.unit,
+          notes: material.notes,
+        })),
+      };
+    })
     .sort((a, b) => (a.parentItem ?? "").localeCompare(b.parentItem ?? ""));
 
   return {

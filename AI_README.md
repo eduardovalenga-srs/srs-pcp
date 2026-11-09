@@ -21,6 +21,10 @@
 ## 🚛 Fluxo do Romaneio (Expedição)
 - **Status:** `ABERTO` ➔ `CONFERIDO` ➔ `CONFIRMADO` (e `CANCELADO`).
 - **Regra de Baixa:** A expedição não decrementa `order_items.quantity`. O saldo expedido é derivado dinamicamente somando as cargas dos romaneios `CONFIRMADOS`.
+- **Regra 054 (Baixa derivada nos totais):** emitir a nota no fim do romaneio (`confirm_romaneio`) **não grava contador nenhum** — os totais de QUANTIDADE e PESO exibidos viram o **saldo pendente**, derivado a cada leitura (cancelar restaura sozinho):
+  - **Itens raiz:** `saldo_qtd = greatest(qtd − Σ cargas, 0)` e `saldo_peso = greatest(total_weight_kg − Σ cargas × peso unit., 0)` (`total_weight_kg` null permanece null → "—"). A base é **qtd expedida × peso unitário do item** — nunca o peso da regra 050.
+  - **Itens filhos (Fábrica 1):** valor planejado × **fração pendente do pai raiz** (`saldo_pai/qtd_pai`); pai ausente/não raiz/planned ≤ 0 ⇒ fração 1 (mantém o valor cheio).
+  - Fonte única: helper SQL `romaneio_shipped_by_item()` (reuso do repositório `listConfirmedQuantityByItem*` no Node). Valida nas RPCs `get_production_rows` (F2), `get_production_rows_by_order` (Gestão), `get_child_item_groups`/`get_child_items_totals` (F1) e `get_production_stats` (Dashboard), que também **filtram os cards por saldo > 0** (`has_pending`). Fórmulas espelhadas em `src/lib/utils/shipping.ts` (só exibição — nunca persistir). `order_items.quantity`/`total_weight_kg` seguem sendo o **planejado** (a edição cadastral usa esses). Emisão/cancelamento revalida `/dashboard`, `/gestao-entregas`, `/fabrica-1`, `/fabrica-2`, `/pedidos` e o detalhe da OF.
 - **Limitação:** Máximo de 1 romaneio `ABERTO` por OF.
 - **Devolução de MP:** a **"Utilizada na produção" é DERIVADA** dos itens da carga (alocação proporcional da OF) e recalcula a cada tecla — é somente leitura no detalhe e na ficha. O único lançamento é a **"Recebida"**, na ficha de conferência, e ela **nunca fica abaixo da utilizada** (`received = max(gravado, utilizada)` no merge; saldo zera). O **Peso da carga** fecha com essa mesma utilizada (regra 5 acima).
 

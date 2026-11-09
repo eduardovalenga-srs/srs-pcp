@@ -35,13 +35,35 @@ function byCode(left: OrderItemDetails, right: OrderItemDetails): number {
 }
 
 /**
- * Peso total exibido: usa a coluna gravada (023: derivada de qtd × peso
- * unit. por trigger) com fallback de cálculo para linhas antigas ainda
- * não migradas — o card nunca aparece vazio ("—") quando os dois
- * números existem.
+ * 054 — Saldo de QUANTIDADE exibido no lugar do planejado, com tooltip
+ * nativo (`title`, padrão do projeto) mostrando o já expedido quando
+ * existe baixa parcial.
  */
-function displayTotalWeight(item: OrderItemDetails): number | null {
-  return item.totalWeightKg ?? calculateTotalWeight(item.quantity, item.unitWeightKg);
+function displayPendingQuantity(item: OrderItemDetails): { value: number; title?: string } {
+  return {
+    value: item.pendingQuantity,
+    title:
+      item.shippedQuantity > 0
+        ? `${formatQuantity(item.shippedQuantity)} já expedido de ${formatQuantity(item.quantity)}`
+        : undefined,
+  };
+}
+
+/**
+ * 054 — Saldo de PESO total exibido (baixa derivada da expedição): usa o
+ * saldo gravado/derivado com fallback de cálculo sobre o pendente (mesma
+ * intenção do antigo `displayTotalWeight`, 023: qtd × peso unit.) — o
+ * card nunca aparece vazio ("—") quando os dois números existem.
+ */
+function displayPendingWeight(item: OrderItemDetails): { value: number | null; title?: string } {
+  const value = item.pendingWeightKg ?? calculateTotalWeight(item.pendingQuantity, item.unitWeightKg);
+  return {
+    value,
+    title:
+      item.shippedQuantity > 0
+        ? `${formatQuantity(item.shippedQuantity)} já expedido de ${formatQuantity(item.quantity)}`
+        : undefined,
+  };
 }
 
 /**
@@ -239,6 +261,9 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
         ) : (
           parents.map((item) => {
             const children = childrenByParent.get(item.id) ?? [];
+            // 054: saldo derivado da expedição (substitui o planejado).
+            const pendingQty = displayPendingQuantity(item);
+            const pendingWt = displayPendingWeight(item);
 
             return (
               <Card key={item.id}>
@@ -272,7 +297,9 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">Quantidade</dt>
-                      <dd className="tabular-nums">{formatQuantity(item.quantity)}</dd>
+                      <dd className="tabular-nums" title={pendingQty.title}>
+                        {formatQuantity(pendingQty.value)}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">Peso un.</dt>
@@ -280,7 +307,9 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">Peso total</dt>
-                      <dd className="tabular-nums">{formatWeight(displayTotalWeight(item))}</dd>
+                      <dd className="tabular-nums" title={pendingWt.title}>
+                        {formatWeight(pendingWt.value)}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">Entrega</dt>
@@ -354,7 +383,12 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
                           <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-4">
                             <div>
                               <dt className="text-muted-foreground">Quantidade</dt>
-                              <dd className="tabular-nums">{formatQuantity(child.quantity)}</dd>
+                              <dd
+                                className="tabular-nums"
+                                title={displayPendingQuantity(child).title}
+                              >
+                                {formatQuantity(displayPendingQuantity(child).value)}
+                              </dd>
                             </div>
                             <div>
                               <dt className="text-muted-foreground">Peso un.</dt>
@@ -362,7 +396,12 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
                             </div>
                             <div>
                               <dt className="text-muted-foreground">Peso total</dt>
-                              <dd className="tabular-nums">{formatWeight(displayTotalWeight(child))}</dd>
+                              <dd
+                                className="tabular-nums"
+                                title={displayPendingWeight(child).title}
+                              >
+                                {formatWeight(displayPendingWeight(child).value)}
+                              </dd>
                             </div>
                             <div>
                               <dt className="text-muted-foreground">Ordem de Produção (OP)</dt>

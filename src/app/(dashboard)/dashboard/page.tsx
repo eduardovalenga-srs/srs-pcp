@@ -113,6 +113,7 @@ export default async function DashboardPage() {
             value={stats.itemsDone}
             tone="success"
             icon={<CheckCircle2 className="h-3.5 w-3.5" aria-hidden />}
+            hint="Aguardando expedição"
           />
           <KpiCard
             label="Atrasados"

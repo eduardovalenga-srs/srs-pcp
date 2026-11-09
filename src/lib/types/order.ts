@@ -47,9 +47,26 @@ export interface OrderItemDetails {
   family: string | null;
   parentItem: string | null;
   description: string;
+  /** Planejado ORIGINAL (cadastro) — nunca é decrementado pela expedição. */
   quantity: number;
   unitWeightKg: number | null;
   totalWeightKg: number | null;
+  /**
+   * 054 — Baixa derivada da expedição (romaneios `CONFIRMADOS`; nada é
+   * gravado, cancelar restaura). `quantity`/`totalWeightKg` continuam o
+   * planejado (a edição cadastral usa esses); os três campos abaixo são o
+   * que as telas EXIBEM no lugar do planejado:
+   *
+   *  * `shippedQuantity` — expedido (raiz: Σ das cargas; filho: a fração
+   *    proporcional do pai que já saiu). Soma com `pendingQuantity` = `quantity`;
+   *  * `pendingQuantity` — saldo de quantidade (raiz: greatest(qtd −
+   *    expedido, 0); filho: planejado × fração pendente do pai);
+   *  * `pendingWeightKg` — saldo de peso (mesma regra sobre
+   *    `total_weight_kg` × peso unit.; null permanece null → "—").
+   */
+  shippedQuantity: number;
+  pendingQuantity: number;
+  pendingWeightKg: number | null;
   deliveryDate: string | null;
   status: OrderStatus;
   /** Código da Ordem de Produção vinculada (013) — null = em espera. */

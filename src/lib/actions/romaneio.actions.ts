@@ -53,6 +53,20 @@ function revalidateRomaneio(romaneioId?: string) {
   }
 }
 
+/**
+ * 054 — a expedição (CONFIRMADO) altera o SALDO derivado exibido nas
+ * telas de produção: revalida dashboard, gestão de entregas, fábricas,
+ * pedidos e o detalhe da OF após emitir/cancelar a nota.
+ */
+function revalidateShippingBalances() {
+  revalidatePath("/dashboard");
+  revalidatePath("/gestao-entregas");
+  revalidatePath("/fabrica-1");
+  revalidatePath("/fabrica-2");
+  revalidatePath("/pedidos");
+  revalidatePath("/(dashboard)/pedidos/[id]", "page");
+}
+
 const romaneioIdSchema = z.string().trim().min(1, "Romaneio inválido.");
 
 /**
@@ -269,6 +283,7 @@ export async function confirmRomaneioAction(romaneioId: string): Promise<Romanei
     await confirmRomaneio(client, parsedId.data);
 
     revalidateRomaneio(parsedId.data);
+    revalidateShippingBalances();
     return {
       success: true,
       message: "Romaneio confirmado — itens baixados na pendência da OF.",
@@ -315,6 +330,7 @@ export async function cancelRomaneioAction(romaneioId: string): Promise<Romaneio
     await cancelRomaneio(client, parsedId.data);
 
     revalidateRomaneio(parsedId.data);
+    revalidateShippingBalances();
     return {
       success: true,
       message: "Romaneio cancelado — quantidades devolvidas à pendência da OF.",

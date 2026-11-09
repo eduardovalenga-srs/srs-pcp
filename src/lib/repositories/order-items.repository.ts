@@ -10,8 +10,10 @@ import type {
 } from "@/lib/types/order";
 import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { ProcessStatus } from "@/lib/constants/production";
+import { listConfirmedQuantityByItemIds } from "@/lib/repositories/romaneio.repository";
 import { buildChildItemGroup } from "@/lib/utils/child-item-groups";
 import { escapeFilterTerm } from "@/lib/utils/filters";
+import { pendingQuantity, pendingRootQuantity, pendingRootWeight, pendingWeight } from "@/lib/utils/shipping";
 import { assertOk } from "@/lib/utils/supabase-result";
 
 function toNumber(value: number | string | null): number | null {
@@ -92,6 +94,39 @@ export async function getOrderItemWithProcesses(
   };
 
   const row = data as unknown as Raw;
+
+  // 054: saldo derivado da expedição (mesma regra do detalhe da OF) — o
+  // expedido vem do banco; o filho resolve a fração pelo pai imediato.
+  const parentId = row.parent_order_item_id;
+  const [shippedByItem, parentResult] = await Promise.all([
+    listConfirmedQuantityByItemIds(client, parentId ? [row.id, parentId] : [row.id]),
+    parentId
+      ? client
+          .from("order_items")
+          .select("quantity, parent_order_item_id")
+          .eq("id", parentId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  // 054: a fração vale só para pai RAIZ (a SQL restringe `parent_balance`
+  // a `parent_order_item_id is null`); pai ausente/não raiz/planned ≤ 0
+  // mantém o filho com o valor cheio (fail-safe do helper).
+  const parentRaw = parentResult.data as { quantity: number | string; parent_order_item_id: string | null } | null;
+  const parentIsRoot = parentRaw !== null && parentRaw.parent_order_item_id === null;
+  const rootPlanned = parentIsRoot ? toNumber(parentRaw.quantity) ?? 0 : 0;
+  const rootShipped = parentIsRoot ? shippedByItem.get(parentId ?? "") ?? 0 : 0;
+
+  const quantity = toNumber(row.quantity) ?? 0;
+  const totalWeightKg = toNumber(row.total_weight_kg);
+  const unitWeightKg = toNumber(row.unit_weight_kg);
+  const pendingQty = parentId
+    ? pendingRootQuantity(quantity, rootPlanned, rootShipped)
+    : pendingQuantity(quantity, shippedByItem.get(row.id) ?? 0);
+  const pendingWeightKg = parentId
+    ? pendingRootWeight(totalWeightKg, rootPlanned, rootShipped)
+    : pendingWeight(totalWeightKg, shippedByItem.get(row.id) ?? 0, unitWeightKg);
+
   return {
     id: row.id,
     orderId: row.order_id,
@@ -99,9 +134,12 @@ export async function getOrderItemWithProcesses(
     family: row.family,
     parentItem: row.parent_item,
     description: row.description,
-    quantity: toNumber(row.quantity) ?? 0,
-    unitWeightKg: toNumber(row.unit_weight_kg),
-    totalWeightKg: toNumber(row.total_weight_kg),
+    quantity,
+    unitWeightKg,
+    totalWeightKg,
+    shippedQuantity: quantity - pendingQty,
+    pendingQuantity: pendingQty,
+    pendingWeightKg,
     deliveryDate: row.delivery_date,
     status: row.status,
     op: row.op ?? null,
@@ -470,6 +508,9 @@ export async function listChildItemGroups(
 
   type RawParent = {
     id: string;
+    parent_order_item_id: string | null;
+    /** 054: planejado do pai — denominador da fração pendente dos filhos. */
+    quantity: number | string;
     parent_item: string | null;
     description: string;
     delivery_date: string | null;
@@ -492,23 +533,29 @@ export async function listChildItemGroups(
     ),
   ];
 
+  // 054: expedido (romaneios CONFIRMADOS) dos pais da página — base da
+  // baixa proporcional dos filhos (mesma fração da RPC get_child_item_groups).
+  const [shippedByParent, parentResults] = await Promise.all([
+    listConfirmedQuantityByItemIds(client, pageParentIds),
+    Promise.all(
+      pageParentIds.length === 0
+        ? []
+        : chunkIds(pageParentIds).map((ids) =>
+            client
+              .from("order_items")
+              .select(
+                "id, parent_order_item_id, quantity, parent_item, description, delivery_date, orders ( delivery_date ), production_processes ( status, completed_at, processes ( code ) )",
+              )
+              .in("id", ids),
+          ),
+    ),
+  ]);
+
   const parentsById = new Map<string, RawParent>();
-  if (pageParentIds.length > 0) {
-    const parentResults = await Promise.all(
-      chunkIds(pageParentIds).map((ids) =>
-        client
-          .from("order_items")
-          .select(
-            "id, parent_item, description, delivery_date, orders ( delivery_date ), production_processes ( status, completed_at, processes ( code ) )",
-          )
-          .in("id", ids),
-      ),
-    );
-    for (const result of parentResults) {
-      assertOk(result.error, "Não foi possível carregar os itens pai");
-      for (const parent of (result.data ?? []) as unknown as RawParent[]) {
-        parentsById.set(parent.id, parent);
-      }
+  for (const result of parentResults) {
+    assertOk(result.error, "Não foi possível carregar os itens pai");
+    for (const parent of (result.data ?? []) as unknown as RawParent[]) {
+      parentsById.set(parent.id, parent);
     }
   }
 
@@ -558,6 +605,19 @@ export async function listChildItemGroups(
       ? parentsById.get(row.parent_order_item_id)
       : undefined;
 
+    // 054: saldo do filho = planejado × fração pendente do PAI raiz (a SQL
+    // só enxerga pais raiz em `parent_balance`: pai ausente/não raiz/planned
+    // ≤ 0 ⇒ fração 1, o filho mantém o valor cheio — fail-safe do helper).
+    const quantity = toNumber(row.quantity) ?? 0;
+    const parentIsRoot = parent !== undefined && parent.parent_order_item_id === null;
+    const pendingQty = parentIsRoot
+      ? pendingRootQuantity(
+          quantity,
+          toNumber(parent.quantity) ?? 0,
+          shippedByParent.get(parent.id) ?? 0,
+        )
+      : quantity;
+
     rawById.set(row.id, row);
     ordersById.set(row.orders.id, {
       code: row.orders.code,
@@ -583,7 +643,9 @@ export async function listChildItemGroups(
         statuses[entry.processes.code] = entry.status;
         return statuses;
       }, {}),
-      quantity: toNumber(row.quantity) ?? 0,
+      // 054: o membro soma o SALDO (a linha e os cards da Fábrica 1
+      // derivam daqui; `unit_weight_kg` permanece o cadastro).
+      quantity: pendingQty,
       unitWeightKg: toNumber(row.unit_weight_kg),
       deliveryDate: row.delivery_date ?? row.orders.delivery_date,
       seq: toNumber(row.seq),
