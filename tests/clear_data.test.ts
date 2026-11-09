@@ -77,7 +77,7 @@ beforeAll(async () => {
   close = created.close;
 
   await asSuperUser(db);
-  operatorId = await createUser(db, "operador.clear@serralheria.com", "OPERADOR");
+  operatorId = await createUser(db, "operador.clear@serralheria.com", "OPERADOR_F1");
 
   await seedMovimento();
 });

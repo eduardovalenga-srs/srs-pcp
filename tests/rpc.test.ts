@@ -881,9 +881,9 @@ describe("refresh_order_statuses (013)", () => {
     return rows[0]?.status as string;
   }
 
-  it("OPERADOR grava o status derivado e a OF acompanha os itens", async () => {
+  it("OPERADOR_F1 grava o status derivado e a OF acompanha os itens", async () => {
     await asSuperUser(db);
-    const operadorId = await createUser(db, "op.refresh@serralheria.com", "OPERADOR");
+    const operadorId = await createUser(db, "op.refresh@serralheria.com", "OPERADOR_F1");
 
     const first = await itemRow("OF-001", "ITEM-001");
     const second = await itemRow("OF-001", "ITEM-002");
@@ -902,6 +902,33 @@ describe("refresh_order_statuses (013)", () => {
     // Conclui o último item: a OF vira CONCLUIDO (mesma precedência do serviço).
     await db.query("select public.refresh_order_statuses($1::uuid, 'CONCLUIDO')", [second.id]);
     expect(await orderStatus(first.order_id)).toBe("CONCLUIDO");
+
+    await asSuperUser(db);
+  });
+
+  it("OPERADOR_F2 (055) grava o status derivado pela mesma RPC", async () => {
+    await asSuperUser(db);
+    const f2Id = await createUser(db, "op2.refresh@serralheria.com", "OPERADOR_F2");
+
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-055-REFRESH', 'OF') returning id`,
+    );
+    const { rows: itemRows } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, description, quantity)
+       values ($1, 'Item 055', 1) returning id`,
+      [orderRows[0]?.id],
+    );
+
+    await asUser(db, "authenticated", f2Id);
+    await db.query("select public.refresh_order_statuses($1::uuid, 'EM_PRODUCAO')", [
+      itemRows[0]?.id,
+    ]);
+
+    const { rows: itemAfter } = await db.query<{ status: string }>(
+      `select status from public.order_items where id = $1`,
+      [itemRows[0]?.id],
+    );
+    expect(itemAfter[0]?.status).toBe("EM_PRODUCAO");
 
     await asSuperUser(db);
   });
@@ -1396,9 +1423,9 @@ describe("apply_of_import (016)", () => {
     await asUser(db, "anon", null);
     await expect(callApplyOfPlan(plan)).rejects.toThrow(/Sessão expirada/);
 
-    // OPERADOR executa a função, mas o RLS barra a escrita de pedidos/itens.
+    // OPERADOR_F1 executa a função, mas o RLS barra a escrita de pedidos/itens.
     await asSuperUser(db);
-    const operadorId = await createUser(db, "op.ofimport@serralheria.com", "OPERADOR");
+    const operadorId = await createUser(db, "op.ofimport@serralheria.com", "OPERADOR_F1");
     await asUser(db, "authenticated", operadorId);
     await expect(callApplyOfPlan(plan)).rejects.toThrow();
 

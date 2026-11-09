@@ -82,19 +82,29 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "romaneio.edit",
     "menu.romaneio",
   ],
-  // OPERADOR não vê a gestão de entregas (menu nem página): o trabalho dele
-  // entra pela Fábrica 1 → link da OF → folha do processo em /pedidos/[id].
-  // Romaneio: view sem menu (acesso pela URL, ex.: consulta na expedição).
-  OPERADOR: [
+  // OPERADOR_F1 (era OPERADOR): não vê a gestão de entregas (menu nem
+  // página) — o trabalho dele entra pela Fábrica 1 → link da OF → folha do
+  // processo em /pedidos/[id]. Romaneio: view sem menu (acesso pela URL,
+  // ex.: consulta na expedição).
+  OPERADOR_F1: [
     "production.update_status",
     "orders.view",
-    // 043: Dashboard (menu + página) e RH (grupo + item) são de ADMIN e OPERADOR.
+    // 043: Dashboard (menu + página) e RH (grupo + item) são de ADMIN e
+    // OPERADOR_F1.
     "menu.dashboard",
     "dashboard.view",
     "menu.rh",
     "rh.view",
     "menu.fabrica1",
     "romaneio.view",
+  ],
+  // 055: OPERADOR_F2 — acesso restrito à Fábrica 2 (menu + página +
+  // atualização de status na própria tela). Sem dashboard, RH, romaneio,
+  // gestão de OF ou Fábrica 1.
+  OPERADOR_F2: [
+    "menu.fabrica2",
+    "fabrica2.view",
+    "production.update_status",
   ],
   VISUALIZADOR: [
     "production.view",
@@ -116,11 +126,14 @@ export function capabilitiesFor(role: Role): readonly Capability[] {
 }
 
 /**
- * Página inicial por papel (pós-login e raiz "/"): quem não tem
- * `production.view` (OPERADOR) só enxerga a Fábrica 1 — cair fora
- * disso derrubaria a renderização no guard da página de gestão.
+ * Página inicial por papel (pós-login e raiz "/"):
+ * - ADMIN/GESTOR (com `production.view`) caem na Gestão de Entregas;
+ * - OPERADOR_F2 cai na Fábrica 2 (não tem `production.view`, senão o
+ *   guard de /fabrica-1 derrubaria a renderização);
+ * - OPERADOR_F1/VISUALIZADOR (sem `production.view`) caem na Fábrica 1.
  */
 export function homePathFor(role: Role | null | undefined): string {
+  if (role && can(role, "fabrica2.view") && !can(role, "production.view")) return "/fabrica-2";
   if (role && !can(role, "production.view")) return "/fabrica-1";
   return "/gestao-entregas";
 }

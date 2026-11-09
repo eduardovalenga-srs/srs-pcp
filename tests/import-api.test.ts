@@ -147,7 +147,7 @@ describe("POST /api/importacao — autenticação e entrada", () => {
   });
 
   it("responde 403 para perfil sem import.access", async () => {
-    sessionMock.user = { id: "op-1", role: "OPERADOR", name: "Operador" };
+    sessionMock.user = { id: "op-1", role: "OPERADOR_F1", name: "Operador" };
     const response = await postForm({ file: factoryFile(), step: "analyze" });
     expect(response.status).toBe(403);
     expect((await response.json()).error).toMatch(/não tem permissão/);
@@ -505,7 +505,7 @@ describe("GET /api/importacao/modelo", () => {
     const semSessao = await getModelo();
     expect(semSessao.status).toBe(401);
 
-    sessionMock.user = { id: "op-1", role: "OPERADOR", name: "Operador" };
+    sessionMock.user = { id: "op-1", role: "OPERADOR_F1", name: "Operador" };
     const semPermissao = await getModelo();
     expect(semPermissao.status).toBe(403);
   });

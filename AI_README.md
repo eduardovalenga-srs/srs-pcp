@@ -29,5 +29,11 @@
 - **Devolução de MP:** a **"Utilizada na produção" é DERIVADA** dos itens da carga (alocação proporcional da OF) e recalcula a cada tecla — é somente leitura no detalhe e na ficha. O único lançamento é a **"Recebida"**, na ficha de conferência, e ela **nunca fica abaixo da utilizada** (`received = max(gravado, utilizada)` no merge; saldo zera). O **Peso da carga** fecha com essa mesma utilizada (regra 5 acima).
 
 ## 🔐 Permissões (Roles)
-- Perfis: `ADMIN`, `GESTOR`, `OPERADOR`, `VISUALIZADOR`.
+- Perfis: `ADMIN`, `GESTOR`, `OPERADOR_F1`, `OPERADOR_F2`, `VISUALIZADOR`.
+  - **055:** o antigo `OPERADOR` virou dois papéis por fábrica — `OPERADOR_F1` é o
+    operador da Fábrica 1 (comportamento idêntico ao antigo `OPERADOR`; os usuários
+    existentes foram migrados para ele) e `OPERADOR_F2` é restrito à Fábrica 2
+    (menu + página + atualização de status; sem dashboard, RH, romaneio, gestão
+    de OF e sem a Fábrica 1). Home por papel: `homePathFor` manda F1/VISUALIZADOR
+    para `/fabrica-1` e F2 para `/fabrica-2`.
 - Regra rígida: Toda mutação precisa validar capacidades (`lib/auth/permissions.ts`) nas Server Actions antes de tocar no banco.

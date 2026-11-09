@@ -41,8 +41,12 @@ describe("página inicial por papel (homePathFor)", () => {
     expect(homePathFor("VISUALIZADOR")).toBe("/gestao-entregas");
   });
 
-  it("OPERADOR (sem production.view) entra pela Fábrica 1", () => {
-    expect(homePathFor("OPERADOR")).toBe("/fabrica-1");
+  it("OPERADOR_F1 (sem production.view) entra pela Fábrica 1", () => {
+    expect(homePathFor("OPERADOR_F1")).toBe("/fabrica-1");
+  });
+
+  it("OPERADOR_F2 (sem production.view) entra pela Fábrica 2", () => {
+    expect(homePathFor("OPERADOR_F2")).toBe("/fabrica-2");
   });
 
   it("sem papel definido usa o destino padrão", () => {
@@ -91,11 +95,11 @@ describe("matriz de permissões (item 40)", () => {
     for (const capability of denied) expect(can("GESTOR", capability), capability).toBe(false);
   });
 
-  it("OPERADOR atualiza status pela Fábrica 1, sem gestão de entregas nem edições", () => {
+  it("OPERADOR_F1 atualiza status pela Fábrica 1, sem gestão de entregas nem edições", () => {
     const allowed: Capability[] = [
       "production.update_status",
       "orders.view",
-      // 043: Dashboard (menu + página) e RH (grupo + item) são de ADMIN e OPERADOR.
+      // 043: Dashboard (menu + página) e RH (grupo + item) são de ADMIN e operadores.
       "menu.dashboard",
       "dashboard.view",
       "menu.rh",
@@ -121,12 +125,44 @@ describe("matriz de permissões (item 40)", () => {
       "menu.fabrica2",
       "romaneio.edit",
       "menu.romaneio",
-      // 043: RH agora é de ADMIN e OPERADOR (grupo + item).
+      // 043: RH agora é de ADMIN e operadores (grupo + item).
       "rh.manage",
     ];
 
-    for (const capability of allowed) expect(can("OPERADOR", capability), capability).toBe(true);
-    for (const capability of denied) expect(can("OPERADOR", capability), capability).toBe(false);
+    for (const capability of allowed) expect(can("OPERADOR_F1", capability), capability).toBe(true);
+    for (const capability of denied) expect(can("OPERADOR_F1", capability), capability).toBe(false);
+  });
+
+  it("OPERADOR_F2 (055) é restrito à Fábrica 2: menu, página e status", () => {
+    const allowed: Capability[] = ["menu.fabrica2", "fabrica2.view", "production.update_status"];
+    const denied: Capability[] = [
+      "production.view",
+      "production.edit",
+      "production.view_history",
+      "orders.view",
+      "orders.create",
+      "orders.edit",
+      "orders.delete",
+      "dashboard.view",
+      "menu.dashboard",
+      "import.access",
+      "processes.view",
+      "processes.manage",
+      "settings.manage",
+      "users.manage",
+      "romaneio.view",
+      "romaneio.edit",
+      "menu.gestao",
+      "menu.fabrica1",
+      "menu.romaneio",
+      "menu.processes",
+      "menu.rh",
+      "rh.view",
+      "rh.manage",
+    ];
+
+    for (const capability of allowed) expect(can("OPERADOR_F2", capability), capability).toBe(true);
+    for (const capability of denied) expect(can("OPERADOR_F2", capability), capability).toBe(false);
   });
 
   it("VISUALIZADOR é somente leitura", () => {
@@ -164,69 +200,86 @@ describe("matriz de permissões (item 40)", () => {
     for (const capability of denied) expect(can("VISUALIZADOR", capability), capability).toBe(false);
   });
 
-  it("menus por perfil: OPERADOR vê Fábrica 1, Dashboard e RH", () => {
-    // Gestão de Entregas: ADMIN, GESTOR e VISUALIZADOR — o OPERADOR não.
+  it("menus por perfil: OPERADOR_F1 vê Fábrica 1, Dashboard e RH; OPERADOR_F2 só a Fábrica 2", () => {
+    // Gestão de Entregas: ADMIN, GESTOR e VISUALIZADOR — nenhum operador.
     expect(can("ADMIN", "menu.gestao")).toBe(true);
     expect(can("GESTOR", "menu.gestao")).toBe(true);
     expect(can("VISUALIZADOR", "menu.gestao")).toBe(true);
-    expect(can("OPERADOR", "menu.gestao")).toBe(false);
+    expect(can("OPERADOR_F1", "menu.gestao")).toBe(false);
+    expect(can("OPERADOR_F2", "menu.gestao")).toBe(false);
 
     // Configurações é exclusivo do ADMIN (nem GESTOR tem o botão).
     expect(can("ADMIN", "menu.settings")).toBe(true);
     expect(can("GESTOR", "menu.settings")).toBe(false);
-    expect(can("OPERADOR", "menu.settings")).toBe(false);
+    expect(can("OPERADOR_F1", "menu.settings")).toBe(false);
+    expect(can("OPERADOR_F2", "menu.settings")).toBe(false);
     expect(can("VISUALIZADOR", "menu.settings")).toBe(false);
 
-    // Dashboard: ADMIN e OPERADOR — fora do menu de Gestão de OF; menu e página
-    // (dashboard.view) são exclusivos de operador e admin.
+    // Dashboard: ADMIN e OPERADOR_F1 — fora do menu de Gestão de OF; menu e
+    // página (dashboard.view) são exclusivos deles (OPERADOR_F2 não tem).
     expect(can("ADMIN", "menu.dashboard")).toBe(true);
-    expect(can("OPERADOR", "menu.dashboard")).toBe(true);
+    expect(can("OPERADOR_F1", "menu.dashboard")).toBe(true);
+    expect(can("OPERADOR_F2", "menu.dashboard")).toBe(false);
     expect(can("GESTOR", "menu.dashboard")).toBe(false);
     expect(can("VISUALIZADOR", "menu.dashboard")).toBe(false);
     expect(can("ADMIN", "dashboard.view")).toBe(true);
-    expect(can("OPERADOR", "dashboard.view")).toBe(true);
+    expect(can("OPERADOR_F1", "dashboard.view")).toBe(true);
+    expect(can("OPERADOR_F2", "dashboard.view")).toBe(false);
     expect(can("GESTOR", "dashboard.view")).toBe(false);
 
     // Processos: ADMIN e GESTOR apenas.
     for (const capability of ["menu.processes"] as const) {
       expect(can("GESTOR", capability), capability).toBe(true);
-      expect(can("OPERADOR", capability), capability).toBe(false);
+      expect(can("OPERADOR_F1", capability), capability).toBe(false);
+      expect(can("OPERADOR_F2", capability), capability).toBe(false);
       expect(can("VISUALIZADOR", capability), capability).toBe(false);
     }
 
-    // Fábrica 1 (lista de itens filhos/materiais) é leitura — todos os perfis.
+    // Fábrica 1 (lista de itens filhos/materiais) é leitura — todos os
+    // perfis menos o OPERADOR_F2 (055).
     expect(can("GESTOR", "menu.fabrica1")).toBe(true);
-    expect(can("OPERADOR", "menu.fabrica1")).toBe(true);
+    expect(can("OPERADOR_F1", "menu.fabrica1")).toBe(true);
+    expect(can("OPERADOR_F2", "menu.fabrica1")).toBe(false);
     expect(can("VISUALIZADOR", "menu.fabrica1")).toBe(true);
 
-    // Fábrica 2 (réplica da gestão) é exclusiva de ADMIN/GESTOR — menu e página.
+    // Fábrica 2 (réplica da gestão): ADMIN, GESTOR e OPERADOR_F2 (055) —
+    // menu e página; OPERADOR_F1/VISUALIZADOR ficam de fora.
     expect(can("ADMIN", "menu.fabrica2")).toBe(true);
     expect(can("GESTOR", "menu.fabrica2")).toBe(true);
-    expect(can("OPERADOR", "menu.fabrica2")).toBe(false);
+    expect(can("OPERADOR_F2", "menu.fabrica2")).toBe(true);
+    expect(can("OPERADOR_F1", "menu.fabrica2")).toBe(false);
     expect(can("VISUALIZADOR", "menu.fabrica2")).toBe(false);
     expect(can("ADMIN", "fabrica2.view")).toBe(true);
     expect(can("GESTOR", "fabrica2.view")).toBe(true);
-    expect(can("OPERADOR", "fabrica2.view")).toBe(false);
+    expect(can("OPERADOR_F2", "fabrica2.view")).toBe(true);
+    expect(can("OPERADOR_F1", "fabrica2.view")).toBe(false);
     expect(can("VISUALIZADOR", "fabrica2.view")).toBe(false);
 
     // Romaneio (expedição): ADMIN/GESTOR criam e confirmam; VISUALIZADOR
-    // consulta pelo menu; OPERADOR só pela URL (view sem menu).
+    // consulta pelo menu; OPERADOR_F1 só pela URL (view sem menu);
+    // OPERADOR_F2 não acessa.
     expect(can("ADMIN", "menu.romaneio")).toBe(true);
     expect(can("GESTOR", "menu.romaneio")).toBe(true);
     expect(can("VISUALIZADOR", "menu.romaneio")).toBe(true);
-    expect(can("OPERADOR", "menu.romaneio")).toBe(false);
+    expect(can("OPERADOR_F1", "menu.romaneio")).toBe(false);
+    expect(can("OPERADOR_F2", "menu.romaneio")).toBe(false);
     expect(can("ADMIN", "romaneio.edit")).toBe(true);
     expect(can("GESTOR", "romaneio.edit")).toBe(true);
     expect(can("VISUALIZADOR", "romaneio.edit")).toBe(false);
-    expect(can("OPERADOR", "romaneio.edit")).toBe(false);
+    expect(can("OPERADOR_F1", "romaneio.edit")).toBe(false);
+    expect(can("OPERADOR_F2", "romaneio.edit")).toBe(false);
+    expect(can("OPERADOR_F1", "romaneio.view")).toBe(true);
+    expect(can("OPERADOR_F2", "romaneio.view")).toBe(false);
 
-    // 043: RH (grupo + item) é de ADMIN e OPERADOR; o cadastro é do ADMIN.
+    // 043: RH (grupo + item) é de ADMIN e OPERADOR_F1; o cadastro é do ADMIN.
     expect(can("ADMIN", "menu.rh")).toBe(true);
-    expect(can("OPERADOR", "menu.rh")).toBe(true);
+    expect(can("OPERADOR_F1", "menu.rh")).toBe(true);
+    expect(can("OPERADOR_F2", "menu.rh")).toBe(false);
     expect(can("GESTOR", "menu.rh")).toBe(false);
     expect(can("VISUALIZADOR", "menu.rh")).toBe(false);
     expect(can("ADMIN", "rh.view")).toBe(true);
-    expect(can("OPERADOR", "rh.view")).toBe(true);
+    expect(can("OPERADOR_F1", "rh.view")).toBe(true);
+    expect(can("OPERADOR_F2", "rh.view")).toBe(false);
     expect(can("GESTOR", "rh.view")).toBe(false);
     expect(can("VISUALIZADOR", "rh.view")).toBe(false);
     expect(can("ADMIN", "rh.manage")).toBe(true);

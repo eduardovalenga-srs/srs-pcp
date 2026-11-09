@@ -62,7 +62,8 @@ export async function loginAction(_previousState: AuthFormState, formData: FormD
       };
     }
 
-    // Destino por papel: OPERADOR (sem production.view) vai à Fábrica 1.
+    // Destino por papel: OPERADOR_F1/VISUALIZADOR (sem production.view)
+    // vão à Fábrica 1; OPERADOR_F2 vai à Fábrica 2 (ver homePathFor).
     homePath = homePathFor(profile?.role ?? null);
   }
 

@@ -39,14 +39,14 @@ export function CreateUserDialog() {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Role>("OPERADOR");
+  const [role, setRole] = useState<Role>("OPERADOR_F1");
   const [created, setCreated] = useState<CreatedAccount | null>(null);
   const [copied, setCopied] = useState(false);
 
   const reset = () => {
     setName("");
     setEmail("");
-    setRole("OPERADOR");
+    setRole("OPERADOR_F1");
     setCreated(null);
     setCopied(false);
   };

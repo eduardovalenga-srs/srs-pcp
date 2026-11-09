@@ -88,7 +88,7 @@ export async function asSuperUser(db: PGlite): Promise<void> {
 export async function createUser(
   db: PGlite,
   email: string,
-  role?: "ADMIN" | "GESTOR" | "OPERADOR" | "VISUALIZADOR",
+  role?: "ADMIN" | "GESTOR" | "OPERADOR_F1" | "OPERADOR_F2" | "VISUALIZADOR",
 ): Promise<string> {
   const { rows } = await db.query<{ id: string }>(
     `insert into auth.users (id, email, raw_user_meta_data)

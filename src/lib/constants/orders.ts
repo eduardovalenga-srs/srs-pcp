@@ -11,13 +11,20 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   CANCELADO: "Cancelado",
 };
 
-/** Roles do sistema (tabela profiles.role). */
-export const ROLES = ["ADMIN", "GESTOR", "OPERADOR", "VISUALIZADOR"] as const;
+/**
+ * Roles do sistema (tabela profiles.role).
+ *
+ * 055: o antigo OPERADOR virou dois papéis específicos por fábrica —
+ * OPERADOR_F1 (Fábrica 1, comportamento idêntico ao antigo OPERADOR) e
+ * OPERADOR_F2 (somente Fábrica 2).
+ */
+export const ROLES = ["ADMIN", "GESTOR", "OPERADOR_F1", "OPERADOR_F2", "VISUALIZADOR"] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_LABELS: Record<Role, string> = {
   ADMIN: "Administrador",
   GESTOR: "Gestor",
-  OPERADOR: "Operador",
+  OPERADOR_F1: "Operador Fábrica 1",
+  OPERADOR_F2: "Operador Fábrica 2",
   VISUALIZADOR: "Visualizador",
 };

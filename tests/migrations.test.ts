@@ -143,7 +143,7 @@ describe("migrations", () => {
       "select role, email from public.profiles where id = $1",
       [userId],
     );
-    expect(rows[0]?.role).toBe("OPERADOR");
+    expect(rows[0]?.role).toBe("OPERADOR_F1");
     expect(rows[0]?.email).toBe("operador@serralheria.com");
   });
 
@@ -512,7 +512,7 @@ describe("migrations", () => {
     await asSuperUser(db);
   });
 
-  it("RLS 011: GESTOR grava; OPERADOR, VISUALIZADOR e anon não", async () => {
+  it("RLS 011: GESTOR grava; OPERADOR_F1, VISUALIZADOR e anon não", async () => {
     await asSuperUser(db);
 
     const { rows: order } = await db.query<{ id: string }>(
@@ -536,8 +536,8 @@ describe("migrations", () => {
     expect(Number(ok[0]?.created)).toBe(1);
     await asSuperUser(db);
 
-    // OPERADOR não edita pedidos (falha no delete da substituição).
-    const operadorId = await createUser(db, "operador-mat@serralheria.com", "OPERADOR");
+    // OPERADOR_F1 não edita pedidos (falha no delete da substituição).
+    const operadorId = await createUser(db, "operador-mat@serralheria.com", "OPERADOR_F1");
     await asUser(db, "authenticated", operadorId);
     await expect(
       db.query(`select public.replace_item_materials($1, $2::jsonb)`, [itemId, payload]),
@@ -2039,8 +2039,8 @@ describe("RLS", () => {
     await asSuperUser(db);
   });
 
-  it("OPERADOR não insere pedidos (42501)", async () => {
-    const operador = await createUser(db, "op2@serralheria.com", "OPERADOR");
+  it("OPERADOR_F1 não insere pedidos (42501)", async () => {
+    const operador = await createUser(db, "op2@serralheria.com", "OPERADOR_F1");
     await asUser(db, "authenticated", operador);
     await expect(
       db.query(`insert into public.orders (code, type) values ('OF-RLS-1', 'OF')`),
@@ -2112,13 +2112,71 @@ describe("RLS", () => {
     expect(result.affectedRows).toBe(0);
     await asSuperUser(db);
   });
+
+  it("055: perfis por fábrica — CHECK com os 5 valores e escrita de produção do OPERADOR_F2", async () => {
+    await asSuperUser(db);
+
+    const f1 = await createUser(db, "op-f1@serralheria.com", "OPERADOR_F1");
+    const f2 = await createUser(db, "op-f2@serralheria.com", "OPERADOR_F2");
+
+    // O valor antigo 'OPERADOR' deixou de existir na constraint (055).
+    await expect(
+      db.query(`update public.profiles set role = 'OPERADOR' where id = $1`, [f2]),
+    ).rejects.toThrow();
+    const { rows: roleAfter } = await db.query<{ role: string }>(
+      `select role from public.profiles where id = $1`,
+      [f2],
+    );
+    expect(roleAfter[0]?.role).toBe("OPERADOR_F2");
+
+    // OPERADOR_F2 escreve em production_processes/production_events (RLS 055).
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-055-RLS', 'OF') returning id`,
+    );
+    const { rows: itemRows } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, description, quantity)
+       values ($1, 'Item 055', 1) returning id`,
+      [orderRows[0]?.id],
+    );
+    const { rows: processRows } = await db.query<{ id: string }>(
+      `insert into public.processes (code, name, display_order)
+       values ('PROC055', 'PROC055', 998) returning id`,
+    );
+    const { rows: ppRows } = await db.query<{ id: string }>(
+      `insert into public.production_processes (order_item_id, process_id, status)
+       values ($1, $2, 'NAO_INICIADO') returning id`,
+      [itemRows[0]?.id, processRows[0]?.id],
+    );
+
+    await asUser(db, "authenticated", f2);
+    const updated = await db.query(
+      `update public.production_processes set status = 'CONCLUIDO' where id = $1`,
+      [ppRows[0]?.id],
+    );
+    expect(updated.affectedRows).toBe(1);
+    await db.query(
+      `insert into public.production_events (production_process_id, user_id, event_type, new_status)
+       values ($1, $2, 'STATUS', 'CONCLUIDO')`,
+      [ppRows[0]?.id, f2],
+    );
+    await asSuperUser(db);
+
+    // OPERADOR_F1 mantém os mesmos direitos de escrita de produção.
+    await asUser(db, "authenticated", f1);
+    const updatedF1 = await db.query(
+      `update public.production_processes set status = 'NAO_APLICAVEL' where id = $1`,
+      [ppRows[0]?.id],
+    );
+    expect(updatedF1.affectedRows).toBe(1);
+    await asSuperUser(db);
+  });
 });
 
 describe("claim_first_admin", () => {
   it("promove o primeiro usuário quando não há administrador", async () => {
     // garante cenário: nenhum ADMIN existente
     await asSuperUser(db);
-    await db.query(`update public.profiles set role = 'OPERADOR' where role = 'ADMIN'`);
+    await db.query(`update public.profiles set role = 'OPERADOR_F1' where role = 'ADMIN'`);
 
     const uid = await createUser(db, "primeiro@serralheria.com");
     await asUser(db, "authenticated", uid);

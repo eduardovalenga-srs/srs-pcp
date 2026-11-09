@@ -13,7 +13,7 @@ interface AppErrorProps {
 /**
  * Fronteira de erro do App Router: sem ela, exceções de guard (permissão,
  * sessão) em produção viravam página branca sem mensagem (caso do
- * OPERADOR caindo em /gestao-entregas antes do redirect por papel).
+ * OPERADOR_F1 caindo em /gestao-entregas antes do redirect por papel).
  */
 export default function AppError({ error, reset }: AppErrorProps) {
   useEffect(() => {

@@ -232,7 +232,7 @@ beforeAll(async () => {
 
   await asSuperUser(db);
   gestorId = await createUser(db, "gestor.romaneio@serralheria.com", "GESTOR");
-  operadorId = await createUser(db, "operador.romaneio@serralheria.com", "OPERADOR");
+  operadorId = await createUser(db, "operador.romaneio@serralheria.com", "OPERADOR_F1");
 
   orderR1 = await createOrder("OF-R01");
   rootA = await createRootItem(
@@ -727,7 +727,7 @@ describe("RPC save_romaneio (042/045/046)", () => {
     expect(materials).toHaveLength(0);
   });
 
-  it("recusa edição de OPERADOR (RLS escreve só ADMIN/GESTOR)", async () => {
+  it("recusa edição de OPERADOR_F1 (RLS escreve só ADMIN/GESTOR)", async () => {
     await asUser(db, "authenticated", operadorId);
 
     await expect(
@@ -959,7 +959,7 @@ describe("RPC save_romaneio_conference (048) — ficha como formulário", () => 
     expect(old[0]!.fn).toBeNull();
   });
 
-  it("recusa a conferência de OPERADOR (RLS escreve só ADMIN/GESTOR)", async () => {
+  it("recusa a conferência de OPERADOR_F1 (RLS escreve só ADMIN/GESTOR)", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const orderR8 = await createOrder("OF-R08");

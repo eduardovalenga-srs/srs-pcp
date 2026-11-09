@@ -29,14 +29,14 @@ describe("createUserSchema", () => {
 
   it("recusa e-mail, perfil e nome inválidos", () => {
     expect(
-      createUserSchema.safeParse({ name: "Ana", email: "email-invalido", role: "OPERADOR" })
+      createUserSchema.safeParse({ name: "Ana", email: "email-invalido", role: "OPERADOR_F1" })
         .success,
     ).toBe(false);
     expect(
       createUserSchema.safeParse({ name: "Ana", email: "ana@x.com", role: "SUPER" }).success,
     ).toBe(false);
     expect(
-      createUserSchema.safeParse({ name: "   ", email: "ana@x.com", role: "OPERADOR" }).success,
+      createUserSchema.safeParse({ name: "   ", email: "ana@x.com", role: "OPERADOR_F1" }).success,
     ).toBe(false);
   });
 });
@@ -101,7 +101,7 @@ describe("validateRoleChange", () => {
       validateRoleChange({
         ...base,
         currentRole: "GESTOR",
-        newRole: "OPERADOR",
+        newRole: "OPERADOR_F1",
         otherActiveAdmins: 0,
       }),
     ).toBeNull();
@@ -115,7 +115,7 @@ describe("validateActivation", () => {
   const base = {
     sessionUserId: "sess-1",
     targetId: "alvo-1",
-    targetRole: "OPERADOR" as const,
+    targetRole: "OPERADOR_F1" as const,
     active: false,
     otherActiveAdmins: 0,
   };
@@ -171,11 +171,12 @@ describe("permissions (users.manage + settings.manage)", () => {
   it("somente ADMIN gerencia usuários e abre configurações", () => {
     expect(can("ADMIN", "users.manage")).toBe(true);
     expect(can("GESTOR", "users.manage")).toBe(false);
-    expect(can("OPERADOR", "users.manage")).toBe(false);
+    expect(can("OPERADOR_F1", "users.manage")).toBe(false);
+    expect(can("OPERADOR_F2", "users.manage")).toBe(false);
     expect(can("VISUALIZADOR", "users.manage")).toBe(false);
 
     expect(can("ADMIN", "settings.manage")).toBe(true);
     expect(can("GESTOR", "settings.manage")).toBe(false);
-    expect(can("OPERADOR", "settings.manage")).toBe(false);
+    expect(can("OPERADOR_F1", "settings.manage")).toBe(false);
   });
 });

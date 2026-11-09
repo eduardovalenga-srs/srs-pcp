@@ -9,7 +9,7 @@
  *   com embutimento (ex.: order_items dentro de orders).
  */
 
-export type RoleValue = "ADMIN" | "GESTOR" | "OPERADOR" | "VISUALIZADOR";
+export type RoleValue = "ADMIN" | "GESTOR" | "OPERADOR_F1" | "OPERADOR_F2" | "VISUALIZADOR";
 export type OrderTypeValue = "OF" | "OS";
 export type OrderStatusValue = "PLANEJADO" | "EM_PRODUCAO" | "CONCLUIDO" | "CANCELADO";
 export type ProcessStatusValue =

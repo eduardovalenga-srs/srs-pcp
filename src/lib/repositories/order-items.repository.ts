@@ -170,8 +170,9 @@ export async function getOrderItemWithProcesses(
 /**
  * Grava o status DERIVADO do item e re-deriva o status da OF (RPC 013).
  *
- * A RPC é SECURITY DEFINER com checagem de papel: o OPERADOR tem
- * production.update_status mas a RLS de order_items/orders é ADMIN/GESTOR.
+ * A RPC é SECURITY DEFINER com checagem de papel: os operadores
+ * (F1/F2) têm production.update_status mas a RLS de order_items/orders
+ * é ADMIN/GESTOR.
  */
 export async function refreshOrderStatuses(
   client: SupabaseServer,

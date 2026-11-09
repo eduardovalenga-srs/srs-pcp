@@ -143,14 +143,24 @@ describe("loginAction (regressão do loop /login ↔ painel)", () => {
     expect(mocks.signOut).not.toHaveBeenCalled();
   });
 
-  it("OPERADOR (sem production.view) vai para /fabrica-1", async () => {
+  it("OPERADOR_F1 (sem production.view) vai para /fabrica-1", async () => {
     mocks.signInWithPassword.mockResolvedValue({ error: null });
     mocks.getUser.mockResolvedValue({ data: { user: AUTH_USER }, error: null });
-    mocks.maybeSingle.mockResolvedValue({ data: profile({ role: "OPERADOR" }), error: null });
+    mocks.maybeSingle.mockResolvedValue({ data: profile({ role: "OPERADOR_F1" }), error: null });
 
     await loginAction({ error: null }, loginFormData());
 
     expect(mocks.redirect).toHaveBeenCalledWith("/fabrica-1");
+  });
+
+  it("OPERADOR_F2 (055) vai para /fabrica-2", async () => {
+    mocks.signInWithPassword.mockResolvedValue({ error: null });
+    mocks.getUser.mockResolvedValue({ data: { user: AUTH_USER }, error: null });
+    mocks.maybeSingle.mockResolvedValue({ data: profile({ role: "OPERADOR_F2" }), error: null });
+
+    await loginAction({ error: null }, loginFormData());
+
+    expect(mocks.redirect).toHaveBeenCalledWith("/fabrica-2");
   });
 
   it("SEM PERFIL: derruba a sessão recém-criada e avisa (bug do loop)", async () => {

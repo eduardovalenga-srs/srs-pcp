@@ -5,10 +5,13 @@
 --
 --   psql "$SUPABASE_DB_URL" -f supabase/clear_data.sql
 --
--- APAGA (irreversível):
+-- APAGA (irreversível) — 10 tabelas, tudo em cascade:
 --   orders -> order_items -> order_item_materials
---          -> production_processes -> production_events   (tudo em cascade)
+--          -> production_processes -> production_events
+--          -> romaneios -> romaneio_items, romaneio_materials
 --   import_batches -> import_errors (histórico de importação)
+--
+-- ZERA a numeração de romaneios (identity restart: próximo = 1).
 --
 -- PRESERVA:
 --   profiles (usuários), processes (catálogo da cadeia fabril),
@@ -24,21 +27,24 @@ begin;
 -- Contagem visível antes da limpeza (aparece no SQL Editor/psql).
 do $$
 declare
-  v_orders  integer;
-  v_items   integer;
-  v_batches integer;
+  v_orders     integer;
+  v_items      integer;
+  v_romaneios  integer;
+  v_batches    integer;
 begin
-  select count(*) into v_orders  from public.orders;
-  select count(*) into v_items   from public.order_items;
-  select count(*) into v_batches from public.import_batches;
+  select count(*) into v_orders    from public.orders;
+  select count(*) into v_items     from public.order_items;
+  select count(*) into v_romaneios from public.romaneios;
+  select count(*) into v_batches   from public.import_batches;
 
-  raise notice 'clear_data: % pedido(s), % item(ns) filho(s), % lote(s) de importação serão apagados',
-    v_orders, v_items, v_batches;
+  raise notice 'clear_data: % pedido(s), % item(ns) filho(s), % romaneio(s), % lote(s) de importação serão apagados',
+    v_orders, v_items, v_romaneios, v_batches;
 end $$;
 
--- Movimento de produção e entregas (cascade cobre itens, materiais,
--- processos de produção e eventos).
-truncate public.orders cascade;
+-- Movimento de produção, expedição e entregas (cascade cobre itens,
+-- materiais, processos de produção, eventos e romaneios). O
+-- RESTART IDENTITY zera a numeração de romaneios (próximo = 1).
+truncate public.orders restart identity cascade;
 
 -- Histórico de importação (cascade cobre os erros por linha).
 truncate public.import_batches cascade;

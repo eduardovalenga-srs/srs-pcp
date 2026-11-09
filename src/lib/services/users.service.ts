@@ -132,7 +132,7 @@ export interface CreateTempPasswordResult {
 /**
  * Cria a conta no Supabase Auth com senha temporária confirmada e
  * aplica o perfil escolhido + `must_change_password` (o trigger
- * `handle_new_user` nasce o profile como OPERADOR).
+ * `handle_new_user` nasce o profile como OPERADOR_F1 — 055).
  */
 export async function createTempPasswordUser(
   client: SupabaseServer,

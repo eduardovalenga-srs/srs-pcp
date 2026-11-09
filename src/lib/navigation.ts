@@ -108,7 +108,7 @@ export const NAV_ENTRIES: NavEntry[] = [
  * Entradas visíveis para o papel.
  *
  * Regras: o item some sem a sua capability; o GRUPO some quando a sua
- * capability nega (ex.: RH para OPERADOR) ou quando nenhum item sobra —
+ * capability nega (ex.: RH para OPERADOR_F2) ou quando nenhum item sobra —
  * assim um módulo sem permissão nunca deixa um grupo vazio na tela.
  */
 export function visibleEntries(role: Role | null | undefined): NavEntry[] {

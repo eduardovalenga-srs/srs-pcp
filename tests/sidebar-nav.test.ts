@@ -115,18 +115,30 @@ describe("AppSidebar (menu lateral, 043)", () => {
 });
 
 describe("filtragem por papel (capabilities da sidebar)", () => {
-  it("OPERADOR vê Fábrica 1, Dashboard e RH — sem gestão de entregas nem edições", () => {
-    const markup = renderSidebar("OPERADOR");
+  it("OPERADOR_F1 vê Fábrica 1, Dashboard e RH — sem gestão de entregas nem edições", () => {
+    const markup = renderSidebar("OPERADOR_F1");
 
     expect(markup).toContain('href="/fabrica-1"');
     expect(markup).not.toContain('href="/gestao-entregas"');
     expect(markup).not.toContain('href="/fabrica-2"');
     expect(markup).not.toContain('href="/romaneio"');
     expect(markup).not.toContain('href="/processos"');
-    // 043: Dashboard virou entrada de primeiro nível e o OPERADOR a vê.
+    // 043: Dashboard virou entrada de primeiro nível e o OPERADOR_F1 a vê.
     expect(markup).toContain('href="/dashboard"');
-    // 043: RH passa a ser de ADMIN e OPERADOR.
+    // 043: RH passa a ser de ADMIN e operadores (F1).
     expect(markup).toContain('href="/rh/funcionarios"');
+  });
+
+  it("OPERADOR_F2 (055) vê somente a Fábrica 2", () => {
+    const markup = renderSidebar("OPERADOR_F2");
+
+    expect(markup).toContain('href="/fabrica-2"');
+    expect(markup).not.toContain('href="/fabrica-1"');
+    expect(markup).not.toContain('href="/gestao-entregas"');
+    expect(markup).not.toContain('href="/romaneio"');
+    expect(markup).not.toContain('href="/processos"');
+    expect(markup).not.toContain('href="/dashboard"');
+    expect(markup).not.toContain('href="/rh/funcionarios"');
   });
 
   it("VISUALIZADOR vê Gestão de OF, Fábrica 1 e Romaneio — sem RH", () => {
@@ -141,8 +153,8 @@ describe("filtragem por papel (capabilities da sidebar)", () => {
     expect(markup).not.toContain('href="/rh/funcionarios"');
   });
 
-  it("ADMIN e OPERADOR veem o grupo RH", () => {
-    for (const role of ["ADMIN", "OPERADOR"] as const) {
+  it("ADMIN e OPERADOR_F1 veem o grupo RH", () => {
+    for (const role of ["ADMIN", "OPERADOR_F1"] as const) {
       const markup = renderSidebar(role);
       expect(markup, `grupo RH para ${role}`).toContain('href="/rh/funcionarios"');
     }
@@ -190,7 +202,7 @@ describe("helpers de navegação", () => {
   });
 
   it("visibleEntries nunca devolve grupo sem itens", () => {
-    for (const role of ["ADMIN", "GESTOR", "OPERADOR", "VISUALIZADOR"] as const) {
+    for (const role of ["ADMIN", "GESTOR", "OPERADOR_F1", "OPERADOR_F2", "VISUALIZADOR"] as const) {
       const entries = visibleEntries(role);
       for (const entry of entries) {
         expect(entry.type === "group" ? entry.items.length > 0 : true, `${role} → ${entry.type}`).toBe(true);

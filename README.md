@@ -287,7 +287,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   produção; senão Em espera) e `CANCELADO` nunca é sobrescrito pela derivação. Na
   gestão, o recálculo passa pela RPC `refresh_order_statuses` (SECURITY DEFINER com
   checagem de papel) porque a RLS de `orders`/`order_items` é só ADMIN/GESTOR, enquanto
-  o OPERADOR tem `production.update_status`. **Sem backfill**: as OFs existentes ficam
+  o OPERADOR tem `production.update_status` (055: hoje, os operadores F1/F2). **Sem backfill**: as OFs existentes ficam
   com a OP em branco até o código ser preenchido. A numeração/gestão das OPs (módulo
   completo, estados finais e eventos dedicados) fica para a fase 2 — a planilha de
   importação também não tem coluna de OP (item importado nasce sem OP).
@@ -512,8 +512,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   Fábrica 2 mantém `get_production_rows` (via `getProductionPage`, uma linha por item pai) — as duas RPCs
   coexistem Diferenças
   em relação ao original: **cabeçalho sem botões** (sem "Novo pedido" nem "Importar Excel")
-  e acesso restrito a **ADMIN/GESTOR** (`menu.fabrica2` no item de menu, `fabrica2.view`
-  no guard da página — VISUALIZADOR e OPERADOR caem em "Acesso negado" mesmo por URL).
+  e acesso restrito a **ADMIN/GESTOR/OPERADOR_F2** (`menu.fabrica2` no item de menu,
+  `fabrica2.view` no guard da página — VISUALIZADOR e OPERADOR_F1 caem em "Acesso negado"
+  mesmo por URL).
   Os três cards (038) são só números — a lista **Famílias** saiu dos cards das
   três telas; os chips clicáveis continuam aplicando os mesmos filtros. **Desde a 041**
   os cards **Atrasados** e **Expedição** são calculados sobre o **conjunto filtrado**,
@@ -806,7 +807,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   serviço → RPCs transacionais `save_romaneio` / `save_romaneio_conference` /
   `confirm_romaneio` / `delete_romaneio` / `cancel_romaneio` (plpgsql `security invoker`,
   mesmas portas de escrita do padrão `replace_item_materials`/`apply_of_import`); gravação
-  direta de NF por UPDATE no repositório. RLS ADMIN/GESTOR para escrita (OPERADOR só lê).
+  direta de NF por UPDATE no repositório. RLS ADMIN/GESTOR para escrita (operadores só leem).
 - **Filtros em TODAS as colunas** (047 + 049): a lista `/romaneio` filtra por **busca genérica**
   (nº, OF/OS ou cliente), **Situação** (coluna própria com funil + ordenação), **uma coluna
   de processo da Fábrica 2 por vez** (049 — par `processo`+`procsituacao` na URL; `situacao`
@@ -847,15 +848,17 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
 
 ## Gestão de usuários
 
-- **Perfis** (4, inalterados): `ADMIN`, `GESTOR`, `OPERADOR`, `VISUALIZADOR` — o que cada
-  um vê/edita está em `lib/auth/permissions.ts`; `users.manage` (criar, ativar/desativar,
-  trocar perfil, gerar link) é exclusivo de `ADMIN`. **Menus por perfil** (capacidades
-  `menu.*`): ADMIN vê tudo; GESTOR vê tudo **menos Configurações**; VISUALIZADOR vê
-  **Gestão de OF, Fábrica 1 e Romaneio**; OPERADOR vê **apenas a Fábrica 1** (`menu.gestao`
-  fica com ADMIN/GESTOR/VISUALIZADOR — o OPERADOR não vê o menu **nem entra por URL** na
-  gestão, que segue guardada por `production.view`; a atualização de status dele acontece
-  pela folha do processo em `/pedidos/[id]`, alcançável pelo link da OF na Fábrica 1).
-  **Fábrica 2** (`/fabrica-2`) fica com **ADMIN e GESTOR apenas** — item de menu
+- **Perfis** (5, desde a 055): `ADMIN`, `GESTOR`, `OPERADOR_F1`, `OPERADOR_F2`,
+  `VISUALIZADOR` — o que cada um vê/edita está em `lib/auth/permissions.ts`;
+  `users.manage` (criar, ativar/desativar, trocar perfil, gerar link) é exclusivo de
+  `ADMIN`. **Menus por perfil** (capacidades `menu.*`): ADMIN vê tudo; GESTOR vê tudo
+  **menos Configurações**; VISUALIZADOR vê **Gestão de OF, Fábrica 1 e Romaneio**;
+  OPERADOR_F1 vê **apenas a Fábrica 1** (`menu.gestao` fica com ADMIN/GESTOR/VISUALIZADOR
+  — o operador não vê o menu **nem entra por URL** na gestão, que segue guardada por
+  `production.view`; a atualização de status dele acontece pela folha do processo em
+  `/pedidos/[id]`, alcançável pelo link da OF na Fábrica 1); OPERADOR_F2 vê **apenas a
+  Fábrica 2** (mesmo corte por URL, sem dashboard/RH/romaneio). **Fábrica 2**
+  (`/fabrica-2`) fica com **ADMIN, GESTOR e OPERADOR_F2** — item de menu
   (`menu.fabrica2`) e página (`fabrica2.view`) negados aos demais. Dashboard, Processos e
   Configurações negam acesso direto por URL aos demais perfis; a **Importação não é mais
   item de menu** — o acesso ao assistente `/importacao` é pelo botão "Importar Excel" do
@@ -863,7 +866,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   na barra) reúne perfil, alterar senha, configurações (só ADMIN) e sair.
   **Romaneio** (`/romaneio`, capacidades `romaneio.view`/`romaneio.edit`/`menu.romaneio`):
   ADMIN e GESTOR criam, conferem e confirmam; VISUALIZADOR entra pelo menu em modo leitura;
-  OPERADOR só consulta pela URL (sem item de menu).
+  OPERADOR_F1 só consulta pela URL (sem item de menu); OPERADOR_F2 não acessa.
 - **Criação com senha temporária** (Configurações > Novo usuário): a conta nasce
   confirmada no Auth com senha temporária de 12 caracteres (sem ambíguos, gerada por
   CSPRNG), exibida **uma única vez** com botão de copiar — o ADMIN entrega fora do app.
@@ -892,7 +895,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   e gerar link de recuperação — sempre atrás de `requireCapability("users.manage")`, e
   nunca importada por componente React.
 - Toda escrita passa por **Server Actions → serviço → repositório**, com verificação de
-  capacidade (`ADMIN`, `GESTOR`, `OPERADOR`, `VISUALIZADOR`) antes de tocar no banco.
+  capacidade (`ADMIN`, `GESTOR`, `OPERADOR_F1`, `OPERADOR_F2`, `VISUALIZADOR`) antes de tocar no banco.
 - Upload com validação de extensão/MIME/tamanho (20 MB), parsing apenas no servidor,
   sem execução de macros/fórmulas.
 
