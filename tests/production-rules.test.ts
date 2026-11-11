@@ -343,14 +343,13 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
   ];
 
   it("conclusão puxa só os predecessores NAO_INICIADO, na ordem da linha do tempo", () => {
+    // 056: o MP fica FORA da linha do tempo (espelho do recebimento).
     expect(predecessorsToComplete(chain, "KIT").map((process) => process.code)).toEqual([
-      "MP",
       "LASER",
     ]);
     // DB_CH (já concluído) e SERRA (não aplicável) ficam de fora do meio;
     // KIT entra como restante não iniciado antes de SOLDA.
     expect(predecessorsToComplete(chain, "SOLDA").map((process) => process.code)).toEqual([
-      "MP",
       "LASER",
       "KIT",
     ]);
@@ -377,22 +376,43 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
 
   it("não há o que concluir/devolver quando a linha já está certa", () => {
     const done: { code: string; displayOrder: number; status: ProcessStatus }[] = [
-      { code: "MP", displayOrder: 5, status: "CONCLUIDO" },
-      { code: "LASER", displayOrder: 10, status: "NAO_INICIADO" },
+      { code: "LASER", displayOrder: 10, status: "CONCLUIDO" },
+      { code: "DB_CH", displayOrder: 20, status: "NAO_INICIADO" },
     ];
-    expect(predecessorsToComplete(done, "LASER")).toEqual([]);
+    expect(predecessorsToComplete(done, "DB_CH")).toEqual([]);
     // o único concluído é o próprio alvo — a linha inteira não muda
-    expect(concludedProcessesToReset(done, "MP")).toEqual([]);
+    expect(concludedProcessesToReset(done, "LASER")).toEqual([]);
   });
 
   it("ordena por displayOrder com desempate pelo código e não muta a lista", () => {
     const unsorted: { code: string; displayOrder: number; status: ProcessStatus }[] = [
+      { code: "SERRA", displayOrder: 30, status: "NAO_INICIADO" },
       { code: "LASER", displayOrder: 10, status: "NAO_INICIADO" },
-      { code: "MP", displayOrder: 5, status: "NAO_INICIADO" },
+      { code: "DB_CH", displayOrder: 20, status: "NAO_INICIADO" },
+      { code: "ALFA", displayOrder: 20, status: "NAO_INICIADO" },
     ];
-    expect(predecessorsToComplete(unsorted, "LASER").map((process) => process.code)).toEqual([
-      "MP",
+    // alvo presente na lista — o resultado sai ordenado (displayOrder com
+    // desempate ALFABÉTICO pelo código: ALFA antes de DB_CH no mesmo 20).
+    expect(predecessorsToComplete(unsorted, "SERRA").map((process) => process.code)).toEqual([
+      "LASER",
+      "ALFA",
+      "DB_CH",
     ]);
-    expect(unsorted.map((process) => process.code)).toEqual(["LASER", "MP"]);
+    expect(unsorted.map((process) => process.code)).toEqual([
+      "SERRA",
+      "LASER",
+      "DB_CH",
+      "ALFA",
+    ]);
+  });
+
+  it("o MP nunca entra na cascata (056 — espelho do recebimento)", () => {
+    expect(predecessorsToComplete(chain, "EXP").map((process) => process.code)).not.toContain("MP");
+    expect(concludedProcessesToReset(chain, "EXP").map((process) => process.code)).not.toContain(
+      "MP",
+    );
+    // Alvo é o próprio MP: nada dispara (fora da linha do tempo).
+    expect(predecessorsToComplete(chain, "MP")).toEqual([]);
+    expect(concludedProcessesToReset(chain, "MP")).toEqual([]);
   });
 });

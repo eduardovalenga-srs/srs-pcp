@@ -97,6 +97,8 @@ function f1Item(overrides: Partial<ChildItemGroup> = {}): ChildItemGroup {
       })),
     parentProcessStatuses: { MP: "CONCLUIDO" },
     parentMpCompletedAt: "2026-10-08T13:00:00+00:00",
+    // Espelho 056: o pai recebeu a matéria-prima por completo (verde).
+    parentMpReceipt: { state: "TOTAL", receivedKg: 3, plannedKg: 3 },
     parentDeliveryDate: "2026-10-15",
     materials: [],
     ...overrides,
@@ -138,15 +140,17 @@ describe("Fábrica 1 — data prevista nas células e sem coluna DP", () => {
   it("mantém a data EFETIVA do recebimento da MP (031) ao lado da prevista no desktop e no chip mobile", () => {
     const markup = html(f1Table([f1Item()]));
 
-    // desktop: célula herdada do pai — prevista (entrega do pai 15/10 →
-    // MP 08/10) seguida da data efetiva do recebimento.
+    // desktop: célula herdada do pai — espelho do recebimento (056),
+    // prevista (entrega do pai 15/10 → MP 08/10) e data efetiva.
     expect(markup).toContain(
-      "Matéria-prima — status do item pai (editado na Gestão de OF): Concluído · previsto de 08/10/2026 a 08/10/2026 · recebida em 08/10/2026",
+      "Matéria-prima — Totalmente recebido (item pai) · 3 kg de 3 kg · previsto de 08/10/2026 a 08/10/2026 · recebida em 08/10/2026",
     );
     // mobile: chip MP do card — idem, com a prevista e a efetiva empilhadas.
     expect(markup).toContain(
-      "Matéria-prima — status do item pai: Concluído · previsto de 08/10/2026 a 08/10/2026 · recebida em 08/10/2026",
+      "Matéria-prima — Totalmente recebido (item pai) · 3 kg de 3 kg · previsto de 08/10/2026 a 08/10/2026 · recebida em 08/10/2026",
     );
+    // A célula/chip pinta pelo espelho (verde do TOTAL).
+    expect(markup).toContain("border-status-done/40");
     // Visível na célula/chip (dd/MM no fuso do negócio).
     expect(markup).toContain("08/10");
   });

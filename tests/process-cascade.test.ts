@@ -156,10 +156,12 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
 
     expect(result.success).toBe(true);
     expect(result.changed).toBe(true);
-    expect(result.message).toContain("+2 concluídos automaticamente");
+    // 056: o MP ficou fora da linha do tempo — só o DB CH é puxado.
+    expect(result.message).toContain("+1 concluído automaticamente");
 
-    // alvo + MP + DB CH (SERRA fora da linha do tempo; LASER já concluído)
-    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(3);
+    // alvo + DB CH (MP fora da cascata; SERRA fora da linha do tempo;
+    // LASER já concluído)
+    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(2);
     expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
       expect.anything(),
       "pp-kit",
@@ -167,21 +169,22 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
     );
     expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
       expect.anything(),
-      "pp-mp",
-      expect.objectContaining({ status: "CONCLUIDO", quantityPlanned: 10, notes: null }),
-    );
-    expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
-      expect.anything(),
       "pp-dbch",
       expect.objectContaining({ status: "CONCLUIDO" }),
     );
+    // o MP NUNCA é tocado pela cascata (espelho do recebimento).
+    expect(mocks.updateProductionProcess).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "pp-mp",
+      expect.anything(),
+    );
 
     // um evento por processo, com a nota de automação
-    expect(mocks.insertProductionEvent).toHaveBeenCalledTimes(3);
+    expect(mocks.insertProductionEvent).toHaveBeenCalledTimes(2);
     expect(mocks.insertProductionEvent).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        productionProcessId: "pp-mp",
+        productionProcessId: "pp-dbch",
         oldStatus: "NAO_INICIADO",
         newStatus: "CONCLUIDO",
         notes: "Concluído automaticamente ao concluir KIT",
@@ -245,15 +248,16 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.message).toContain("3 processos devolvidos");
+    // 056: o MP ficou fora da linha do tempo — só ACAB e EXP voltam.
+    expect(result.message).toContain("2 processos devolvidos");
 
-    // a linha reinicia: alvo + MP (antes) + ACAB e EXP (depois);
+    // a linha reinicia: alvo + ACAB e EXP (depois) — MP intocado;
     // QUALITY não aplicável fica de fora
-    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(4);
-    expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
+    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(3);
+    expect(mocks.updateProductionProcess).not.toHaveBeenCalledWith(
       expect.anything(),
       "pp-mp",
-      expect.objectContaining({ status: "NAO_INICIADO" }),
+      expect.anything(),
     );
     expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
       expect.anything(),
@@ -329,21 +333,16 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
 
     expect(result.success).toBe(true);
     expect(result.updated).toBe(2);
-    expect(result.message).toContain("+1 concluído automaticamente");
+    // 056: o MP ficou fora da cascata — sem ele, não há nada a puxar.
+    expect(result.message).toBe("SOLDA → concluído em 2 de 2 itens.");
 
-    // alvos do lote + MP do item-1 (no item-2 o MP já estava concluído)
-    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(3);
-    expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
+    // só os alvos do lote (o MP do item-1 fica intocado — espelho do
+    // recebimento registrado em /recebimento-mp)
+    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(2);
+    expect(mocks.updateProductionProcess).not.toHaveBeenCalledWith(
       expect.anything(),
       "pp-mp1",
-      expect.objectContaining({ status: "CONCLUIDO" }),
-    );
-    expect(mocks.insertProductionEvent).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({
-        productionProcessId: "pp-mp1",
-        notes: "Concluído automaticamente ao concluir SOLDA",
-      }),
     );
 
     // cadeia lida dos dois itens e sempre ANTES da re-derivação
@@ -374,14 +373,15 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
 
     expect(result.success).toBe(true);
     expect(result.updated).toBe(1);
-    expect(result.message).toContain("2 processos devolvidos");
+    // 056: o MP ficou fora da linha do tempo — só o ACAB é devolvido.
+    expect(result.message).toContain("1 processo devolvido");
 
-    // só o item-1 mudou: alvo + MP e ACAB da linha; item-2 intocado
-    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(3);
-    expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
+    // só o item-1 mudou: alvo + ACAB da linha (MP intocado); item-2 intocado
+    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(2);
+    expect(mocks.updateProductionProcess).not.toHaveBeenCalledWith(
       expect.anything(),
       "pp-mp1",
-      expect.objectContaining({ status: "NAO_INICIADO" }),
+      expect.anything(),
     );
     expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
       expect.anything(),

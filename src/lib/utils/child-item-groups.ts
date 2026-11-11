@@ -7,8 +7,10 @@ import type {
   ChildItemProcess,
   OrderItemMaterial,
 } from "@/lib/types/order";
+import type { MpCellReceipt } from "@/lib/types/mp-receipt";
 import type { ProcessDefinition } from "@/lib/types/production";
 import { calculateTotalWeight } from "@/lib/utils/formatting";
+import { aggregateMpReceipts } from "@/lib/utils/mp-receipt";
 import { computeProcessSchedule, scheduleProcessesForItem, type ProcessWindow } from "@/lib/utils/process-schedule";
 import { isProcessStartOverdue } from "@/lib/utils/production";
 
@@ -178,6 +180,13 @@ export function buildChildItemGroup(input: {
     ),
     processes: aggregateGroupProcesses(members),
     parentProcessStatuses,
+    // 056: pior caso entre os PAIS distintos — verde só quando todos
+    // receberam a matéria-prima por completo.
+    parentMpReceipt: aggregateMpReceipts(
+      parentList
+        .map((parent) => parent.parentMpReceipt)
+        .filter((receipt): receipt is MpCellReceipt => receipt !== null),
+    ),
     // Recebimento mais recente entre os pais — a célula só exibe quando o
     // status agregado do MP é CONCLUIDO (todos os aplicáveis receberam).
     parentMpCompletedAt: maxDate(parentList.map((parent) => parent.parentMpCompletedAt)),

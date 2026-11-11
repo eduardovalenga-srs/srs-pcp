@@ -303,6 +303,7 @@ function item(overrides: Partial<ChildItemGroup> = {}): ChildItemGroup {
       })),
     parentProcessStatuses: { MP: "CONCLUIDO" },
     parentMpCompletedAt: "2026-10-08T13:00:00+00:00",
+    parentMpReceipt: null,
     parentDeliveryDate: "2026-10-15",
     materials: [],
     ...overrides,
@@ -357,17 +358,24 @@ describe("tabela da Fábrica 1", () => {
     expect(markup).not.toContain("EXP");
   });
 
-  it("mostra o MP com o status herdado do item pai e sem edição", () => {
+  it("mostra o MP com o espelho do recebimento do item pai e sem edição", () => {
     const markup = html(
       createElement(Fabrica1Table, {
-        items: [item()],
+        items: [
+          item({
+            // Espelho 056: pai com o recebimento TOTAL (verde na célula).
+            parentMpReceipt: { state: "TOTAL", receivedKg: 3, plannedKg: 3 },
+          }),
+        ],
         processes: catalog,
         filters: noFilters,
         capabilities,
         today: "2026-10-05",
       }),
     );
-    expect(markup).toContain("status do item pai (editado na Gestão de OF)");
+    // Espelho do recebimento (não mais o status editado à mão).
+    expect(markup).toContain("Totalmente recebido (item pai)");
+    expect(markup).toContain("border-status-done/40");
     // Só os processos editáveis viram botão (aqui: LASER e KIT do catálogo).
     expect(markup).toContain('aria-label="LASER de BOTÃO DE PORTA');
     expect(markup).toContain('aria-label="KIT de BOTÃO DE PORTA');

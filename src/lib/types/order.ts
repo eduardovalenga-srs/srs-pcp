@@ -1,5 +1,6 @@
 import type { OrderStatus, OrderType } from "@/lib/constants/orders";
 import type { ProcessStatus } from "@/lib/constants/production";
+import type { MpCellReceipt } from "@/lib/types/mp-receipt";
 
 /** Resumo de pedido para listagens. */
 export interface OrderSummary {
@@ -197,6 +198,12 @@ export interface ChildItemGroupMember {
   parentProcessStatuses: Readonly<Record<string, ProcessStatus>>;
   /** 031: data efetiva do MP concluído no PAI. */
   parentMpCompletedAt: string | null;
+  /**
+   * 056: espelho do recebimento de MP do PAI (kg recebidos ×
+   * planejados) — a coluna MP da Fábrica 1 lê isto para pintar
+   * verde/amarelo sem depender do status escrito à mão.
+   */
+  parentMpReceipt: MpCellReceipt | null;
   quantity: number;
   unitWeightKg: number | null;
   /** Entrega do próprio filho, com fallback para a data da OF. */
@@ -253,6 +260,11 @@ export interface ChildItemGroup {
   parentProcessStatuses: Readonly<Record<string, ProcessStatus>>;
   /** 031: data efetiva mais recente do MP concluído nos pais. */
   parentMpCompletedAt: string | null;
+  /**
+   * 056: espelho do recebimento de MP agregado entre os PAIS distintos
+   * do grupo (pior caso + Σ de kg) — coluna MP somente leitura.
+   */
+  parentMpReceipt: MpCellReceipt | null;
   /** Menor entrega dos pais (com fallback para a data da OF). */
   parentDeliveryDate: string | null;
   /** Materiais mesclados por descrição+unidade, com Σ de quantidade. */

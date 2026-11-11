@@ -13,6 +13,7 @@ import type { ProcessStatus } from "@/lib/constants/production";
 import { listConfirmedQuantityByItemIds } from "@/lib/repositories/romaneio.repository";
 import { buildChildItemGroup } from "@/lib/utils/child-item-groups";
 import { escapeFilterTerm } from "@/lib/utils/filters";
+import { mpReceiptFromCell } from "@/lib/utils/mp-receipt";
 import { pendingQuantity, pendingRootQuantity, pendingRootWeight, pendingWeight } from "@/lib/utils/shipping";
 import { assertOk } from "@/lib/utils/supabase-result";
 
@@ -519,6 +520,9 @@ export async function listChildItemGroups(
     production_processes: {
       status: ProcessStatus;
       completed_at: string | null;
+      /** 056: espelho do recebimento de MP (kg) no pai. */
+      quantity_planned: number | string | null;
+      quantity_completed: number | string | null;
       processes: { code: string };
     }[];
   };
@@ -545,7 +549,7 @@ export async function listChildItemGroups(
             client
               .from("order_items")
               .select(
-                "id, parent_order_item_id, quantity, parent_item, description, delivery_date, orders ( delivery_date ), production_processes ( status, completed_at, processes ( code ) )",
+                "id, parent_order_item_id, quantity, parent_item, description, delivery_date, orders ( delivery_date ), production_processes ( status, completed_at, quantity_planned, quantity_completed, processes ( code ) )",
               )
               .in("id", ids),
           ),
@@ -637,6 +641,22 @@ export async function listChildItemGroups(
         (parent?.production_processes ?? []).find(
           (entry) => entry.processes.code === MP_PROCESS_CODE && entry.status === "CONCLUIDO",
         )?.completed_at ?? null,
+      // 056: espelho do recebimento de MP do PAI (coluna somente leitura).
+      parentMpReceipt: parent
+        ? mpReceiptFromCell(
+            (() => {
+              const entry = (parent.production_processes ?? []).find(
+                (process) => process.processes.code === MP_PROCESS_CODE,
+              );
+              if (!entry) return null;
+              return {
+                status: entry.status,
+                quantityPlanned: toNumber(entry.quantity_planned),
+                quantityCompleted: toNumber(entry.quantity_completed),
+              };
+            })(),
+          )
+        : null,
       // Situação dos processos do PAI (a coluna MP da Fábrica 1 mostra este valor).
       parentProcessStatuses: (parent?.production_processes ?? []).reduce<
         Record<string, ProcessStatus>

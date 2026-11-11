@@ -6,10 +6,12 @@ import { coreFeatures, createColumnHelper, flexRender, useTable, type CoreFeatur
 
 import { FABRICA1_EDITABLE_PROCESS_CODES, MP_PROCESS_CODE } from "@/lib/constants/processes";
 import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
-import type { ChildItemFilters, ChildItemGroup, ChildItemProcess, OrderItemMaterial } from "@/lib/types/order";
+import type { ChildItemFilters, ChildItemGroup, ChildItemProcess } from "@/lib/types/order";
+import type { MpCellReceipt } from "@/lib/types/mp-receipt";
 import type { ProcessDefinition } from "@/lib/types/production";
 import { formatBusinessDate, formatBusinessDayMonth, formatDate, formatDayMonth } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
+import { mpReceiptClass, MP_RECEIPT_STATE_LABELS } from "@/lib/utils/mp-receipt";
 import {
   computeProcessSchedule,
   scheduleProcessesForItem,
@@ -19,6 +21,7 @@ import { fabrica1ItemProcesses, fabrica1ProcessColumns, isProcessStartOverdue } 
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { MaterialsList } from "@/components/shared/MaterialsList";
 import { SeqCell } from "@/components/shared/SeqCell";
 import { updateItemsSeqAction } from "@/lib/actions/orders.actions";
 import {
@@ -165,19 +168,22 @@ function ProcessCellButton({
 }
 
 /**
- * Célula do MP: somente leitura, com o status do ITEM PAI — o valor é o
- * mesmo editado na gestão de entregas, então não se edita aqui. A janela
- * prevista vem do PAI (entrega + status do pai, memo `parentMpPlanByItem`)
- * e, concluído (031), a data efetiva do recebimento aparece ACIMA da
- * prevista — mesmo desenho das demais células de processo.
+ * Célula do MP: somente leitura, com o espelho do RECEBIMENTO do ITEM PAI
+ * (056) — verde = total, amarelo = parcial, padrão = nada recebido. A
+ * janela prevista vem do PAI (entrega + status do pai, memo
+ * `parentMpPlanByItem`) e, concluído (031), a data efetiva do recebimento
+ * aparece ACIMA da prevista — mesmo desenho das demais células.
  */
 function InheritedProcessCell({
   status,
+  receipt,
   completedAt,
   plan,
   today,
 }: {
   status: ProcessStatus | undefined;
+  /** 056: espelho do recebimento do pai (kg × planejado) — pinta a célula. */
+  receipt: MpCellReceipt | null;
   completedAt: string | null;
   /** Janela prevista do MP, contada da entrega do PAI. */
   plan: ProcessWindow | null;
@@ -201,6 +207,9 @@ function InheritedProcessCell({
   // Início vencido (anterior à data de referência) → fonte vermelha;
   // MP CONCLUIDO nunca fica vermelho (regra em utils/production).
   const plannedDayPast = isProcessStartOverdue(plan?.start ?? null, status, today);
+  // 056: cor do espelho — sem espelho (pai sem linha de MP) fica padrão.
+  const receiptState = receipt?.state ?? "NONE";
+  const receiptLabel = MP_RECEIPT_STATE_LABELS[receiptState];
 
   return (
     <span
@@ -208,9 +217,13 @@ function InheritedProcessCell({
         "inline-flex h-8 w-full flex-col items-center justify-center rounded border px-1 text-[10px] font-semibold leading-none",
         // 3 linhas (símbolo + recebida + prevista) cabem no h-8 sem folga.
         receivedDay && plannedDay ? "gap-0" : "gap-0.5",
-        statusClass(status),
+        mpReceiptClass(receiptState),
       )}
-      title={`Matéria-prima — status do item pai (editado na Gestão de OF): ${PROCESS_STATUS_LABELS[status]}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(completedAt)}` : ""}`}
+      title={`Matéria-prima — ${receiptLabel} (item pai)${
+        receipt && receipt.receivedKg > 0
+          ? ` · ${formatWeight(receipt.receivedKg)} kg de ${formatWeight(receipt.plannedKg)} kg`
+          : ""
+      }${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(completedAt)}` : ""}`}
     >
       <span aria-hidden>{PROCESS_STATUS_SYMBOLS[status]}</span>
       {/* 031: recebimento efetivo em CIMA da prevista (mesmo formato das listas). */}
@@ -221,7 +234,7 @@ function InheritedProcessCell({
         </span>
       ) : null}
       <span className="sr-only">
-        Matéria-prima: {PROCESS_STATUS_LABELS[status]} — status do item pai
+        Matéria-prima: {receiptLabel} — {PROCESS_STATUS_LABELS[status]} (item pai)
       </span>
     </span>
   );
@@ -250,12 +263,22 @@ function InheritedMpChip({
       : null;
   const plannedDay = plan ? formatDayMonth(plan.start) : null;
   const plannedDayPast = isProcessStartOverdue(plan?.start ?? null, status, today);
+  // 056: espelho do recebimento do pai (amarelo = parcial, verde = total).
+  const receiptState = item.parentMpReceipt?.state ?? "NONE";
+  const receiptLabel = MP_RECEIPT_STATE_LABELS[receiptState];
 
   return (
     <li>
       <span
-        className="inline-flex items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-[11px] tabular-nums"
-        title={`Matéria-prima — status do item pai: ${PROCESS_STATUS_LABELS[status]}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(item.parentMpCompletedAt)}` : ""}`}
+        className={cn(
+          "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] tabular-nums",
+          mpReceiptClass(receiptState),
+        )}
+        title={`Matéria-prima — ${receiptLabel} (item pai)${
+          item.parentMpReceipt && item.parentMpReceipt.receivedKg > 0
+            ? ` · ${formatWeight(item.parentMpReceipt.receivedKg)} kg de ${formatWeight(item.parentMpReceipt.plannedKg)} kg`
+            : ""
+        }${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(item.parentMpCompletedAt)}` : ""}`}
       >
         <span aria-hidden>{PROCESS_STATUS_SYMBOLS[status]}</span>
         MP
@@ -270,28 +293,10 @@ function InheritedMpChip({
           </span>
         ) : null}
         <span className="sr-only">
-          Matéria-prima: {PROCESS_STATUS_LABELS[status]} — status do item pai
+          Matéria-prima: {receiptLabel} — {PROCESS_STATUS_LABELS[status]} (item pai)
         </span>
       </span>
     </li>
-  );
-}
-
-/** Materiais de um item filho — filho sem material fica sinalizado (pendência de compra). */
-function MaterialsList({ materials }: { materials: OrderItemMaterial[] }) {
-  if (materials.length === 0) {
-    return <p className="text-xs text-muted-foreground">Nenhum material cadastrado.</p>;
-  }
-  return (
-    <ul className="space-y-0.5">
-      {materials.map((material) => (
-        // Só a DESCRIÇÃO do material (ex.: "CH6.30 CIVIL350") — sem
-        // quantidade/unidade e sem a linha de observações, para não poluir.
-        <li key={material.id} className="text-xs font-medium">
-          {material.description}
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -592,6 +597,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
               return (
                 <InheritedProcessCell
                   status={row.parentProcessStatuses[process.code]}
+                  receipt={process.code === MP_PROCESS_CODE ? row.parentMpReceipt : null}
                   completedAt={row.parentMpCompletedAt}
                   plan={parentMpPlanByItem.get(row.id) ?? null}
                   today={today}

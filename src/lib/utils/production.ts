@@ -266,12 +266,16 @@ export function applicableProcesses<
  * Linha do tempo de um item: processos aplicáveis na mesma ordem do cálculo
  * de previsão (`computeProcessSchedule`) — `displayOrder` com desempate pelo
  * código. `NAO_APLICAVEL` fica de fora; a lista original não é mutada.
+ *
+ * 056: o MP fica DE FORA da linha do tempo — ele é um espelho do
+ * recebimento de matéria-prima (`/recebimento-mp`), então a cascata de
+ * conclusão/reinício nunca pode marcá-lo nem devolvê-lo.
  */
 function itemTimeline<
   T extends { code: string; displayOrder: number; status: ProcessStatus },
 >(processes: readonly T[]): T[] {
   return processes
-    .filter((process) => process.status !== "NAO_APLICAVEL")
+    .filter((process) => process.status !== "NAO_APLICAVEL" && process.code !== MP_PROCESS_CODE)
     .sort(
       (left, right) =>
         left.displayOrder - right.displayOrder || left.code.localeCompare(right.code),

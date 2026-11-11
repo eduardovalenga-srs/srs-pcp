@@ -3,6 +3,7 @@ import {
   ClipboardList,
   Factory,
   LayoutDashboard,
+  PackageCheck,
   Truck,
   UserRound,
   Users,
@@ -83,6 +84,16 @@ export const NAV_ENTRIES: NavEntry[] = [
       { type: "item", href: "/fabrica-2", label: "Fábrica 2", icon: Warehouse, capability: "menu.fabrica2" },
       { type: "item", href: "/fabrica-1", label: "Fábrica 1", icon: Boxes, capability: "menu.fabrica1" },
       { type: "item", href: "/romaneio", label: "Romaneio", icon: Truck, capability: "menu.romaneio" },
+      // 056/057: recebimento de MP (kg por item filho, com o pai sem
+      // filhos como fallback) — a coluna MP das listas é o espelho
+      // deste fluxo (pai = agregado dos filhos).
+      {
+        type: "item",
+        href: "/recebimento-mp",
+        label: "Recebimento MP",
+        icon: PackageCheck,
+        capability: "menu.recebimento_mp",
+      },
       { type: "item", href: "/processos", label: "Processos", icon: Workflow, capability: "menu.processes" },
     ],
   },

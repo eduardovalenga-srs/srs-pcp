@@ -55,6 +55,7 @@ function member(overrides: Partial<ChildItemGroupMember> = {}): ChildItemGroupMe
     parentDeliveryDate: "2026-10-20",
     parentProcessStatuses: { MP: "CONCLUIDO" },
     parentMpCompletedAt: null,
+    parentMpReceipt: null,
     quantity: 4,
     unitWeightKg: 1.5,
     deliveryDate: "2026-10-16",

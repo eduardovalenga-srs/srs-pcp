@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SessionUser } from "@/lib/auth/session";
 import { PROCESS_STATUS_LABELS, type ProcessStatus } from "@/lib/constants/production";
-import { SHIPMENT_PROCESS_CODE } from "@/lib/constants/processes";
+import { MP_PROCESS_CODE, SHIPMENT_PROCESS_CODE } from "@/lib/constants/processes";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type { ProductionEvent, ProductionFilters, ProductionOrderResult, ProductionResult, ProductionRow, ProductionStats, ProcessDefinition } from "@/lib/types/production";
 import {
@@ -283,6 +283,14 @@ export async function updateProcess(
     throw new Error("Processo não encontrado.");
   }
 
+  // 056: o MP é um espelho do recebimento de matéria-prima — a marcação
+  // manual saiu de todas as telas e o serviço rejeita por cima.
+  if (current.process.code === MP_PROCESS_CODE) {
+    throw new Error(
+      "A matéria-prima é registrada em Recebimento de MP (/recebimento-mp) — esta coluna é somente leitura.",
+    );
+  }
+
   const quantityPlanned = options.canEditQuantities ? parsed.data.quantityPlanned : current.quantityPlanned;
   const next: ProcessStatus = parsed.data.status;
 
@@ -406,6 +414,14 @@ export async function updateProcessBatch(
     orderItemIds?: readonly string[];
   },
 ): Promise<UpdateProcessBatchResult> {
+  // 056: a edição em lote do MP saiu — o recebimento é registrado em
+  // /recebimento-mp e o espelho recalcula a coluna de todas as listas.
+  if (input.processCode === MP_PROCESS_CODE) {
+    throw new Error(
+      "A matéria-prima é registrada em Recebimento de MP (/recebimento-mp) — esta coluna é somente leitura.",
+    );
+  }
+
   // Processo com situação restrita (MP): mesma regra da edição unitária.
   const allowedStatuses = allowedProcessStatuses(input.processCode);
   if (!allowedStatuses.includes(input.status)) {

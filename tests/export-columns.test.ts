@@ -150,6 +150,7 @@ function childItemGroup(overrides: Partial<ChildItemGroup> = {}): ChildItemGroup
     processes: [],
     parentProcessStatuses: { MP: "CONCLUIDO" },
     parentMpCompletedAt: "2026-10-12T10:00:00+00:00",
+    parentMpReceipt: null,
     parentDeliveryDate: "2026-10-20",
     materials: [],
     ...overrides,

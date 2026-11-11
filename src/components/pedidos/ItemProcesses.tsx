@@ -12,6 +12,8 @@ import type { ItemProcess } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
 import { formatBusinessDate, formatBusinessDayMonth, formatDate } from "@/lib/utils/dates";
 import { computeProcessSchedule, scheduleProcessesForItem } from "@/lib/utils/process-schedule";
+import { mpReceiptFromCell, mpReceiptClass, MP_RECEIPT_STATE_LABELS } from "@/lib/utils/mp-receipt";
+import { formatWeight } from "@/lib/utils/formatting";
 import { ProcessStatusBadge } from "@/components/shared/StatusBadges";
 import { ProcessDetailsSheet, type ProductionCapabilities } from "@/components/producao/ProcessDetailsSheet";
 import { Button } from "@/components/ui/button";
@@ -130,6 +132,9 @@ export function ItemProcesses({
           // MP é pré-requisito da produção (021): o serviço rejeita
           // NAO_APLICAVEL para ele, então a marcação não é toggleável.
           const isMp = row.code === MP_PROCESS_CODE;
+          // 056: espelho do recebimento (o status continua o mesmo, mas a
+          // leitura da coluna passa a ser kg recebidos × planejados).
+          const receipt = mpReceiptFromCell(row);
           const necessityTitle = isMp
             ? "MP é pré-requisito para iniciar a produção — sempre aplicável."
             : applies
@@ -163,7 +168,25 @@ export function ItemProcesses({
 
               <ProcessStatusBadge status={row.status} />
 
-              {capabilities.canUpdateStatus ? (
+              {/* 056: MP é somente leitura — o recebimento é registrado em
+                  /recebimento-mp e a célula vira o espelho (kg + situação). */}
+              {isMp ? (
+                <span
+                  className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs ${mpReceiptClass(receipt.state)}`}
+                  title={`${MP_RECEIPT_STATE_LABELS[receipt.state]}${
+                    row.quantityPlanned !== null || row.quantityCompleted !== null
+                      ? ` · ${formatWeight(row.quantityCompleted ?? 0)} de ${formatWeight(row.quantityPlanned ?? 0)}`
+                      : ""
+                  } — registre o recebimento em Recebimento de MP`}
+                >
+                  {MP_RECEIPT_STATE_LABELS[receipt.state]}
+                  {row.quantityCompleted !== null || row.quantityPlanned !== null ? (
+                    <span className="tabular-nums">
+                      {formatWeight(row.quantityCompleted ?? 0)}/{formatWeight(row.quantityPlanned ?? 0)}
+                    </span>
+                  ) : null}
+                </span>
+              ) : capabilities.canUpdateStatus ? (
                 <Select
                   value={row.status}
                   onValueChange={(value) => void applyStatus(row, value as ProcessStatus)}

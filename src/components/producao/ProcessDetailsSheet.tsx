@@ -200,7 +200,11 @@ function ProcessForm({
     };
   }, [selection.orderItemId, capabilities.canViewHistory, isGroup]);
 
-  const readOnly = !capabilities.canUpdateStatus;
+  const isMp = selection.processCode === MP_PROCESS_CODE;
+  // 056/057: a folha do MP é somente leitura — o recebimento é registrado
+  // em /recebimento-mp (kg por item filho; o pai espelha o agregado) e o
+  // espelho grava status e quantidades a partir de lá.
+  const readOnly = !capabilities.canUpdateStatus || isMp;
   const dirty =
     status !== selection.status ||
     quantityPlanned !== (selection.quantityPlanned === null ? "" : String(selection.quantityPlanned)) ||
@@ -367,7 +371,9 @@ function ProcessForm({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              O avanço entre etapas é sempre manual — nada é concluído automaticamente.
+              {isMp
+                ? "Matéria-prima: somente leitura — registre os kg em Recebimento de MP (/recebimento-mp)."
+                : "O avanço entre etapas é sempre manual — nada é concluído automaticamente."}
             </p>
           </div>
 

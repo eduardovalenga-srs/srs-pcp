@@ -16,6 +16,7 @@ import {
   type ProcessWindow,
 } from "@/lib/utils/process-schedule";
 import { isProcessStartOverdue } from "@/lib/utils/production";
+import { mpReceiptFromCell, mpReceiptClass, MP_RECEIPT_STATE_LABELS } from "@/lib/utils/mp-receipt";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
@@ -141,6 +142,28 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
   );
   const tooltip = `${processName} — ${context.itemDescription}: ${label}${quantity ? ` (${quantity})` : ""}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`;
   const aria = `${processName} de ${context.itemDescription}: ${label}${quantity ? `, produzido ${quantity}` : ""}${plan ? `, previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? `, recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`;
+
+  // 056: coluna MP SOMENTE LEITURA — o recebimento é registrado em
+  // /recebimento-mp e a célula vira o espelho (verde = total,
+  // amarelo = parcial, padrão = nada recebido). Sem onClick.
+  if (context.processCode === MP_PROCESS_CODE) {
+    const receipt = mpReceiptFromCell(cell);
+    const receiptLabel = MP_RECEIPT_STATE_LABELS[receipt.state];
+    return (
+      <span
+        className={cn(
+          "inline-flex h-8 w-full cursor-default flex-col items-center justify-center rounded border px-1 text-[10px] font-semibold leading-none",
+          receivedDay && plannedDay ? "gap-0" : "gap-0.5",
+          mpReceiptClass(receipt.state),
+        )}
+        title={`${tooltip} — ${receiptLabel} · registre o recebimento em Recebimento de MP`}
+        aria-label={`${aria} — ${receiptLabel}`}
+      >
+        {content}
+        <span className="sr-only">{receiptLabel}</span>
+      </span>
+    );
+  }
 
   if (cell.aggregated) {
     return (

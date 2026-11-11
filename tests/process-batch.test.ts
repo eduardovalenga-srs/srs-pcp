@@ -105,15 +105,16 @@ describe("updateProcessBatchAction (025 — edição em lote por OF)", () => {
     expect(mocks.getOrderProcessTargets).not.toHaveBeenCalled();
   });
 
-  it("MP é portão de duas posições: só NAO_INICIADO e CONCLUIDO", async () => {
+  it("MP é somente leitura: a edição em lote aponta para o Recebimento de MP", async () => {
     const result = await updateProcessBatchAction({
       orderId: "of-1",
       processCode: "MP",
-      status: "NAO_APLICAVEL",
+      status: "CONCLUIDO",
     });
 
     expect(result.success).toBe(false);
-    expect(result.message).toContain("apenas as situações");
+    expect(result.message).toContain("Recebimento de MP");
+    expect(mocks.getOrderProcessTargets).not.toHaveBeenCalled();
     expect(mocks.updateProductionProcess).not.toHaveBeenCalled();
   });
 

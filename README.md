@@ -87,6 +87,10 @@ cp .env.example .env.local
 #    supabase/migrations/051_backfill_material_unit_kg.sql
 #    supabase/migrations/052_romaneio_conference_upsert.sql
 #    supabase/migrations/053_nf_industrializacao_messages.sql
+#    supabase/migrations/054_pending_shipped_totals.sql
+#    supabase/migrations/055_role_fabrica_split.sql
+#    supabase/migrations/056_mp_receipt.sql
+#    supabase/migrations/057_mp_receipt_child_items.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 

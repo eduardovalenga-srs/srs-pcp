@@ -26,6 +26,9 @@ export type Capability =
   | "menu.fabrica2"
   | "menu.settings"
   | "menu.romaneio"
+  // 056: recebimento de matéria-prima (estilo romaneio).
+  | "menu.recebimento_mp"
+  | "mp_receipt.edit"
   // 043: módulo RH (sidebar agrupada).
   | "menu.rh"
   | "rh.view"
@@ -57,6 +60,9 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "menu.fabrica2",
     "menu.settings",
     "menu.romaneio",
+    // 056: recebimento de MP (leitura + escrita).
+    "menu.recebimento_mp",
+    "mp_receipt.edit",
     // 043: RH — admin gerencia (cadastro completo).
     "menu.rh",
     "rh.view",
@@ -81,6 +87,9 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "romaneio.view",
     "romaneio.edit",
     "menu.romaneio",
+    // 056: recebimento de MP (leitura + escrita).
+    "menu.recebimento_mp",
+    "mp_receipt.edit",
   ],
   // OPERADOR_F1 (era OPERADOR): não vê a gestão de entregas (menu nem
   // página) — o trabalho dele entra pela Fábrica 1 → link da OF → folha do
@@ -97,6 +106,9 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "rh.view",
     "menu.fabrica1",
     "romaneio.view",
+    // 056: o operador da Fábrica 1 registra o recebimento de MP.
+    "menu.recebimento_mp",
+    "mp_receipt.edit",
   ],
   // 055: OPERADOR_F2 — acesso restrito à Fábrica 2 (menu + página +
   // atualização de status na própria tela). Sem dashboard, RH, romaneio,
@@ -113,6 +125,8 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "menu.fabrica1",
     "romaneio.view",
     "menu.romaneio",
+    // 056: consulta do recebimento de MP (sem escrita).
+    "menu.recebimento_mp",
   ],
 };
 

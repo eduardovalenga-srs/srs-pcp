@@ -370,6 +370,42 @@ export type RomaneioCustomerRow = {
   }[];
 };
 
+/** Linha de `mp_receipts` (056) — cabeçalho de um recebimento de MP. */
+export type MpReceiptRow = {
+  id: string;
+  number: number | string;
+  order_id: string;
+  receipt_date: string;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+/** Linha de `mp_receipt_items` (056/057) — kg recebidos por linha (filho ou pai sem filhos). */
+export type MpReceiptItemRow = {
+  id: string;
+  mp_receipt_id: string;
+  order_item_id: string;
+  quantity_kg: number | string;
+  created_at: string;
+};
+
+/** Linha retornada pela RPC get_mp_receipt_customers (056) — seletor em cascata. */
+export type MpReceiptCustomerRow = {
+  customer_name: string | null;
+  of_count: number | string;
+  /** OFs com pendência de MP (JSON array). */
+  ofs: {
+    order_id: string;
+    code: string;
+    type: string;
+    delivery_date: string | null;
+    status: string;
+    pending_items: number | string;
+    pending_kg: number | string | null;
+  }[];
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -756,6 +792,52 @@ export type Database = {
           },
         ];
       };
+      mp_receipts: {
+        Row: MpReceiptRow;
+        Insert: {
+          id?: string;
+          order_id: string;
+          receipt_date?: string;
+          notes?: string | null;
+          created_by?: string | null;
+        };
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "mp_receipts_order_id_fkey";
+            columns: ["order_id"];
+            isOneToOne: false;
+            referencedRelation: "orders";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      mp_receipt_items: {
+        Row: MpReceiptItemRow;
+        Insert: {
+          id?: string;
+          mp_receipt_id: string;
+          order_item_id: string;
+          quantity_kg: number;
+        };
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "mp_receipt_items_mp_receipt_id_fkey";
+            columns: ["mp_receipt_id"];
+            isOneToOne: false;
+            referencedRelation: "mp_receipts";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "mp_receipt_items_order_item_id_fkey";
+            columns: ["order_item_id"];
+            isOneToOne: false;
+            referencedRelation: "order_items";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -1007,6 +1089,21 @@ export type Database = {
         // seletor em cascata de /romaneio/novo (044)
         Args: Record<string, never>;
         Returns: RomaneioCustomerRow[];
+      };
+      get_mp_receipt_customers: {
+        // seletor em cascata de /recebimento-mp — OFs com pendência de MP (056)
+        Args: Record<string, never>;
+        Returns: MpReceiptCustomerRow[];
+      };
+      save_mp_receipt: {
+        // cria o recebimento de MP (cabeçalho + kg por item + espelho do processo — 056)
+        Args: { p_order_id: string; p_notes: string | null; p_items: Json };
+        Returns: { id: string; number: number; receiptDate: string };
+      };
+      delete_mp_receipt: {
+        // exclusão para correção — recalcula o espelho dos itens afetados (056)
+        Args: { p_receipt_id: string };
+        Returns: { id: string; orderId: string };
       };
     };
     Enums: Record<string, never>;
