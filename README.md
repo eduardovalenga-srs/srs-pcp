@@ -91,6 +91,7 @@ cp .env.example .env.local
 #    supabase/migrations/055_role_fabrica_split.sql
 #    supabase/migrations/056_mp_receipt.sql
 #    supabase/migrations/057_mp_receipt_child_items.sql
+#    supabase/migrations/058_mp_receipt_legacy_recovery.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -923,6 +924,57 @@ psql "$SUPABASE_DB_URL" -f supabase/clear_data.sql
   movimento. Em ambos os casos, aponte `SUPABASE_DB_URL`/projeto para o banco alvo.
 - Depois da limpeza, refaça as importações e crie pedidos novos pela UI (ou rode
   `supabase/seed_demo.sql` para o demo de volta). Testado em `tests/clear_data.test.ts`.
+
+## Recuperar as marcas de MP perdidas na 057 (migração 058)
+
+A migração **057** (§7, "backfill silêncioso") recalculou a célula MP dos itens
+**PAIS** a partir dos recibos — que estavam vazios — e **zerou** as marcas de
+"matéria-prima recebida" que o usuário havia feito à mão na Gestão de OF. Como o
+backfill não grava `production_events`, a marcação sumiu sem rastro no banco (a
+célula MP das listas e o status derivado da OF foram junto).
+
+A migração **058** traz a recuperação. Ela lê as marcas do **histórico**
+(`production_events`) e devolve o dado na forma **nova** — **recibos** — que é a
+única forma de a célula ficar verde de novo (mexer direto em
+`production_processes` seria apagado no próximo recebimento da OF).
+
+```sql
+-- 1) relatório (não grava nada) — rode antes de aplicar
+select public.mp_receipt_recover_legacy(true);
+
+-- 2) aplicar
+select public.mp_receipt_recover_legacy(false);
+
+-- 2b) aplicar só uma OF (recomendado em produção: 25 OFs, ~3.200 marcas)
+select public.mp_receipt_recover_legacy(false, 'todas', '<uuid da OF>');
+```
+
+- **Escopo**: `'todas'` (padrão) restaura todas as marcas; `'manual'` só as
+  feitas à mão na Gestão de OF (as de cascata — `Concluído automaticamente ao
+  concluir X` — vinham da regra 62 antiga, em que o MP era pré-requisito de todo
+  processo e era concluído junto).
+- **Como vira recibo**: um item marcado gera recibo dos **filhos** (o verde do
+  pai é o agregado deles — 057); o kg é o **saldo** que falta (planejado −
+  recebido; 1 kg quando o item não tem peso cadastrado). Um recibo por (OF, data
+  da marcação), com a **data original** preservada (a lista mostra "recebida em
+  DD/MM").
+- **O que a 058 restaura**: a data **EFETIVA** do recebimento ("recebida em
+  DD/MM" na coluna MP). A data **PREVISTA** (a janela do processo — quando a
+  matéria-prima deveria ter chegado) **não precisa** de restauração: ela nunca
+  foi gravada no banco, é **derivada a cada leitura** a partir da data de
+  entrega (`computeProcessSchedule`). Por isso ela nunca se perdeu na 057 — o
+  que faltava era exibi-la na coluna MP da Gestão de OF, corrigido agora
+  (desktop e card mobile).
+- **Idempotente**: o saldo é calculado sobre o que já foi recebido — rodar de
+  novo não duplica nada. Itens que já têm recibo do fluxo novo ficam de fora
+  (o fluxo novo é a fonte da verdade atual).
+- **Rollback**: `select public.mp_receipt_rollback_legacy();` (ou
+  `psql "$SUPABASE_DB_URL" -f supabase/rollback_058_mp_receipt.sql`) apaga os
+  recibos da recuperação e restaura as células do backup
+  (`mp_recovery_backup_058`). O histórico de eventos é append-only e fica como
+  está.
+- Aplicar a migration **058** cria as tabelas de auditoria e as funções — a
+  recuperação em si **só roda quando você chamar** a função.
 
 ## Deploy (Vercel)
 

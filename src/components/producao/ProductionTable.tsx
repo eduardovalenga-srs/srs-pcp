@@ -149,17 +149,25 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
       <span
         className={cn(
           "inline-flex h-8 w-full flex-col items-center justify-center rounded border px-1 text-[10px] font-semibold leading-none",
-          receivedDay ? "gap-0" : "gap-0.5",
+          // 3 linhas (símbolo + recebida + prevista) cabem no h-8 sem folga.
+          receivedDay && plannedDay ? "gap-0" : "gap-0.5",
           mpReceiptClass(receipt.state),
         )}
         title={`${processName} — ${context.orderCode}: ${receiptLabel} · ${counter} ${cell.applicable === 1 ? "item" : "itens"}${quantities ? ` · kg recebidos/planejados ${quantities}` : ""}${plan ? ` · previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? ` · última recepção em ${formatBusinessDate(cell.completedAt)}` : ""}. Registre o recebimento em Recebimento de MP.`}
-        aria-label={`${processName} de ${context.orderCode}: ${receiptLabel} em ${cell.done} de ${cell.applicable} itens${quantities ? `, ${quantities} kg` : ""}`}
+        aria-label={`${processName} de ${context.orderCode}: ${receiptLabel} em ${cell.done} de ${cell.applicable} itens${quantities ? `, ${quantities} kg` : ""}${plan ? `, previsto de ${formatDate(plan.start)} a ${formatDate(plan.end)}` : ""}${receivedDay ? `, recebida em ${formatBusinessDate(cell.completedAt)}` : ""}`}
       >
         <span className="inline-flex items-center gap-1">
           <span aria-hidden>{PROCESS_STATUS_SYMBOLS[cell.status]}</span>
           <span className="tabular-nums">{counter}</span>
         </span>
+        {/* 031: MP recebida — a data efetiva do recebimento ACIMA da prevista. */}
         {receivedDay ? <span className="tabular-nums text-[10px]">{receivedDay}</span> : null}
+        {/* Janela prevista (derivada da entrega) — a data-limite do recebimento. */}
+        {plannedDay ? (
+          <span className={cn("tabular-nums text-[10px]", plannedDayPast && "text-status-late")}>
+            {plannedDay}
+          </span>
+        ) : null}
         <span className="sr-only">{receiptLabel}</span>
       </span>
     );
