@@ -78,7 +78,7 @@ export interface ChildItemPage extends ChildItemGroupsResult {
    * Regra do KIT: totais do card "Atrasados", agregados no banco sobre o
    * conjunto filtrado, sem carregar as demais páginas para calculá-los.
    */
-  kitOverdue: KitOverdueTotals;
+  kitOverdue: KitOverdueTotals | null;
 }
 
 /**
@@ -86,8 +86,8 @@ export interface ChildItemPage extends ChildItemGroupsResult {
  * O catálogo é carregado antes da lista porque resolve o `processCode`
  * do filtro para o id da linha de processo (filtro no banco).
  *
- * Página, totais e recortes de atraso são resolvidos numa RPC agregada; nenhum
- * recorte exige carregar todas as páginas ou seus embeds.
+ * A listagem normal usa as RPCs paginadas existentes. Os recortes de atraso
+ * passam pela RPC de banco; o resumo do KIT sem recorte fica sob demanda.
  */
 export async function getChildItemsPage(
   client: SupabaseServer,

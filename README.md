@@ -440,8 +440,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   **janela da coluna KIT** — o INÍCIO previsto (`plan.start`, calculado no servidor;
   o mesmo valor que a célula exibe em vermelho) — é **anterior à data de
   referência** e cujo KIT ainda
-  **não concluiu**. A regra é calculada no banco pela RPC `get_child_item_groups_page`
-  (migração 062), que agrega os números sem carregar as outras páginas nem seus embeds;
+  **não concluiu**. O resumo de atrasados é carregado sob demanda: o usuário aciona
+  **Calcular atrasados**, e a RPC `get_child_item_groups_page` (migração 062) agrega
+  os números sem buscar os embeds dos itens;
   Registros/Qtd./Peso somam só esses grupos, e linha **sem janela de KIT** (sem entrega,
   KIT desmarcado `NAO_APLICAVEL` ou sem processo KIT) não conta. O card **KIT** segue
   **global** (na Fábrica 1 o card da EXPEDIÇÃO do item raiz se resolve no KIT — objeto
@@ -450,10 +451,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   mais a lista Famílias** (a quebra por TP saiu das três telas; os campos
   `families`/`family_totals`/`overdueFamilies`/`expeditionFamilies` seguem saindo
   das RPCs, sem leitura no front).
-  A página, os totais e os recortes de atraso vêm da RPC **`get_child_item_groups_page`**
-  (migração 062): aplica os filtros, agrupa por **(OF, código do filho)** — descrição
-  quando o código vem vazio —, calcula os totais, filtra atrasos e pagina no banco.
-  Grupos **nunca atravessam OFs**; os membros da página
+  A lista normal usa **`get_child_item_groups`** e **`get_child_items_totals`**. Quando
+  um recorte de atraso é ativado, `get_child_item_groups_page` (migração 062) aplica os
+  filtros, calcula os totais, filtra e pagina no banco. Grupos **nunca atravessam OFs**;
+  os membros da página
   são buscados em seguida e montados no servidor (`lib/utils/child-item-groups.ts`).
   Clicar numa célula de grupo com N membros abre a folha em modo lote: **só a situação
   é aplicada a todos os itens do grupo** (ação `updateProcessBatchAction` com escopo
@@ -481,8 +482,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   `processo=` — mesma chave da Fábrica 2, chip próprio — "LASER: Atrasados" ou
   "Atrasados (qualquer processo)" — e a chave some ao desligar). A RPC calcula as
   janelas em dias úteis no banco e aplica os recortes (combinando **por E** com o
-  recorte do card `atrasados=1`, regra do KIT) **antes da paginação**; os cards e a
-  exportação `.xlsx` usam o mesmo resultado. Só a Fábrica 1 aplica — a Gestão de OF e a
+  recorte do card `atrasados=1`, regra do KIT) **antes da paginação**; a exportação
+  `.xlsx` usa o mesmo recorte. Só a Fábrica 1 aplica — a Gestão de OF e a
   Fábrica 2 usam chaves próprias.
   **Ordenação por coluna** (043 — o cabeçalho do grupo passou a ser ordenável por
   link; antes era a ordenação fixa abaixo): **Seq.** (igualdade sobre o MENOR seq do

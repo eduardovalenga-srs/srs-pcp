@@ -360,10 +360,11 @@ const PARENT_ID_LOOKUP_LIMIT = 500;
  * Itens FILHOS agrupados por código dentro da OF (033) — base da tela
  * Fábrica 1 (visão de insumos: o componente repetido vira UMA linha).
  *
- * Dois passos:
- *  1. RPC `get_child_item_groups_page`: página, totais e recortes de atraso
- *     calculados juntos no banco, com os filtros atuais;
- *  2. busca dos membros da página pelos ids, com os embeds de exibição
+ * Caminhos de consulta:
+ *  1. Listagem normal: RPCs paginadas existentes para página e totais;
+ *  2. Recorte de atraso ou resumo sob demanda: RPC `get_child_item_groups_page`
+ *     calcula os indicadores e aplica os recortes no banco;
+ *  3. busca dos membros da página pelos ids, com os embeds de exibição
  *     (processos/materiais) e os PAIS numa consulta própria — o
  *     self-join do PostgREST só resolve a direção "filhos"; então
  *     `buildChildItemGroup` soma quantidade/peso, agrega processos/materiais
@@ -381,7 +382,8 @@ export async function listChildItemGroups(
   filters: ChildItemFilters,
   processId: string | null = null,
   today: string = todayISODate(),
-): Promise<ChildItemGroupsResult & { kitOverdue: KitOverdueTotals }> {
+  summaryOnly = false,
+): Promise<ChildItemGroupsResult & { kitOverdue: KitOverdueTotals | null }> {
   const search = escapeFilterTerm(filters.search);
   const orderCode = filters.orderCode.trim();
   const customer = filters.customer.trim();
@@ -405,7 +407,7 @@ export async function listChildItemGroups(
     parentIds = (data ?? []).map((row) => row.id);
   }
 
-  // 062: página, totais e recortes de atraso são calculados numa única RPC.
+  // Filtros e argumentos compartilhados entre as RPCs da tela.
   const rpcFilters = {
     p_search: search || null,
     p_order_code: orderCode || null,
@@ -440,20 +442,8 @@ export async function listChildItemGroups(
     p_sort_dir: filters.sortDir,
   };
   const from = (filters.page - 1) * filters.pageSize;
-  const { data, error } = await client.rpc("get_child_item_groups_page", {
-    ...groupsRpcFilters,
-    p_offset: from,
-    p_limit: filters.pageSize,
-    p_kit_overdue: filters.overdue,
-    p_process_overdue: filters.processOverdue,
-    p_process_code: filters.processCode,
-    p_today: today,
-  });
-
-  assertOk(error, "Não foi possível carregar os itens filhos");
-
   type GroupRow = { orderId: string; key: string; itemIds: string[] };
-  const groupsPayload = (data ?? {}) as unknown as {
+  type GroupsPayload = {
     total?: number | string;
     qtyTotal?: number | string;
     weightTotal?: number | string;
@@ -464,21 +454,60 @@ export async function listChildItemGroups(
     };
     groups?: GroupRow[];
   };
+  let groupsPayload: GroupsPayload;
+  let kitOverdue: KitOverdueTotals | null = null;
+
+  if (summaryOnly || filters.overdue || filters.processOverdue) {
+    const { data, error } = await client.rpc("get_child_item_groups_page", {
+      ...groupsRpcFilters,
+      p_offset: summaryOnly ? 0 : from,
+      p_limit: summaryOnly ? 0 : filters.pageSize,
+      p_kit_overdue: summaryOnly ? false : filters.overdue,
+      p_process_overdue: filters.processOverdue,
+      p_process_code: filters.processCode,
+      p_today: today,
+    });
+    assertOk(error, "Não foi possível carregar os itens filhos");
+    groupsPayload = (data ?? {}) as unknown as GroupsPayload;
+    if (groupsPayload.kitOverdue) {
+      kitOverdue = {
+        records: toNumber(groupsPayload.kitOverdue.records ?? null) ?? 0,
+        qty: toNumber(groupsPayload.kitOverdue.qty ?? null) ?? 0,
+        weight: toNumber(groupsPayload.kitOverdue.weight ?? null) ?? 0,
+      };
+    }
+  } else {
+    const [groupsResult, totalsResult] = await Promise.all([
+      client.rpc("get_child_item_groups", {
+        ...groupsRpcFilters,
+        p_offset: from,
+        p_limit: filters.pageSize,
+      }),
+      client.rpc("get_child_items_totals", rpcFilters),
+    ]);
+    assertOk(groupsResult.error, "Não foi possível carregar os itens filhos");
+    assertOk(totalsResult.error, "Não foi possível carregar os itens filhos");
+    groupsPayload = (groupsResult.data ?? {}) as unknown as GroupsPayload;
+
+    const totals = (totalsResult.data ?? {}) as unknown as {
+      qtyTotal?: number | string;
+      weightTotal?: number | string;
+    };
+    groupsPayload.qtyTotal = totals.qtyTotal;
+    groupsPayload.weightTotal = totals.weightTotal;
+  }
+
   const groupRows = groupsPayload.groups ?? [];
   const memberIds = [
     ...new Set(groupRows.flatMap((group) => group.itemIds ?? [])),
   ];
 
   const aggregated = {
-    // 062: página, totais e recortes de atraso vêm da mesma consulta agregada.
+    // No caminho normal, kitOverdue é null: o card pede seu resumo sob demanda.
     total: toNumber(groupsPayload.total ?? null) ?? 0,
     qtyTotal: toNumber(groupsPayload.qtyTotal ?? null) ?? 0,
     weightTotal: toNumber(groupsPayload.weightTotal ?? null) ?? 0,
-    kitOverdue: {
-      records: toNumber(groupsPayload.kitOverdue?.records ?? null) ?? 0,
-      qty: toNumber(groupsPayload.kitOverdue?.qty ?? null) ?? 0,
-      weight: toNumber(groupsPayload.kitOverdue?.weight ?? null) ?? 0,
-    },
+    kitOverdue,
   };
   if (memberIds.length === 0) {
     return { items: [], ...aggregated };
@@ -721,4 +750,21 @@ export async function listChildItemGroups(
   // Soma de TODO o conjunto filtrado (todas as páginas) — Qtd. total e
   // Peso total (qtd × peso unit., 023) do card; `total` = nº de grupos.
   return { items, ...aggregated };
+}
+
+/** Resumo KIT sob demanda, sem buscar relações ou membros da página. */
+export async function getChildItemsKitOverdueTotals(
+  client: SupabaseServer,
+  filters: ChildItemFilters,
+  processId: string | null = null,
+  today: string = todayISODate(),
+): Promise<KitOverdueTotals> {
+  const result = await listChildItemGroups(
+    client,
+    { ...filters, page: 1, pageSize: 0, overdue: false },
+    processId,
+    today,
+    true,
+  );
+  return result.kitOverdue ?? { records: 0, qty: 0, weight: 0 };
 }

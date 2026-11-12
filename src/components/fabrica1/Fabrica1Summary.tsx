@@ -4,6 +4,7 @@ import { AlertTriangle, Inbox, Truck } from "lucide-react";
 
 import type { KitOverdueTotals } from "@/lib/utils/child-item-groups";
 import type { ChildItemFilters } from "@/lib/types/order";
+import { Fabrica1OverdueCard } from "@/components/fabrica1/Fabrica1OverdueCard";
 import { childItemQueryString } from "@/lib/utils/filters";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { cn } from "@/lib/utils";
@@ -22,7 +23,7 @@ interface Fabrica1SummaryProps {
    * como o card "Eventos" — não são mais os KPIs globais de item raiz da
    * RPC `get_production_stats` (entrega da OF), usados antes nesta tela.
    */
-  kitOverdue: KitOverdueTotals;
+  kitOverdue: KitOverdueTotals | null;
   /**
    * 037: KPI global de item RAIZ (mesmo `get_production_stats` da Fábrica 2
    * e da Gestão) para o card "KIT" — a EXPEDIÇÃO pertence ao item RAIZ (os
@@ -89,9 +90,9 @@ export function Fabrica1Summary({
       filter: { overdue: true },
       active: filters.overdue,
       details: [
-        { label: "Registros", value: formatQuantity(kitOverdue.records) },
-        { label: "Qtd. total", value: formatQuantity(kitOverdue.qty) },
-        { label: "Peso total", value: `${formatWeight(kitOverdue.weight)} kg` },
+        { label: "Registros", value: formatQuantity(kitOverdue?.records) },
+        { label: "Qtd. total", value: formatQuantity(kitOverdue?.qty) },
+        { label: "Peso total", value: `${formatWeight(kitOverdue?.weight)} kg` },
       ],
     },
     // 037: no modelo da Fábrica 1 o card da EXPEDIÇÃO do item raiz é o KIT.
@@ -145,6 +146,12 @@ export function Fabrica1Summary({
           card.filter !== undefined && "hover:border-border hover:bg-accent/40",
           card.active && "border-primary bg-primary/5",
         );
+
+        if (card.key === "overdue" && kitOverdue === null) {
+          return (
+            <Fabrica1OverdueCard key={card.key} filters={filters} active={card.active ?? false} />
+          );
+        }
 
         if (card.filter === undefined) {
           return (

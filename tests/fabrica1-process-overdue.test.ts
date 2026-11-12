@@ -227,14 +227,19 @@ describe("getChildItemsPage — filtro de processo 'Atrasados' (052)", () => {
     getActiveProcessesMock.mockReset();
     getActiveProcessesMock.mockResolvedValue(CATALOG);
     listChildItemGroupsMock.mockImplementation(async (_client, filters) => {
-      const selected = applyChildItemOverdueCuts(ALL_ROWS, CATALOG, filters, TODAY);
+      const selected = filters.overdue || filters.processOverdue
+        ? applyChildItemOverdueCuts(ALL_ROWS, CATALOG, filters, TODAY)
+        : ALL_ROWS;
       const from = (filters.page - 1) * filters.pageSize;
       return {
         items: selected.slice(from, from + filters.pageSize),
         total: selected.length,
         qtyTotal: selected.reduce((sum, item) => sum + item.quantity, 0),
         weightTotal: selected.reduce((sum, item) => sum + (item.weightTotal ?? 0), 0),
-        kitOverdue: summarizeKitOverdue(selected, CATALOG, TODAY),
+        kitOverdue:
+          filters.overdue || filters.processOverdue
+            ? summarizeKitOverdue(selected, CATALOG, TODAY)
+            : null,
       };
     });
   });
@@ -308,11 +313,11 @@ describe("getChildItemsPage — filtro de processo 'Atrasados' (052)", () => {
     expect(page.kitOverdue).toEqual({ records: 2, qty: 6, weight: 10 });
   });
 
-  it("sem recortes, a página e o card vêm de uma única consulta", async () => {
+  it("sem recortes, a página carrega sem pedir o resumo KIT", async () => {
     const page = await getChildItemsPage({} as never, parseChildItemFilters({}));
 
     expect(page.items).toHaveLength(ALL_ROWS.length);
-    expect(page.kitOverdue).toEqual({ records: 2, qty: 6, weight: 10 });
+    expect(page.kitOverdue).toBeNull();
     expect(page.qtyTotal).toBe(17);
     expect(listChildItemGroupsMock).toHaveBeenCalledTimes(1);
   });

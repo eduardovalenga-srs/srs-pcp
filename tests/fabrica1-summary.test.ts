@@ -73,4 +73,20 @@ describe("Fabrica1Summary — card Atrasados pela regra do KIT", () => {
     expect(atrasados).toContain("aria-current");
     expect(atrasados).toContain('href="/fabrica-1?atrasados=1"');
   });
+
+  it("deixa o resumo de atrasados sob demanda sem bloquear a renderização da lista", () => {
+    const deferred = renderToStaticMarkup(
+      createElement(Fabrica1Summary, {
+        total: 40,
+        qtyTotal: 400,
+        weightTotal: 900,
+        kitOverdue: null,
+        expedition: { count: 1, qty: 2, weight: 1 },
+        filters: parseChildItemFilters({}),
+      }),
+    );
+    const atrasados = cardSection(deferred, "Atrasados", "KIT");
+    expect(atrasados).toContain("Calcular atrasados");
+    expect(atrasados).not.toContain('href="/fabrica-1?atrasados=1"');
+  });
 });
