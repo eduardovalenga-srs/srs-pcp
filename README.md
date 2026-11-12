@@ -93,6 +93,7 @@ cp .env.example .env.local
 #    supabase/migrations/057_mp_receipt_child_items.sql
 #    supabase/migrations/058_mp_receipt_legacy_recovery.sql
 #    supabase/migrations/059_mp_entry_notes.sql
+#    supabase/migrations/060_mp_receipt_free_items.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -166,7 +167,7 @@ src/
     utils/                  datas, formatação, filtros, regras de produção
     supabase/               clientes: server (anon + RLS), client (browser), admin (service role)
 supabase/
-  migrations/               001..044 (ordem obrigatória)
+  migrations/               001..060 (ordem obrigatória)
   seed_demo.sql             OF 001..OF 008 (opcional)
   clear_data.sql            limpa todo o movimento para reimportar/testar (manual)
 tests/                      testes de migrations, RLS, RPC, importação, regras, usuários
@@ -953,8 +954,8 @@ produzir com parte do material.
 - Item **sem material em peso** cai num grupo **sintético** (a própria descrição do
   item, em KG) com o peso planejado dele — ele continua sendo recebível.
 - Os campos de peso **começam zerados (0)**: a nota leva só o que foi digitado (material
-  sem valor não entra no registro e não aparece no histórico). O botão **"= saldo"**
-  preenche o saldo sob demanda, para registrar o material inteiro.
+  sem valor não entra no registro e não aparece no histórico). Não há preenchimento
+  automático do saldo — o usuário digita quanto chegou.
 - A data efetiva da célula MP ("recebida em DD/MM") é a **data da nota que cobriu
   o material**.
 - Toda a agregação fica no **Postgres** (`mp_order_materials`,
@@ -964,6 +965,27 @@ produzir com parte do material.
 -- Materiais da OF (o que a tela mostra)
 select * from public.mp_order_materials('<uuid da OF>');
 ```
+
+## Material FORA DA OF na nota de entrada (migração 060)
+
+A mesma nota de entrada aceita, **de forma opcional**, uma lista de **material fora da
+OF** — matéria-prima que chegou mas não pertence à OF em conferência. Cada linha tem
+**descrição + unidade de medida + quantidade** (a UM é a lista do projeto: kg, g, m,
+m², m³, l, un, cx, sc).
+
+- A lista fica num bloco próprio abaixo dos materiais da OF, com **"Adicionar item fora
+  da OF"**; o usuário só a usa quando precisa.
+- A nota pode ter **só materiais da OF**, **só itens fora da OF** ou **os dois** — mas
+  não pode ficar vazia.
+- É **só registro**: o item livre **não** entra em `mp_order_materials`,
+  `mp_order_material_plan` nem `mp_order_material_allocation`. Ele **não mexe no saldo**
+  da OF nem no **espelho da coluna MP** (o portão da produção) — serve de rastro do que
+  entrou, e aparece na coluna **"Fora da OF"** do histórico.
+- No banco, a tabela **`mp_receipt_free_items`** guarda as linhas da nota (chave
+  normalizada = descrição + unidade, sem repetir o mesmo item na mesma nota). Excluir a
+  nota apaga os itens livres em cascata.
+- A RPC `save_mp_receipt` ganhou o 6º parâmetro `p_free_items` (default `[]`); o
+  overload antigo de 5 parâmetros foi removido.
 
 ## Recuperar as marcas de MP perdidas na 057 (migração 058)
 

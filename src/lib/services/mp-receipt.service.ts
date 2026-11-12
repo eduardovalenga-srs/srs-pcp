@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type {
   MpReceiptCustomerOption,
+  MpReceiptFreeItem,
   MpReceiptHistoryEntry,
   MpReceiptMaterial,
 } from "@/lib/types/mp-receipt";
@@ -63,10 +64,15 @@ function mapHistoryRow(row: MpReceiptHistoryRow): MpReceiptHistoryEntry {
       unit: material.material_unit,
       quantityKg: toNumber(material.quantity_kg) ?? 0,
     })),
+    freeItems: (row.mp_receipt_free_items ?? []).map((item) => ({
+      description: item.description,
+      unit: item.unit,
+      quantity: toNumber(item.quantity) ?? 0,
+    })),
   };
 }
 
-/** Registra uma NOTA DE ENTRADA (RPC transacional — 059). */
+/** Registra uma NOTA DE ENTRADA (RPC transacional — 059/060). */
 export async function saveMpReceipt(
   client: SupabaseServer,
   input: {
@@ -80,6 +86,7 @@ export async function saveMpReceipt(
       unit: string;
       quantityKg: number;
     }[];
+    freeItems: MpReceiptFreeItem[];
   },
 ): Promise<{ id: string; number: number }> {
   return saveMpReceiptRpc(client, input);

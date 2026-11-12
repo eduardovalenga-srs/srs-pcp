@@ -66,7 +66,7 @@ export default async function RecebimentoMpPage() {
     <>
       <Header
         title="Recebimento de MP"
-        description="Escolha o cliente e a OF, informe a nota de entrada e o peso recebido de cada matéria-prima."
+        description="Escolha o cliente e a OF, informe a nota de entrada e o peso recebido de cada matéria-prima — e, se houver, os itens fora da OF."
         actions={backAction}
       />
 

@@ -93,6 +93,14 @@ export interface MpReceiptHistoryRow {
         quantity_kg: number | string;
       }[]
     | null;
+  /** Itens recebidos fora da OF nesta nota (060). */
+  mp_receipt_free_items:
+    | {
+        description: string;
+        unit: string;
+        quantity: number | string;
+      }[]
+    | null;
 }
 
 /**
@@ -108,7 +116,8 @@ export async function listMpReceiptHistory(
     .select(
       `id, number, entry_number, entry_date, notes, created_at,
        profiles ( name ),
-       mp_receipt_materials ( material_key, material_description, material_unit, quantity_kg )`,
+       mp_receipt_materials ( material_key, material_description, material_unit, quantity_kg ),
+       mp_receipt_free_items ( description, unit, quantity )`,
     )
     .eq("order_id", orderId)
     .order("number", { ascending: false });
@@ -117,7 +126,7 @@ export async function listMpReceiptHistory(
   return (data ?? []) as unknown as MpReceiptHistoryRow[];
 }
 
-/** Grava uma NOTA DE ENTRADA (RPC transacional — 059). */
+/** Grava uma NOTA DE ENTRADA (RPC transacional — 059/060). */
 export async function saveMpReceiptRpc(
   client: SupabaseServer,
   input: {
@@ -131,6 +140,12 @@ export async function saveMpReceiptRpc(
       unit: string;
       quantityKg: number;
     }[];
+    /** Materiais fora da OF (só registro — 060). */
+    freeItems: {
+      description: string;
+      unit: string;
+      quantity: number;
+    }[];
   },
 ): Promise<{ id: string; number: number }> {
   const { data, error } = await client.rpc("save_mp_receipt", {
@@ -139,6 +154,7 @@ export async function saveMpReceiptRpc(
     p_entry_date: input.entryDate,
     p_notes: input.notes,
     p_materials: input.materials as unknown as Json,
+    p_free_items: input.freeItems as unknown as Json,
   });
   assertOk(error, "Não foi possível registrar a nota de entrada");
   const payload = data as { id?: string; number?: number } | null;

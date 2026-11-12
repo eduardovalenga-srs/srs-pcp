@@ -396,6 +396,19 @@ export type MpReceiptMaterialRow = {
   created_at: string;
 };
 
+/** Linha de `mp_receipt_free_items` (060) — material recebido FORA da OF na nota. */
+export type MpReceiptFreeItemRow = {
+  id: string;
+  mp_receipt_id: string;
+  /** Chave normalizada do material (descrição + unidade). */
+  material_key: string;
+  description: string;
+  /** Unidade de medida (lista de `MATERIAL_UNITS`). */
+  unit: string;
+  quantity: number | string;
+  created_at: string;
+};
+
 /** Material da OF na tela de recebimento (059) — uma linha por material. */
 export type MpOrderMaterialRow = {
   material_key: string;
@@ -836,6 +849,27 @@ export type Database = {
           },
         ];
       };
+      mp_receipt_free_items: {
+        Row: MpReceiptFreeItemRow;
+        Insert: {
+          id?: string;
+          mp_receipt_id: string;
+          material_key: string;
+          description: string;
+          unit: string;
+          quantity: number;
+        };
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "mp_receipt_free_items_mp_receipt_id_fkey";
+            columns: ["mp_receipt_id"];
+            isOneToOne: false;
+            referencedRelation: "mp_receipts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       mp_receipt_materials: {
         Row: MpReceiptMaterialRow;
         Insert: {
@@ -1120,15 +1154,24 @@ export type Database = {
         Returns: MpOrderMaterialRow[];
       };
       save_mp_receipt: {
-        // cria a NOTA DE ENTRADA (nº + data + kg por material + espelho — 059)
+        // cria a NOTA DE ENTRADA (nº + data + kg por material da OF + itens
+        // fora da OF + espelho — 059/060)
         Args: {
           p_order_id: string;
           p_entry_number: string;
           p_entry_date: string | null;
           p_notes: string | null;
           p_materials: Json;
+          /** Itens livres (fora da OF) — só registro (060). */
+          p_free_items?: Json;
         };
-        Returns: { id: string; number: number; entryNumber: string; entryDate: string };
+        Returns: {
+          id: string;
+          number: number;
+          entryNumber: string;
+          entryDate: string;
+          freeItems: number;
+        };
       };
       delete_mp_receipt: {
         // exclusão para correção — recalcula o espelho dos itens afetados (056/059)

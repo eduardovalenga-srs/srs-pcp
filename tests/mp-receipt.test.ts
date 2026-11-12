@@ -130,17 +130,18 @@ async function orderMaterials(orderId: string): Promise<
   }));
 }
 
-/** Grava uma NOTA DE ENTRADA (RPC `save_mp_receipt`, 059). */
+/** Grava uma NOTA DE ENTRADA (RPC `save_mp_receipt`, 059/060). */
 async function save(
   orderId: string,
   entryNumber: string,
   entryDate: string,
   materials: { materialKey: string; description: string; unit: string; quantityKg: number }[],
+  freeItems: { description: string; unit: string; quantity: number }[] = [],
 ): Promise<{ id: string; number: number }> {
   const { rows } = await db.query<{ id: string; number: string }>(
     `select (r ->> 'id')::text as id, (r ->> 'number')::bigint as number
-       from (select public.save_mp_receipt($1, $2, $3::date, null, $4::jsonb) as r) s`,
-    [orderId, entryNumber, entryDate, JSON.stringify(materials)],
+       from (select public.save_mp_receipt($1, $2, $3::date, null, $4::jsonb, $5::jsonb) as r) s`,
+    [orderId, entryNumber, entryDate, JSON.stringify(materials), JSON.stringify(freeItems)],
   );
   return { id: rows[0]?.id as string, number: Number(rows[0]?.number ?? 0) };
 }
@@ -415,5 +416,192 @@ describe("recebimento de MP por matéria-prima (059)", () => {
       pendingMaterials: 1,
       pendingKg: 15,
     });
+  });
+});
+
+describe("material FORA DA OF na nota de entrada (060)", () => {
+  let orderC: string;
+  let childC: string;
+  let receiptOnlyFreeId: string;
+
+  /** Itens livres gravados, na ordem da chave normalizada. */
+  async function freeItemsOf(receiptId: string): Promise<
+    { description: string; unit: string; quantity: number; materialKey: string }[]
+  > {
+    const { rows } = await db.query<{
+      description: string;
+      unit: string;
+      quantity: string;
+      material_key: string;
+    }>(
+      `select description, unit, quantity::text as quantity, material_key
+         from public.mp_receipt_free_items
+        where mp_receipt_id = $1
+        order by material_key`,
+      [receiptId],
+    );
+    return rows.map((row) => ({
+      description: row.description,
+      unit: row.unit,
+      quantity: Number(row.quantity),
+      materialKey: row.material_key,
+    }));
+  }
+
+  async function receiptCount(orderId: string): Promise<number> {
+    const { rows } = await db.query<{ total: number }>(
+      `select count(*)::int as total from public.mp_receipts where order_id = $1`,
+      [orderId],
+    );
+    return rows[0]?.total ?? 0;
+  }
+
+  beforeAll(async () => {
+    await asSuperUser(db);
+    orderC = await createOrder("OF-MP-003", "Cliente C");
+    const root = await createItem(orderC, null, "PAI-C", "Bancada", 1, 10, 20);
+    childC = await createItem(orderC, root, "CH-C", "Perfil 20x20", 2, 5, 21);
+    await createMaterial(childC, "PERFIL 20X20", 10);
+  });
+
+  it("nota só com item fora da OF é aceita e NÃO mexe no saldo nem no espelho", async () => {
+    await asUser(db, "authenticated", gestorId);
+    const receipt = await save(orderC, "NE-C1", "2026-11-10", [], [
+      { description: "Chapa 3mm", unit: "KG", quantity: 2.5 },
+    ]);
+    receiptOnlyFreeId = receipt.id;
+    await asSuperUser(db);
+
+    // A nota existe, tem o item livre e nenhum material da OF.
+    const free = await freeItemsOf(receipt.id);
+    expect(free).toEqual([
+      {
+        description: "Chapa 3mm",
+        unit: "KG",
+        quantity: 2.5,
+        materialKey: "CHAPA 3MM::KG",
+      },
+    ]);
+    const { rows } = await db.query<{ total: number }>(
+      `select count(*)::int as total from public.mp_receipt_materials where mp_receipt_id = $1`,
+      [receipt.id],
+    );
+    expect(rows[0]?.total).toBe(0);
+
+    // Saldo e espelho da OF intactos — item livre é só registro.
+    const materials = await orderMaterials(orderC);
+    expect(materials.find((m) => m.materialKey === "PERFIL 20X20::KG")).toMatchObject({
+      totalKg: 10,
+      receivedKg: 0,
+      balanceKg: 10,
+    });
+    expect(await mpCell(childC)).toMatchObject({
+      status: "NAO_INICIADO",
+      completed: 0,
+    });
+  });
+
+  it("grava os itens fora da OF ao lado dos materiais da OF (mesma nota)", async () => {
+    await asUser(db, "authenticated", gestorId);
+    const receipt = await save(
+      orderC,
+      "NE-C2",
+      "2026-11-11",
+      [
+        {
+          materialKey: "PERFIL 20X20::KG",
+          description: "PERFIL 20X20",
+          unit: "KG",
+          quantityKg: 10,
+        },
+      ],
+      [
+        { description: " chapa 3mm ", unit: "kg", quantity: 2.5 },
+        { description: "Parafuso M8", unit: "UN", quantity: 100 },
+      ],
+    );
+    await asSuperUser(db);
+
+    // Descrição sem espaços nas pontas e unidade normalizada.
+    expect(await freeItemsOf(receipt.id)).toEqual([
+      {
+        description: "chapa 3mm",
+        unit: "KG",
+        quantity: 2.5,
+        materialKey: "CHAPA 3MM::KG",
+      },
+      {
+        description: "Parafuso M8",
+        unit: "UN",
+        quantity: 100,
+        materialKey: "PARAFUSO M8::UN",
+      },
+    ]);
+
+    // O material da OF fecha o item; os livres não entram na conta.
+    expect(await mpCell(childC)).toMatchObject({ status: "CONCLUIDO", completed: 10 });
+    expect((await orderMaterials(orderC))[0]).toMatchObject({ balanceKg: 0 });
+  });
+
+  it("rejeita item fora da OF inválido (e não deixa a nota pela metade)", async () => {
+    await asUser(db, "authenticated", gestorId);
+    const before = await receiptCount(orderC);
+
+    const cases: { freeItems: { description: string; unit: string; quantity: number }[]; error: RegExp }[] =
+      [
+        {
+          freeItems: [{ description: "  ", unit: "KG", quantity: 1 }],
+          error: /descrição/i,
+        },
+        {
+          freeItems: [{ description: "Chapa", unit: "XX", quantity: 1 }],
+          error: /unidade/i,
+        },
+        {
+          freeItems: [{ description: "Chapa", unit: "KG", quantity: 0 }],
+          error: /quantidade/i,
+        },
+        {
+          freeItems: [
+            { description: "Chapa", unit: "KG", quantity: 1 },
+            { description: " chapa ", unit: "KG", quantity: 2 },
+          ],
+          error: /repetido/i,
+        },
+      ];
+
+    for (const testCase of cases) {
+      await expect(save(orderC, "NE-ERRO", "2026-11-12", [], testCase.freeItems)).rejects.toThrow(
+        testCase.error,
+      );
+    }
+
+    // Nota vazia (nem material da OF, nem item fora) também é recusada.
+    await expect(save(orderC, "NE-VAZIA", "2026-11-12", [], [])).rejects.toThrow(
+      /ao menos um material/i,
+    );
+    await asSuperUser(db);
+
+    expect(await receiptCount(orderC)).toBe(before);
+  });
+
+  it("excluir a nota apaga os itens fora da OF (cascade)", async () => {
+    await asUser(db, "authenticated", gestorId);
+    await db.query(`select public.delete_mp_receipt($1)`, [receiptOnlyFreeId]);
+    await asSuperUser(db);
+
+    const { rows } = await db.query<{ total: number }>(
+      `select count(*)::int as total
+         from public.mp_receipt_free_items
+        where mp_receipt_id = $1`,
+      [receiptOnlyFreeId],
+    );
+    expect(rows[0]?.total).toBe(0);
+
+    // A outra nota (com itens livres) continua intacta.
+    const { rows: remaining } = await db.query<{ total: number }>(
+      `select count(*)::int as total from public.mp_receipt_free_items`,
+    );
+    expect(remaining[0]?.total).toBe(2);
   });
 });

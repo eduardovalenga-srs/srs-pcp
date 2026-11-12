@@ -24,6 +24,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Combobox, type ComboboxOption } from "@/components/shared/combobox";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
+import {
+  MpFreeItemsEditor,
+  formatMpFreeItemQuantity,
+  invalidMpFreeItemMessage,
+  markedMpFreeItems,
+  type MpFreeItemDraft,
+} from "@/components/recebimento-mp/MpFreeItemsEditor";
 
 const NO_CUSTOMER_KEY = "__sem_cliente__";
 
@@ -89,12 +96,20 @@ export function markedMpMaterials(
   });
 }
 
-/** Pelo menos um material com kg válido. */
+/**
+ * Pelo menos uma coisa para registrar: material da OF com kg válido OU
+ * item fora da OF preenchido (060). Item fora da OF começado e
+ * incompleto também habilita o botão — o clique mostra o que falta, em
+ * vez de deixar o botão desabilitado sem explicação.
+ */
 export function canSaveMpReceipt(
   materials: readonly MpReceiptMaterial[],
   quantities: Record<string, string>,
+  freeItems: readonly MpFreeItemDraft[] = [],
 ): boolean {
-  return markedMpMaterials(materials, quantities).length > 0;
+  if (markedMpMaterials(materials, quantities).length > 0) return true;
+  if (markedMpFreeItems(freeItems).length > 0) return true;
+  return freeItems.some((item) => item.description.trim() !== "" || item.quantity.trim() !== "");
 }
 
 /**
@@ -103,8 +118,7 @@ export function canSaveMpReceipt(
  * Deliberado: um default preenchido (o Saldo) entrava na nota junto —
  * o material que não tinha chegado era gravado como recebido por
  * completo, zerava o saldo e liberava a produção sem o material. O
- * que entra na nota é só o que o clerk DIGITOU; o botão "= saldo"
- * preenche o saldo sob demanda (ação explícita, não default).
+ * que entra na nota é só o que o clerk DIGITOU.
  */
 export function initialMpQuantities(): Record<string, string> {
   return {};
@@ -138,8 +152,9 @@ interface RecebimentoMpFormProps {
 /**
  * /recebimento-mp: seletor em cascata (cliente → OFs com pendência) +
  * NOTA DE ENTRADA (nº + data) + o peso recebido de cada MATÉRIA-PRIMA
- * (campos ZERADOS — só entra na nota o que foi digitado) + histórico
- * com exclusão em dois passos.
+ * (campos ZERADOS — só entra na nota o que foi digitado) + itens
+ * opcionais FORA DA OF (descrição + UM + quantidade, só registro) +
+ * histórico com exclusão em dois passos.
  *
  * O salvamento é uma nota por ação (RPC transacional) e o espelho da
  * coluna MP é recalculado no banco — por preenchimento sequencial do
@@ -153,6 +168,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
   const [materials, setMaterials] = useState<MpReceiptMaterial[] | null>(null);
   const [history, setHistory] = useState<MpReceiptHistoryEntry[]>([]);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [freeItems, setFreeItems] = useState<MpFreeItemDraft[]>([]);
   const [entryNumber, setEntryNumber] = useState("");
   const [entryDate, setEntryDate] = useState("");
   const [notes, setNotes] = useState("");
@@ -179,6 +195,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
     setMaterials(null);
     setHistory([]);
     setQuantities({});
+    setFreeItems([]);
     setEntryNumber("");
     setEntryDate(todayISODate());
     setNotes("");
@@ -224,14 +241,22 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
     setMaterials(result.materials);
     setHistory(result.history);
     setQuantities(initialMpQuantities());
+    setFreeItems([]);
   };
 
   const handleSave = async () => {
     if (saving || !selectedOf || !materials) return;
 
+    const invalidFreeItem = invalidMpFreeItemMessage(freeItems);
+    if (invalidFreeItem) {
+      toast.error(invalidFreeItem);
+      return;
+    }
+
     const marked = markedMpMaterials(materials, quantities);
-    if (marked.length === 0) {
-      toast.error("Informe o peso recebido de pelo menos uma matéria-prima.");
+    const markedFree = markedMpFreeItems(freeItems);
+    if (marked.length === 0 && markedFree.length === 0) {
+      toast.error("Informe o peso de uma matéria-prima da OF ou adicione um item fora da OF.");
       return;
     }
     if (!entryNumber.trim()) {
@@ -247,6 +272,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
         entryDate: entryDate || null,
         notes,
         materials: marked,
+        freeItems: markedFree,
       });
       if (!result.success) {
         toast.error(result.message || "Não foi possível registrar a nota de entrada.");
@@ -289,6 +315,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
 
   const marked = materials ? markedMpMaterials(materials, quantities) : [];
   const markedKg = marked.reduce((total, material) => total + material.quantityKg, 0);
+  const markedFree = markedMpFreeItems(freeItems);
 
   return (
     <section aria-label="Recebimento de matéria-prima" className="space-y-3">
@@ -331,7 +358,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
           <div className="space-y-1 text-sm text-muted-foreground">
             <p>
               {selectedOf
-                ? "Informe a nota de entrada e o peso recebido de cada matéria-prima."
+                ? "Informe a nota de entrada, o peso recebido de cada matéria-prima e, se houver, os itens fora da OF."
                 : "Selecione o cliente e a OF para registrar o recebimento."}
             </p>
             {selectedOf ? (
@@ -356,7 +383,9 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
           <Button
             type="button"
             id="mp-recebimento-confirmar"
-            disabled={!canEdit || saving || !materials || !canSaveMpReceipt(materials, quantities)}
+            disabled={
+              !canEdit || saving || !materials || !canSaveMpReceipt(materials, quantities, freeItems)
+            }
             onClick={() => void handleSave()}
           >
             {saving ? (
@@ -426,9 +455,8 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
             <h2 className="text-sm font-semibold">Matérias-primas da OF</h2>
             <p className="text-xs text-muted-foreground">
               Uma linha por matéria-prima — o peso total soma os itens que a consomem. Preencha
-              só os materiais que vieram <strong>nesta nota</strong>: os campos começam vazios e
-              material sem valor não entra no registro. Use “= saldo” para registrar o material
-              inteiro.
+              só os materiais que vieram <strong>nesta nota</strong>: os campos começam zerados e
+              material sem valor não entra no registro.
             </p>
           </div>
 
@@ -472,51 +500,30 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
                       {formatWeight(material.balanceKg)}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Input
-                          id={`mp-kg-${material.materialKey}`}
-                          type="number"
-                          min={0}
-                          step="any"
-                          inputMode="decimal"
-                          value={mpQuantityValue(quantities, material.materialKey)}
-                          onChange={(event) =>
-                            setQuantities((previous) => ({
-                              ...previous,
-                              [material.materialKey]: event.target.value,
-                            }))
-                          }
-                          onFocus={(event) => {
-                            // Campo ainda no 0 (intocado): seleciona o
-                            // texto para o clerk DIGITAR por cima. Com
-                            // valor já lançado, o cursor fica normal —
-                            // dá para acrescentar dígitos (25 → 250).
-                            if (event.target.value === "0") event.target.select();
-                          }}
-                          disabled={!canEdit}
-                          className="w-32 text-right tabular-nums"
-                          aria-label={`Peso recebido de ${material.description} nesta nota`}
-                        />
-                        {material.balanceKg > 0 ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={!canEdit}
-                            onClick={() =>
-                              setQuantities((previous) => ({
-                                ...previous,
-                                [material.materialKey]: String(material.balanceKg),
-                              }))
-                            }
-                            title={`Preencher com o saldo (${formatWeight(material.balanceKg)} kg)`}
-                            aria-label={`Preencher com o saldo de ${material.description}`}
-                            className="h-9 shrink-0 px-2 text-xs text-muted-foreground"
-                          >
-                            = saldo
-                          </Button>
-                        ) : null}
-                      </div>
+                      <Input
+                        id={`mp-kg-${material.materialKey}`}
+                        type="number"
+                        min={0}
+                        step="any"
+                        inputMode="decimal"
+                        value={mpQuantityValue(quantities, material.materialKey)}
+                        onChange={(event) =>
+                          setQuantities((previous) => ({
+                            ...previous,
+                            [material.materialKey]: event.target.value,
+                          }))
+                        }
+                        onFocus={(event) => {
+                          // Campo ainda no 0 (intocado): seleciona o
+                          // texto para o clerk DIGITAR por cima. Com
+                          // valor já lançado, o cursor fica normal —
+                          // dá para acrescentar dígitos (25 → 250).
+                          if (event.target.value === "0") event.target.select();
+                        }}
+                        disabled={!canEdit}
+                        className="ml-auto w-32 text-right tabular-nums"
+                        aria-label={`Peso recebido de ${material.description} nesta nota`}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -524,11 +531,44 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
             </table>
           </div>
 
+          <div className="space-y-2 rounded border bg-card p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold">Material fora da OF (opcional)</h2>
+              <p className="text-xs text-muted-foreground">
+                Matéria-prima que chegou nesta nota mas não pertence a esta OF. É só registro — não
+                afeta o saldo nem a liberação da produção.
+              </p>
+            </div>
+            <MpFreeItemsEditor
+              value={freeItems}
+              onChange={setFreeItems}
+              disabled={!canEdit}
+            />
+          </div>
+
           <div className="flex flex-wrap items-end justify-between gap-3 rounded border bg-card p-3">
             <p className="text-sm text-muted-foreground">
-              Nesta nota: {marked.length}{" "}
-              {marked.length === 1 ? "matéria-prima" : "matérias-primas"} ·{" "}
-              <span className="tabular-nums">{formatWeight(markedKg)}</span>
+              Nesta nota:{" "}
+              {marked.length === 0 && markedFree.length === 0 ? (
+                "nada informado"
+              ) : (
+                <>
+                  {marked.length > 0 ? (
+                    <>
+                      {marked.length}{" "}
+                      {marked.length === 1 ? "matéria-prima" : "matérias-primas"} da OF ·{" "}
+                      <span className="tabular-nums">{formatWeight(markedKg)}</span>
+                    </>
+                  ) : null}
+                  {marked.length > 0 && markedFree.length > 0 ? " · " : null}
+                  {markedFree.length > 0 ? (
+                    <>
+                      {markedFree.length}{" "}
+                      {markedFree.length === 1 ? "item fora da OF" : "itens fora da OF"}
+                    </>
+                  ) : null}
+                </>
+              )}
             </p>
             <p className="text-xs text-muted-foreground">
               O material recebido cobre os itens na ordem de produção — um item só fecha quando o
@@ -562,6 +602,9 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
                     Matérias-primas (kg)
                   </th>
                   <th scope="col" className="px-3 py-2 font-medium">
+                    Fora da OF
+                  </th>
+                  <th scope="col" className="px-3 py-2 font-medium">
                     Observação
                   </th>
                   <th scope="col" className="px-3 py-2 text-right font-medium">
@@ -585,6 +628,20 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
                           </li>
                         ))}
                       </ul>
+                    </td>
+                    <td className="px-3 py-2">
+                      {entry.freeItems.length === 0 ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <ul className="space-y-0.5">
+                          {entry.freeItems.map((item, index) => (
+                            <li key={`${entry.id}-free-${index}`} className="tabular-nums">
+                              {item.description}:{" "}
+                              {formatMpFreeItemQuantity(item.quantity, item.unit)}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{entry.notes ?? "—"}</td>
                     <td className="px-3 py-2 text-right">

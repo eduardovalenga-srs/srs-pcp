@@ -114,6 +114,7 @@ export async function saveMpReceiptAction(
       entryDate: parsed.data.entryDate,
       notes: parsed.data.notes,
       materials: parsed.data.materials,
+      freeItems: parsed.data.freeItems,
     });
 
     revalidateMpReceipt();

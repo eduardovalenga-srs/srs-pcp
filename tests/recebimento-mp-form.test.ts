@@ -11,6 +11,13 @@ import {
   mpQuantityValue,
   orderComboboxOptions,
 } from "@/components/recebimento-mp/RecebimentoMpForm";
+import {
+  formatMpFreeItemQuantity,
+  invalidMpFreeItemMessage,
+  markedMpFreeItems,
+  newMpFreeItem,
+} from "@/components/recebimento-mp/MpFreeItemsEditor";
+import type { MpFreeItemDraft } from "@/components/recebimento-mp/MpFreeItemsEditor";
 import type {
   MpReceiptCustomerOption,
   MpReceiptMaterial,
@@ -117,12 +124,77 @@ describe("recebimento de MP — o campo nasce ZERADO", () => {
   });
 
   it("o 0 do campo não é o saldo da OF", () => {
-    // O saldo vive na coluna "Saldo" (e no botão "= saldo"); o campo
-    // nasce zerado para o material não vir como recebido por padrão.
+    // O saldo vive só na coluna "Saldo"; o campo nasce zerado e o
+    // clerk digita quanto recebeu (sem preenchimento automático).
     const materials = [material()];
     expect(materials[0]?.balanceKg).toBe(20);
     expect(mpQuantityValue(initialMpQuantities(), KEY)).toBe("0");
     expect(markedMpMaterials(materials, initialMpQuantities())).toEqual([]);
+  });
+});
+
+describe("recebimento de MP — material fora da OF (060)", () => {
+  function draft(overrides: Partial<MpFreeItemDraft> = {}): MpFreeItemDraft {
+    return { ...newMpFreeItem(), ...overrides };
+  }
+
+  it("a linha nova nasce vazia e em kg", () => {
+    const item = newMpFreeItem();
+    expect(item).toMatchObject({ description: "", quantity: "", unit: "KG" });
+    expect(item.id).not.toBe(newMpFreeItem().id);
+  });
+
+  it("linha em branco não entra na nota", () => {
+    expect(markedMpFreeItems([draft()])).toEqual([]);
+    expect(invalidMpFreeItemMessage([draft()])).toBeNull();
+  });
+
+  it("entra o item com descrição e quantidade (vírgula aceita)", () => {
+    expect(
+      markedMpFreeItems([draft({ description: "  Chapa 3mm ", unit: "M2", quantity: "1,5" })]),
+    ).toEqual([{ description: "Chapa 3mm", unit: "M2", quantity: 1.5 }]);
+  });
+
+  it("linha começada e incompleta é barrada com mensagem clara", () => {
+    expect(invalidMpFreeItemMessage([draft({ description: "Chapa", quantity: "" })])).toMatch(
+      /quantidade/,
+    );
+    expect(invalidMpFreeItemMessage([draft({ description: " ", quantity: "2" })])).toMatch(
+      /matéria-prima/,
+    );
+  });
+
+  it("não repete a mesma matéria-prima na lista (descrição + UM)", () => {
+    const items = [
+      draft({ description: "Chapa", unit: "KG", quantity: "1" }),
+      draft({ description: " chapa ", unit: "KG", quantity: "2" }),
+    ];
+    expect(invalidMpFreeItemMessage(items)).toMatch(/repetida/i);
+    // Unidade diferente é outro material.
+    expect(
+      invalidMpFreeItemMessage([
+        draft({ description: "Chapa", unit: "KG", quantity: "1" }),
+        draft({ description: "Chapa", unit: "M2", quantity: "2" }),
+      ]),
+    ).toBeNull();
+  });
+
+  it("o botão Registrar habilita com SÓ itens fora da OF", () => {
+    const materials = [material()];
+    expect(canSaveMpReceipt(materials, {}, [])).toBe(false);
+    expect(canSaveMpReceipt(materials, {}, [draft()])).toBe(false);
+    expect(
+      canSaveMpReceipt(materials, {}, [draft({ description: "Chapa", quantity: "2" })]),
+    ).toBe(true);
+    // Linha começada (ainda incompleta) também habilita: o clique
+    // mostra o que falta, em vez de travar sem explicação.
+    expect(canSaveMpReceipt(materials, {}, [draft({ description: "Chapa" })])).toBe(true);
+  });
+
+  it("mostra a quantidade com o rótulo da unidade", () => {
+    expect(formatMpFreeItemQuantity(2.5, "KG")).toBe("2,5 kg");
+    expect(formatMpFreeItemQuantity(100, "UN")).toBe("100 un");
+    expect(formatMpFreeItemQuantity(1, "M2")).toBe("1 m²");
   });
 });
 

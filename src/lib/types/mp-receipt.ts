@@ -63,7 +63,19 @@ export interface MpReceiptMaterial {
 }
 
 /**
- * Linha do histórico de uma NOTA DE ENTRADA (cabeçalho + materiais).
+ * Material recebido FORA DA OF numa nota de entrada (060): descrição +
+ * unidade de medida + quantidade. É só registro — não mexe no saldo da
+ * OF nem no espelho da coluna MP (o portão da produção).
+ */
+export interface MpReceiptFreeItem {
+  description: string;
+  unit: string;
+  quantity: number;
+}
+
+/**
+ * Linha do histórico de uma NOTA DE ENTRADA (cabeçalho + materiais da
+ * OF + itens fora da OF).
  */
 export interface MpReceiptHistoryEntry {
   id: string;
@@ -81,4 +93,6 @@ export interface MpReceiptHistoryEntry {
     unit: string;
     quantityKg: number;
   }[];
+  /** Materiais recebidos fora da OF nesta mesma nota (060). */
+  freeItems: MpReceiptFreeItem[];
 }
