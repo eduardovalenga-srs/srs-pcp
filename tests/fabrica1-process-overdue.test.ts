@@ -8,8 +8,10 @@ import type {
 } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
 import {
+  applyChildItemOverdueCuts,
   buildChildItemGroup,
   isGroupProcessOverdue,
+  summarizeKitOverdue,
 } from "@/lib/utils/child-item-groups";
 import { parseChildItemFilters } from "@/lib/utils/filters";
 
@@ -20,8 +22,8 @@ import { parseChildItemFilters } from "@/lib/utils/filters";
  *    processo ainda não concluído (a mesma data que a célula pinta de
  *    vermelho); por coluna ou por qualquer etapa editável (filtro do grupo,
  *    com o MP de fora);
- *  - o RECORTE: varredura do conjunto filtrado inteiro + página em memória,
- *    combinando por E com o "Atrasados" do card (regra do KIT, `atrasados=1`).
+ *  - o RECORTE: flags de atraso, filtros e paginação são encaminhados à RPC;
+ *    a tela não varre as páginas para filtrar ou calcular o card.
  *
  * Entrega em 2020 (janelas vencidas) e em 2099 (janela futura): os casos
  * ficam estáveis em qualquer data de execução.
@@ -224,11 +226,16 @@ describe("getChildItemsPage — filtro de processo 'Atrasados' (052)", () => {
     listChildItemGroupsMock.mockReset();
     getActiveProcessesMock.mockReset();
     getActiveProcessesMock.mockResolvedValue(CATALOG);
-    listChildItemGroupsMock.mockResolvedValue({
-      items: ALL_ROWS,
-      total: ALL_ROWS.length,
-      qtyTotal: 17,
-      weightTotal: 20,
+    listChildItemGroupsMock.mockImplementation(async (_client, filters) => {
+      const selected = applyChildItemOverdueCuts(ALL_ROWS, CATALOG, filters, TODAY);
+      const from = (filters.page - 1) * filters.pageSize;
+      return {
+        items: selected.slice(from, from + filters.pageSize),
+        total: selected.length,
+        qtyTotal: selected.reduce((sum, item) => sum + item.quantity, 0),
+        weightTotal: selected.reduce((sum, item) => sum + (item.weightTotal ?? 0), 0),
+        kitOverdue: summarizeKitOverdue(selected, CATALOG, TODAY),
+      };
     });
   });
 
@@ -250,9 +257,8 @@ describe("getChildItemsPage — filtro de processo 'Atrasados' (052)", () => {
       parseChildItemFilters({ processo: "LASER", procsatrasado: "1" }),
     );
 
-    // A RPC já reduz o conjunto ao grupo que TEM o processo (situação =
-    // ALL); o recorte de data continua em memória.
-    expect(listChildItemGroupsMock).toHaveBeenCalled();
+    // A RPC reduz o conjunto pelo processo e pela data da janela.
+    expect(listChildItemGroupsMock).toHaveBeenCalledTimes(1);
     const rpcFilters = listChildItemGroupsMock.mock.calls[0][1] as {
       processCode: string;
       processStatus: string;
@@ -267,7 +273,7 @@ describe("getChildItemsPage — filtro de processo 'Atrasados' (052)", () => {
     expect(page.qtyTotal).toBe(5); // 4 + 1
   });
 
-  it("pagina em memória sobre o recorte (a página da tela não vem da RPC)", async () => {
+  it("pagina o recorte na RPC sem buscar as demais páginas", async () => {
     const page = await getChildItemsPage(
       {} as never,
       parseChildItemFilters({ procsatrasado: "1", pagina: "2", porpagina: "2" }),
@@ -275,9 +281,8 @@ describe("getChildItemsPage — filtro de processo 'Atrasados' (052)", () => {
 
     expect(page.total).toBe(3);
     expect(page.items.map((item) => item.id)).toEqual([kitOk.id]);
-    for (const call of listChildItemGroupsMock.mock.calls) {
-      expect((call[1] as { pageSize: number }).pageSize).toBe(1000);
-    }
+    expect(listChildItemGroupsMock).toHaveBeenCalledTimes(1);
+    expect((listChildItemGroupsMock.mock.calls[0]?.[1] as { pageSize: number }).pageSize).toBe(2);
   });
 
   it("combina por E com o 'Atrasados' do card (atrasados=1, regra do KIT)", async () => {
@@ -303,12 +308,12 @@ describe("getChildItemsPage — filtro de processo 'Atrasados' (052)", () => {
     expect(page.kitOverdue).toEqual({ records: 2, qty: 6, weight: 10 });
   });
 
-  it("sem nenhum recorte ligado, a página continua vindo da RPC (comportamento antigo)", async () => {
+  it("sem recortes, a página e o card vêm de uma única consulta", async () => {
     const page = await getChildItemsPage({} as never, parseChildItemFilters({}));
 
     expect(page.items).toHaveLength(ALL_ROWS.length);
-    // A varredura do card roda em paralelo e o número continua pela regra do KIT.
     expect(page.kitOverdue).toEqual({ records: 2, qty: 6, weight: 10 });
     expect(page.qtyTotal).toBe(17);
+    expect(listChildItemGroupsMock).toHaveBeenCalledTimes(1);
   });
 });

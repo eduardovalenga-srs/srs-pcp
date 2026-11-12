@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 
 import { asSuperUser, asUser, createTestDatabase, createUser } from "./helpers/test-db";
+import { computeProcessSchedule } from "@/lib/utils/process-schedule";
 
 let db: PGlite;
 let close: () => Promise<void>;
@@ -2105,6 +2106,7 @@ describe("get_child_item_groups (033) — grupos por código do filho", () => {
   let ofGrp1: string;
   let ofGrp2: string;
   let laserId: string;
+  let overdueGroupKeys: string[];
 
   // OF-9001: dois pais com o MESMO filho (grupo de 2), um filho único e um
   // sem código (agrupa pela descrição). OF-9002: repete o código da outra
@@ -2143,7 +2145,86 @@ describe("get_child_item_groups (033) — grupos por código do filho", () => {
       `select id from public.processes where code = 'LASER'`,
     );
     laserId = rows[0]?.id as string;
+
+    const overdueOrder = await createOrder("OF-9003", "2026-10-20");
+    const overdueParent = await createRootItem(overdueOrder, "P-903A", "Pai vencido", 20, 12.5, []);
+    await createChild(overdueOrder, overdueParent, "CH-STALE-A", "Filho KIT vencido A", 2, [
+      { code: "LASER", status: "NAO_INICIADO" },
+      { code: "KIT", status: "NAO_INICIADO" },
+    ]);
+    await createChild(overdueOrder, overdueParent, "CH-STALE-B", "Filho KIT vencido B", 3, [
+      { code: "LASER", status: "NAO_INICIADO" },
+      { code: "KIT", status: "NAO_INICIADO" },
+    ]);
+    await createChild(overdueOrder, overdueParent, "CH-DONE", "Filho KIT concluído", 1, [
+      { code: "LASER", status: "NAO_INICIADO" },
+      { code: "KIT", status: "CONCLUIDO" },
+    ]);
+    await createChild(overdueOrder, overdueParent, "CH-NA", "Filho KIT não aplicável", 1, [
+      { code: "LASER", status: "NAO_INICIADO" },
+      { code: "KIT", status: "NAO_APLICAVEL" },
+    ]);
+    overdueGroupKeys = ["CH-STALE-A", "CH-STALE-B"];
+
+    const skippedProcessOrder = await createOrder("OF-9004", "2026-10-20");
+    const skippedProcessParent = await createRootItem(
+      skippedProcessOrder,
+      "P-904A",
+      "Pai com etapa ignorada",
+      5,
+      12.5,
+      [],
+    );
+    await createChild(skippedProcessOrder, skippedProcessParent, "CH-SKIP-EXP", "EXP não aplicável", 4, [
+      { code: "KIT", status: "NAO_INICIADO" },
+      { code: "EXP", status: "NAO_APLICAVEL" },
+    ]);
   });
+
+  async function callGroupsPage(params: {
+    overdue?: boolean;
+    processOverdue?: boolean;
+    processCode?: string;
+    orderCode?: string;
+    today?: string;
+    offset?: number;
+    limit?: number;
+  } = {}): Promise<{
+    total: number;
+    qtyTotal: number;
+    weightTotal: number;
+    kitOverdue: { records: number; qty: number; weight: number };
+    groups: { orderId: string; key: string; itemIds: string[] }[];
+  }> {
+    const { rows } = await db.query<{
+      data: {
+        total: number;
+        qtyTotal: number;
+        weightTotal: number;
+        kitOverdue: { records: number; qty: number; weight: number };
+        groups: { orderId: string; key: string; itemIds: string[] }[];
+      };
+    }>(
+      `select public.get_child_item_groups_page(
+         p_order_code => $1,
+         p_kit_overdue => $2,
+         p_process_overdue => $3,
+         p_process_code => $4,
+         p_today => $5::date,
+         p_offset => $6,
+         p_limit => $7
+       ) as data`,
+      [params.orderCode ?? "OF-9003", params.overdue ?? false, params.processOverdue ?? false,
+        params.processCode ?? "ALL", params.today ?? "2026-10-20", params.offset ?? 0, params.limit ?? 50],
+    );
+    return rows[0]?.data as {
+      total: number;
+      qtyTotal: number;
+      weightTotal: number;
+      kitOverdue: { records: number; qty: number; weight: number };
+      groups: { orderId: string; key: string; itemIds: string[] }[];
+    };
+  }
 
   async function callGroups(
     params: Record<string, unknown> = {},
@@ -2244,5 +2325,76 @@ describe("get_child_item_groups (033) — grupos por código do filho", () => {
     expect(Number(data?.total)).toBe(1); // só CH-1 tem membro LASER concluído
     expect(data?.groups[0]?.key).toBe("CH-1");
     expect(data?.groups[0]?.itemIds).toHaveLength(1); // só o membro concluído
+  });
+
+  it("agrega o card KIT no banco sem limitar os totais à página visível", async () => {
+    const data = await callGroupsPage({ limit: 1 });
+    expect(data.total).toBe(4);
+    expect(data.kitOverdue).toEqual({ records: 2, qty: 5, weight: 62.5 });
+    expect(data.groups).toHaveLength(1);
+  });
+
+  it("filtra KIT vencido antes da paginação e preserva os totais do conjunto", async () => {
+    const first = await callGroupsPage({ overdue: true, limit: 1 });
+    const second = await callGroupsPage({ overdue: true, limit: 1, offset: 1 });
+
+    expect(first.total).toBe(2);
+    expect(first.qtyTotal).toBe(5);
+    expect(first.kitOverdue).toEqual({ records: 2, qty: 5, weight: 62.5 });
+    expect(first.groups).toHaveLength(1);
+    expect(second.total).toBe(2);
+    expect(second.groups).toHaveLength(1);
+    expect(new Set([first.groups[0]?.key, second.groups[0]?.key])).toEqual(new Set(overdueGroupKeys));
+  });
+
+  it("filtra atraso de processo e combina com o atraso do KIT por E", async () => {
+    const processOnly = await callGroupsPage({ processOverdue: true, processCode: "LASER" });
+    const both = await callGroupsPage({ overdue: true, processOverdue: true, processCode: "LASER" });
+
+    expect(processOnly.groups.map((group) => group.key)).toHaveLength(4);
+    expect(processOnly.kitOverdue).toEqual({ records: 2, qty: 5, weight: 62.5 });
+    expect(both.total).toBe(2);
+    expect(both.groups.map((group) => group.key).sort()).toEqual(overdueGroupKeys);
+  });
+
+  it("a janela do KIT ignora etapas não aplicáveis ao contar dias úteis", async () => {
+    const { rows: catalog } = await db.query<{
+      code: string;
+      display_order: number;
+      duration_days: number;
+    }>(
+      `select code, display_order, duration_days from public.processes where active order by display_order, code`,
+    );
+    const window = computeProcessSchedule(
+      "2026-10-20",
+      catalog.map((process) => ({
+        code: process.code,
+        displayOrder: process.display_order,
+        durationDays: process.duration_days,
+        status:
+          process.code === "KIT"
+            ? "NAO_INICIADO"
+            : process.code === "EXP"
+              ? "NAO_APLICAVEL"
+              : undefined,
+      })),
+    ).get("KIT");
+    expect(window).toBeDefined();
+    const afterStart = new Date(`${window?.start}T00:00:00.000Z`);
+    afterStart.setUTCDate(afterStart.getUTCDate() + 1);
+
+    const onStartDate = await callGroupsPage({
+      orderCode: "OF-9004",
+      overdue: true,
+      today: window?.start,
+    });
+    const nextDay = await callGroupsPage({
+      orderCode: "OF-9004",
+      overdue: true,
+      today: afterStart.toISOString().slice(0, 10),
+    });
+
+    expect(onStartDate.total).toBe(0); // Atraso é estritamente anterior ao início calculado.
+    expect(nextDay.total).toBe(1);
   });
 });

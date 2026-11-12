@@ -1,7 +1,6 @@
 /** Configurações centrais de paginação e limites da aplicação.
  *
- * Todas as listas usam o MESMO padrão (200) e as mesmas opções
- * (200/500/1000), lidas da URL (`?pagina`/`?porpagina`). O teto de 1000
+ * Os tamanhos são lidos da URL (`?pagina`/`?porpagina`). O teto de 1000
  * vale para qualquer valor vindo da URL (clamp em filters.ts); as RPCs
  * recebem p_limit explícito e o banco não impõe teto (só piso).
  */
@@ -20,9 +19,9 @@ export const ROMANEIO_PAGE_SIZE_OPTIONS = [200, 500, 1000] as const;
 
 export const IMPORT_HISTORY_PAGE_SIZE = 20;
 /** Tela Fábrica 1 (itens filhos + materiais). */
-export const CHILD_ITEMS_PAGE_SIZE = 200;
-/** Opções do seletor "Por página" da Fábrica 1 (mesmas das demais listas). */
-export const CHILD_ITEMS_PAGE_SIZE_OPTIONS = [200, 500, 1000] as const;
+export const CHILD_ITEMS_PAGE_SIZE = 50;
+/** Opções do seletor "Por página" da Fábrica 1. */
+export const CHILD_ITEMS_PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
 
 export const MAX_PAGE_SIZE = 1000;
 

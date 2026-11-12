@@ -6,7 +6,6 @@ import { workbookResponse } from "@/lib/export/workbook";
 import { listChildItemGroups } from "@/lib/repositories/order-items.repository";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { createClient } from "@/lib/supabase/server";
-import { applyChildItemOverdueCuts } from "@/lib/utils/child-item-groups";
 import { todayISODate } from "@/lib/utils/dates";
 import { parseChildItemFilters } from "@/lib/utils/filters";
 import { errorMessage } from "@/lib/utils/supabase-result";
@@ -48,14 +47,10 @@ export async function GET(request: Request) {
               client,
               { ...filters, page, pageSize: EXPORT_PAGE_SIZE },
               processId,
+              today,
             ).then((result) => ({ rows: result.items, total: result.total })),
           );
-    // Recortes em MEMÓRIA da tela: "Atrasados" do card (regra do KIT) e, na
-    // 052, "Atrasados" dos filtros de processo — combinados por E, a
-    // planilha leva o MESMO recorte que a lista mostra.
-    const items = applyChildItemOverdueCuts(groups, processes, filters, today);
-
-    return workbookResponse(exportFileName("fabrica-1"), fabrica1Sheet(items, processes, today));
+    return workbookResponse(exportFileName("fabrica-1"), fabrica1Sheet(groups, processes, today));
   } catch (error) {
     return Response.json(
       { error: errorMessage(error, "Não foi possível exportar a lista.") },

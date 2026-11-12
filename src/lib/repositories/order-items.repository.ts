@@ -16,6 +16,8 @@ import { escapeFilterTerm } from "@/lib/utils/filters";
 import { mpReceiptFromCell } from "@/lib/utils/mp-receipt";
 import { pendingQuantity, pendingRootQuantity, pendingRootWeight, pendingWeight } from "@/lib/utils/shipping";
 import { assertOk } from "@/lib/utils/supabase-result";
+import { todayISODate } from "@/lib/utils/dates";
+import type { KitOverdueTotals } from "@/lib/utils/child-item-groups";
 
 function toNumber(value: number | string | null): number | null {
   if (value === null || value === undefined) return null;
@@ -358,15 +360,14 @@ const PARENT_ID_LOOKUP_LIMIT = 500;
  * Itens FILHOS agrupados por código dentro da OF (033) — base da tela
  * Fábrica 1 (visão de insumos: o componente repetido vira UMA linha).
  *
- * Três passos:
- *  1. RPC `get_child_item_groups` (página de grupos + nº de grupos) em
- *     paralelo com a `get_child_items_totals` (soma do card) — os 11
- *     filtros são os mesmos das duas;
+ * Dois passos:
+ *  1. RPC `get_child_item_groups_page`: página, totais e recortes de atraso
+ *     calculados juntos no banco, com os filtros atuais;
  *  2. busca dos membros da página pelos ids, com os embeds de exibição
  *     (processos/materiais) e os PAIS numa consulta própria — o
- *     self-join do PostgREST só resolve a direção "filhos";
- *  3. montagem: `buildChildItemGroup` soma quantidade/peso, agrega
- *     processos/materiais e a coluna MP herdada dos pais.
+ *     self-join do PostgREST só resolve a direção "filhos"; então
+ *     `buildChildItemGroup` soma quantidade/peso, agrega processos/materiais
+ *     e a coluna MP herdada dos pais.
  *
  * O embed de materiais continua `!inner` com o ilike quando há filtro:
  * os membros já casam o filtro (a RPC decidiu a pertinência) e o embed
@@ -379,7 +380,8 @@ export async function listChildItemGroups(
   client: SupabaseServer,
   filters: ChildItemFilters,
   processId: string | null = null,
-): Promise<ChildItemGroupsResult> {
+  today: string = todayISODate(),
+): Promise<ChildItemGroupsResult & { kitOverdue: KitOverdueTotals }> {
   const search = escapeFilterTerm(filters.search);
   const orderCode = filters.orderCode.trim();
   const customer = filters.customer.trim();
@@ -403,9 +405,7 @@ export async function listChildItemGroups(
     parentIds = (data ?? []).map((row) => row.id);
   }
 
-  // 033: página de GRUPOS (código do filho, dentro da OF) + contagem de
-  // grupos, em paralelo com a soma do card (024) — os filtros são os
-  // mesmos das duas RPCs.
+  // 062: página, totais e recortes de atraso são calculados numa única RPC.
   const rpcFilters = {
     p_search: search || null,
     p_order_code: orderCode || null,
@@ -435,27 +435,33 @@ export async function listChildItemGroups(
   const groupsRpcFilters = {
     ...rpcFilters,
     // 043: ordenação por coluna (whitelist do parser) — a RPC decide o
-    // ORDER BY no servidor. Só a listagem de grupos recebe: os totais
-    // (get_child_items_totals) não aceitam p_sort/p_sort_dir.
+    // ORDER BY no servidor.
     p_sort: filters.sort,
     p_sort_dir: filters.sortDir,
   };
   const from = (filters.page - 1) * filters.pageSize;
-  const [groupsResult, totalsResult] = await Promise.all([
-    client.rpc("get_child_item_groups", {
-      ...groupsRpcFilters,
-      p_offset: from,
-      p_limit: filters.pageSize,
-    }),
-    client.rpc("get_child_items_totals", rpcFilters),
-  ]);
+  const { data, error } = await client.rpc("get_child_item_groups_page", {
+    ...groupsRpcFilters,
+    p_offset: from,
+    p_limit: filters.pageSize,
+    p_kit_overdue: filters.overdue,
+    p_process_overdue: filters.processOverdue,
+    p_process_code: filters.processCode,
+    p_today: today,
+  });
 
-  assertOk(groupsResult.error, "Não foi possível carregar os itens filhos");
-  assertOk(totalsResult.error, "Não foi possível carregar os itens filhos");
+  assertOk(error, "Não foi possível carregar os itens filhos");
 
   type GroupRow = { orderId: string; key: string; itemIds: string[] };
-  const groupsPayload = (groupsResult.data ?? {}) as unknown as {
+  const groupsPayload = (data ?? {}) as unknown as {
     total?: number | string;
+    qtyTotal?: number | string;
+    weightTotal?: number | string;
+    kitOverdue?: {
+      records?: number | string;
+      qty?: number | string;
+      weight?: number | string;
+    };
     groups?: GroupRow[];
   };
   const groupRows = groupsPayload.groups ?? [];
@@ -463,19 +469,16 @@ export async function listChildItemGroups(
     ...new Set(groupRows.flatMap((group) => group.itemIds ?? [])),
   ];
 
-  type TotalsRow = {
-    total: number | string;
-    qtyTotal: number | string;
-    weightTotal: number | string;
-    /** 035: a RPC ainda devolve `families` — a quebra por família não é mais exibida. */
-    families?: { family: string | null; qty: number | string; weight: number | string }[];
-  };
-  const totals = (totalsResult.data ?? {}) as unknown as TotalsRow;
   const aggregated = {
-    //033: card e paginação contam GRUPOS; os somatórios seguem Σ por item.
+    // 062: página, totais e recortes de atraso vêm da mesma consulta agregada.
     total: toNumber(groupsPayload.total ?? null) ?? 0,
-    qtyTotal: toNumber(totals.qtyTotal) ?? 0,
-    weightTotal: toNumber(totals.weightTotal) ?? 0,
+    qtyTotal: toNumber(groupsPayload.qtyTotal ?? null) ?? 0,
+    weightTotal: toNumber(groupsPayload.weightTotal ?? null) ?? 0,
+    kitOverdue: {
+      records: toNumber(groupsPayload.kitOverdue?.records ?? null) ?? 0,
+      qty: toNumber(groupsPayload.kitOverdue?.qty ?? null) ?? 0,
+      weight: toNumber(groupsPayload.kitOverdue?.weight ?? null) ?? 0,
+    },
   };
   if (memberIds.length === 0) {
     return { items: [], ...aggregated };

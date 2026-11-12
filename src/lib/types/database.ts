@@ -1008,6 +1008,38 @@ export type Database = {
         };
         Returns: Json;
       };
+      get_child_item_groups_page: {
+        // Página, totais e recortes de atraso da Fábrica 1 calculados no banco (062).
+        Args: {
+          p_search?: string | null;
+          p_order_code?: string | null;
+          p_customer?: string | null;
+          p_child_item?: string | null;
+          p_description?: string | null;
+          p_material?: string | null;
+          p_parent_ids?: string[] | null;
+          p_delivery_from?: string | null;
+          p_delivery_to?: string | null;
+          p_process_id?: string | null;
+          p_process_status?: string | null;
+          p_offset?: number | null;
+          p_limit?: number | null;
+          p_seq?: number | null;
+          p_qty_min?: number | null;
+          p_qty_max?: number | null;
+          p_weight_min?: number | null;
+          p_weight_max?: number | null;
+          p_weight_unit_min?: number | null;
+          p_weight_unit_max?: number | null;
+          p_sort?: string | null;
+          p_sort_dir?: string | null;
+          p_kit_overdue?: boolean | null;
+          p_process_overdue?: boolean | null;
+          p_process_code?: string | null;
+          p_today?: string | null;
+        };
+        Returns: Json;
+      };
       reorder_processes: {
         Args: { p_ids: string[] };
         Returns: undefined;

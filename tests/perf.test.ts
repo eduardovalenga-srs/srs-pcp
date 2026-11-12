@@ -12,7 +12,7 @@ import { asSuperUser, createTestDatabase } from "./helpers/test-db";
  *  - get_production_rows   -> gestão de entregas / atrasados (paginação + cards)
  *  - get_production_stats  -> cards do dashboard
  *  - get_dashboard_orders  -> top clientes + envelhecimento
- *  - get_child_items_totals -> card da Fábrica 1
+ *  - get_child_item_groups_page -> página, totais e card da Fábrica 1
  *
  * Os limites são generosos para CI lento; o ponto é pegar regressão de
  * ordem de grandeza (ex.: voltar a varrer tudo no JavaScript).
@@ -232,6 +232,29 @@ describe(`performance com base grande (${ORDER_COUNT} OFs)`, () => {
     expect(Array.isArray(data?.groups)).toBe(true);
     expect((data?.groups ?? []).length).toBeLessThanOrEqual(25);
     expect((data?.groups ?? []).every((group) => group.itemIds.length > 0)).toBe(true);
+    expect(ms).toBeLessThan(BUDGET_MS);
+  });
+
+  it("get_child_item_groups_page calcula os atrasados sem varrer páginas no cliente", async () => {
+    const { value, ms } = await timed(() =>
+      db.query<{
+        data: {
+          total: number;
+          groups: { itemIds: string[] }[];
+          kitOverdue: { records: number; qty: number; weight: number };
+        };
+      }>(
+        `select public.get_child_item_groups_page(
+           p_today => current_date,
+           p_limit => 50
+         ) as data`,
+      ),
+    );
+    const data = value.rows[0]?.data;
+    expect(Number(data?.total)).toBeGreaterThan(0);
+    expect(data?.groups).toHaveLength(50);
+    expect(data?.groups.every((group) => group.itemIds.length > 0)).toBe(true);
+    expect(Number(data?.kitOverdue.records)).toBe(0);
     expect(ms).toBeLessThan(BUDGET_MS);
   });
 });

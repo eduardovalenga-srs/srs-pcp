@@ -56,8 +56,9 @@ describe("ChildItemsPagination", () => {
     expect(markup).toBe("");
   });
 
-  it("publica 3 opções de tamanho, todas válidas para o backend (1–1000)", () => {
-    expect([...CHILD_ITEMS_PAGE_SIZE_OPTIONS]).toEqual([200, 500, 1000]);
+  it("usa 50 por padrão e oferece 100 e 200 como opções maiores", () => {
+    expect(CHILD_ITEMS_PAGE_SIZE).toBe(50);
+    expect([...CHILD_ITEMS_PAGE_SIZE_OPTIONS]).toEqual([50, 100, 200]);
     for (const size of CHILD_ITEMS_PAGE_SIZE_OPTIONS) {
       expect(parseChildItemFilters({ porpagina: String(size) }).pageSize).toBe(size);
     }

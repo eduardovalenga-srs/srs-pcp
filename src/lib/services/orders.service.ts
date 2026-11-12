@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseServer } from "@/lib/supabase/types";
-import type { ChildItemFilters, ChildItemGroupsResult, ChildItemGroup, OrderFilters, OrderListResult, OrderDetails, OrderItemPayload } from "@/lib/types/order";
+import type { ChildItemFilters, ChildItemGroupsResult, OrderFilters, OrderListResult, OrderDetails, OrderItemPayload } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
 import type { Json } from "@/lib/types/database";
 import type { ProcessStatus } from "@/lib/constants/production";
@@ -16,13 +16,7 @@ import {
 } from "@/lib/repositories/orders.repository";
 import { replaceItemMaterials } from "@/lib/repositories/materials.repository";
 import { getOrderItemWithProcesses, listChildItemGroups } from "@/lib/repositories/order-items.repository";
-import { collectAllPages, EXPORT_PAGE_SIZE } from "@/lib/utils/collect-pages";
-import {
-  applyChildItemOverdueCuts,
-  kitOverdueGroups,
-  summarizeKitOverdue,
-  type KitOverdueTotals,
-} from "@/lib/utils/child-item-groups";
+import type { KitOverdueTotals } from "@/lib/utils/child-item-groups";
 import { applyPlan } from "@/lib/repositories/import.repository";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { orderWithItemsSchema, type OrderWithItemsOutput } from "@/lib/validators/order-item.schema";
@@ -81,80 +75,10 @@ export interface ChildItemPage extends ChildItemGroupsResult {
   /** Data de referência (AAAA-MM-DD) — mesma base da regra de atraso. */
   today: string;
   /**
-   * Regra do KIT: card "Atrasados" da Fábrica 1 — grupos do CONJUNTO FILTRADO INTEIRO
-   * (todas as páginas) com o início previsto da coluna KIT anterior a hoje.
+   * Regra do KIT: totais do card "Atrasados", agregados no banco sobre o
+   * conjunto filtrado, sem carregar as demais páginas para calculá-los.
    */
   kitOverdue: KitOverdueTotals;
-}
-
-/**
- * Varre o conjunto filtrado INTEIRO (todas as páginas) — mesma varredura da
- * exportação (.xlsx): página de 1000 grupos por chamada, filtros idênticos
- * aos da lista, para os cards e os recortes em memória baterem com a tela.
- */
-async function collectChildItemGroups(
-  client: SupabaseServer,
-  filters: ChildItemFilters,
-  processId: string | null,
-): Promise<ChildItemGroup[]> {
-  return collectAllPages((page) =>
-    listChildItemGroups(client, { ...filters, page, pageSize: EXPORT_PAGE_SIZE }, processId).then(
-      (result) => ({ rows: result.items, total: result.total }),
-    ),
-  );
-}
-
-/**
- * Varre o conjunto filtrado inteiro e devolve os grupos com o KIT vencido —
- * cartão "Atrasados" da Fábrica 1 (regra em memória).
- */
-async function listKitOverdueGroups(
-  client: SupabaseServer,
-  filters: ChildItemFilters,
-  processId: string | null,
-  processes: readonly ProcessDefinition[],
-  today: string,
-): Promise<ChildItemGroup[]> {
-  const items = await collectChildItemGroups(client, filters, processId);
-  return kitOverdueGroups(items, processes, today);
-}
-
-/** Os três números do card "Atrasados" para um conjunto de grupos já vencidos. */
-function kitOverdueTotalsOf(groups: readonly ChildItemGroup[]): KitOverdueTotals {
-  return groups.reduce<KitOverdueTotals>(
-    (totals, group) => {
-      totals.records += 1;
-      totals.qty += group.quantity;
-      totals.weight += group.weightTotal ?? 0;
-      return totals;
-    },
-    { records: 0, qty: 0, weight: 0 },
-  );
-}
-
-/**
- * Página em memória de um conjunto JÁ recortado (filtros "Atrasados" da F1):
- * corta a página, soma qtd./peso e alimenta os cards com o MESMO conjunto
- * que a lista exibe — a lista passa a ser o próprio recorte e "Eventos"
- * mostra o total filtrado. O card "Atrasados" continua pela regra do KIT
- * sobre o conjunto exibido (com o recorte do card ligado, ele é o próprio
- * conjunto — mesmíssimo número de antes).
- */
-function sliceChildItemGroups(
-  groups: readonly ChildItemGroup[],
-  filters: ChildItemFilters,
-  processes: readonly ProcessDefinition[],
-  today: string,
-): ChildItemGroupsResult & { kitOverdue: KitOverdueTotals } {
-  const totals = kitOverdueTotalsOf(groups);
-  const from = (filters.page - 1) * filters.pageSize;
-  return {
-    items: groups.slice(from, from + filters.pageSize),
-    total: groups.length,
-    qtyTotal: totals.qty,
-    weightTotal: totals.weight,
-    kitOverdue: summarizeKitOverdue(groups, processes, today),
-  };
 }
 
 /**
@@ -162,13 +86,8 @@ function sliceChildItemGroups(
  * O catálogo é carregado antes da lista porque resolve o `processCode`
  * do filtro para o id da linha de processo (filtro no banco).
  *
- * O card "Atrasados" (regra do KIT) roda em paralelo com a página: ele varre o
- * conjunto filtrado inteiro para comparar a data da coluna KIT de cada
- * grupo com a data de referência.
- *
- * 052: o mesmo caminho vale para a opção "Atrasados" dos filtros de PROCESSO
- * (`procsatrasado=1`) — com ela (ou o card) ligada, a lista passa a ser o
- * próprio recorte, combinando os dois por E.
+ * Página, totais e recortes de atraso são resolvidos numa RPC agregada; nenhum
+ * recorte exige carregar todas as páginas ou seus embeds.
  */
 export async function getChildItemsPage(
   client: SupabaseServer,
@@ -195,22 +114,8 @@ export async function getChildItemsPage(
     };
   }
 
-  // Recortes em MEMÓRIA ligados (card "Atrasados" e/ou opção "Atrasados"
-  // dos filtros de processo — 052): as janelas não existem no banco, então
-  // não há filtro equivalente na RPC — o recorte é feito sobre o conjunto
-  // filtrado inteiro e a página é montada aqui. Paginar no banco antes
-  // descartaria grupos vencidos das outras páginas.
-  if (filters.overdue || filters.processOverdue) {
-    const all = await collectChildItemGroups(client, filters, processId);
-    const cut = applyChildItemOverdueCuts(all, processes, filters, today);
-    return { ...sliceChildItemGroups(cut, filters, processes, today), processes, today };
-  }
-
-  const [result, overdueGroups] = await Promise.all([
-    listChildItemGroups(client, filters, processId),
-    listKitOverdueGroups(client, filters, processId, processes, today),
-  ]);
-  return { ...result, processes, today, kitOverdue: kitOverdueTotalsOf(overdueGroups) };
+  const result = await listChildItemGroups(client, filters, processId, today);
+  return { ...result, processes, today };
 }
 
 export async function getOrder(client: SupabaseServer, orderId: string): Promise<OrderDetails | null> {

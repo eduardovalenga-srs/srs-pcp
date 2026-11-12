@@ -333,7 +333,7 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
 
   // 052: opção "Atrasados" dos filtros de PROCESSO da Fábrica 1 — um valor
   // por filtro: a flag substitui a situação (uma URL mal escrita com as
-  // duas zera a situação) e nunca chega à RPC (o recorte é em memória).
+  // duas zera a situação); a RPC aplica o recorte em dias úteis.
   const processOverdue = firstValue(params.procsatrasado) === "1";
 
   // Card "Atrasados" da Fábrica 1: `?atrasados=1` liga o recorte do KIT vencido.

@@ -434,18 +434,14 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   quando nenhum se aplica, e no meio `NAO_INICIADO` com Σconcluído/Σplanejado dos
   aplicáveis; nunca só cor). A **MP herdada agrega os pais do grupo** (pior situação,
   menor entrega, data efetiva mais recente entre os concluídos). Acima da
-  lista, três **cards de resumo** (038 — mesmos chips da Fábrica 2, mas aqui
-  **informativos**, sem clique/filtro, pois esta tela não tem atalho OVERDUE/EXP):
+  lista, três **cards de resumo** (038 — mesmos chips da Fábrica 2):
   **Eventos** com Registros = nº de linhas agrupadas, Qtd. total e Peso total do
-  **conjunto filtrado inteiro** (RPC `get_child_items_totals` — migração 024,
-  redefinida pela **035** e pelos filtros de grupo da **038**) e, pelo MESMO conjunto
-  filtrado inteiro (varredura `collectAllPages` de `lib/utils/collect-pages.ts`, com os
-  mesmos filtros da tela e da exportação), o card **Atrasados** (regra do KIT): os grupos cuja
+  **conjunto filtrado inteiro** e, pelo mesmo conjunto, o card **Atrasados** (regra do KIT): os grupos cuja
   **janela da coluna KIT** — o INÍCIO previsto (`plan.start`, calculado no servidor;
   o mesmo valor que a célula exibe em vermelho) — é **anterior à data de
   referência** e cujo KIT ainda
-  **não concluiu**. A regra mora em `isChildItemKitOverdue`
-  (`lib/utils/child-item-groups.ts`) e roda no servidor dentro de `getChildItemsPage`;
+  **não concluiu**. A regra é calculada no banco pela RPC `get_child_item_groups_page`
+  (migração 062), que agrega os números sem carregar as outras páginas nem seus embeds;
   Registros/Qtd./Peso somam só esses grupos, e linha **sem janela de KIT** (sem entrega,
   KIT desmarcado `NAO_APLICAVEL` ou sem processo KIT) não conta. O card **KIT** segue
   **global** (na Fábrica 1 o card da EXPEDIÇÃO do item raiz se resolve no KIT — objeto
@@ -454,10 +450,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   mais a lista Famílias** (a quebra por TP saiu das três telas; os campos
   `families`/`family_totals`/`overdueFamilies`/`expeditionFamilies` seguem saindo
   das RPCs, sem leitura no front).
-  A página vem da RPC **`get_child_item_groups`** (migração 033): aplica os **mesmos 11
-  filtros** da `get_child_items_totals` (clonados da 024), agrupa por **(OF, código do
-  filho)** — descrição quando o código vem vazio —, devolve os ids dos membros e pagina
-  por menor entrega → chave. Grupos **nunca atravessam OFs**; os membros de uma página
+  A página, os totais e os recortes de atraso vêm da RPC **`get_child_item_groups_page`**
+  (migração 062): aplica os filtros, agrupa por **(OF, código do filho)** — descrição
+  quando o código vem vazio —, calcula os totais, filtra atrasos e pagina no banco.
+  Grupos **nunca atravessam OFs**; os membros da página
   são buscados em seguida e montados no servidor (`lib/utils/child-item-groups.ts`).
   Clicar numa célula de grupo com N membros abre a folha em modo lote: **só a situação
   é aplicada a todos os itens do grupo** (ação `updateProcessBatchAction` com escopo
@@ -483,12 +479,10 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   MP mostra o status do pai). Segue a regra de **um valor por filtro de processo**:
   escolher "Atrasados" zera a situação e vice-versa (URL `procsatrasado=1` junto de
   `processo=` — mesma chave da Fábrica 2, chip próprio — "LASER: Atrasados" ou
-  "Atrasados (qualquer processo)" — e a chave some ao desligar). Como a janela não
-  existe no banco, o corte acontece **em memória**: o serviço varre o conjunto
-  filtrado inteiro, recorta (combinando **por E** com o recorte do card
-  `atrasados=1`, regra do KIT) e só então pagina; os cards e a exportação `.xlsx`
-  usam o MESMO recorte (`applyChildItemOverdueCuts` em
-  `lib/utils/child-item-groups.ts`). Só a Fábrica 1 aplica — a Gestão de OF e a
+  "Atrasados (qualquer processo)" — e a chave some ao desligar). A RPC calcula as
+  janelas em dias úteis no banco e aplica os recortes (combinando **por E** com o
+  recorte do card `atrasados=1`, regra do KIT) **antes da paginação**; os cards e a
+  exportação `.xlsx` usam o mesmo resultado. Só a Fábrica 1 aplica — a Gestão de OF e a
   Fábrica 2 usam chaves próprias.
   **Ordenação por coluna** (043 — o cabeçalho do grupo passou a ser ordenável por
   link; antes era a ordenação fixa abaixo): **Seq.** (igualdade sobre o MENOR seq do
@@ -496,10 +490,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   as demais colunas (**OF/OS**, **Cliente**, **Filho**, **Matérias-primas**, **Qtd.**,
   **Peso un.**, **Peso total**, **Entrega** e uma coluna de processo — MP ordena pelo
   pior rank entre os **pais** distintos, os demais por rank agregado do grupo — viram
-  `p_sort` na RPC `get_child_item_groups` (via `?ordem=&direcao=`, ordenação server-side).
+  `p_sort` na RPC `get_child_item_groups_page` (via `?ordem=&direcao=`, ordenação server-side).
   A ordenação fixa (seq → entrega → chave) era a forma anterior e segue como default.
-  no rodapé, **"Por página"** (padrão **200**; opções **200/500/1000** — o mesmo padrão
-  das demais listas: gestão, Fábrica 2 e Pedidos, que também ganhou o seletor; o teto de
+  no rodapé, **"Por página"** (padrão **50**; opções **50/100/200**; o teto de
   1000 vale para qualquer valor vindo da URL e as leituras da página rodam em **lotes de
   250 ids** no `.in()`, para não estourar o limite de URL do PostgREST) — trocar o tamanho
   ou o filtro preserva o restante da URL e volta para a página 1. Menu visível para **todos os

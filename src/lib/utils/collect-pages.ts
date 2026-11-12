@@ -2,13 +2,10 @@
  * Varredura de listas paginadas do servidor — usada quando é preciso o
  * conjunto FILTRADO INTEIRO (não só a página visível da tela):
  *
- *  - a exportação .xlsx (espelha a lista inteira);
- *  - o card "Atrasados" da Fábrica 1 (regra do KIT), que soma todas as páginas do
- *    filtro atual antes de comparar a data da coluna KIT com hoje.
+ *  - a exportação .xlsx (espelha a lista inteira).
  *
- * Mora em `lib/utils` (e não em `lib/export`) porque não é exclusivo da
- * exportação: `lib/export/common.ts` re-exporta os dois símbolos para os
- * endpoints continuarem importando do mesmo lugar.
+ * Mora em `lib/utils` porque `lib/export/common.ts` re-exporta o símbolo para
+ * os endpoints continuarem importando do mesmo lugar.
  */
 
 /**

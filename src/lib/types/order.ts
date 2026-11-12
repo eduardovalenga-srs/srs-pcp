@@ -135,16 +135,15 @@ export interface ChildItemFilters {
    * INÍCIO previsto da janela daquele processo já passou e o processo ainda
    * não concluiu (mesma regra da cor vermelha da célula). É um VALOR por
    * filtro de processo (substitui `processStatus`), não um status do banco:
-   * por isso mora numa flag própria e a RPC nunca a vê. O recorte é em
-   * memória, sobre o conjunto já filtrado — mesma técnica do card do KIT.
+   * por isso mora numa flag própria e é avaliada pela RPC com a mesma regra
+   * da janela em dias úteis.
    */
   processOverdue: boolean;
   /**
    * Card "Atrasados": mantém só os grupos com o KIT vencido (início previsto
    * da coluna KIT anterior a hoje e KIT ainda não concluído) — a mesma regra
-   * dos números do card. A janela do KIT é calculada em memória (dias úteis +
-   * status agregados do grupo), então este recorte é aplicado no serviço,
-   * sobre o conjunto já filtrado pelas demais colunas.
+   * dos números do card. A janela do KIT é calculada no banco (dias úteis +
+   * status agregados do grupo), antes da paginação.
    */
   overdue: boolean;
   /**
