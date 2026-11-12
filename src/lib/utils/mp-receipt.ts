@@ -2,13 +2,17 @@ import type { ProcessStatus } from "@/lib/constants/production";
 import type { MpCellReceipt, MpReceiptState } from "@/lib/types/mp-receipt";
 
 /**
- * REGRA DE SITUAÇÃO do recebimento (056) — a MESMA da migração
+ * REGRA DE SITUAÇÃO do recebimento (056/059) — a MESMA da migração
  * (`mp_item_state`):
  *
  *  - sem kg recebido → NONE (coluna no estado padrão);
  *  - item SEM peso (planejado null/0): qualquer recebimento > 0 → TOTAL;
  *  - com peso: TOTAL quando a soma recebida cobre o planejado; no meio,
  *    PARCIAL.
+ *
+ * Desde a 059 o peso é o do MATERIAL que o item consome (o item não tem
+ * mais peso próprio na conta): o espelho é derivado do material pelo
+ * preenchimento sequencial na ordem de produção.
  */
 export function mpReceiptStateOf(plannedKg: number | null, receivedKg: number): MpReceiptState {
   if (receivedKg <= 0) return "NONE";
@@ -31,7 +35,7 @@ export function mpCellReceipt(plannedKg: number | null, receivedKg: number): MpC
  * O status vem primeiro de propósito: cobre marcações antigas feitas à
  * mão (CONCLUIDO sem quantidade gravada) e o agregado por OF (pior caso
  * entre os itens + Σ das quantidades), que a RPC mantém em sincronia
- * com `mp_receipt_items`.
+ * com as NOTAS DE ENTRADA (`mp_receipt_materials`).
  */
 export function mpReceiptFromCell(
   cell:

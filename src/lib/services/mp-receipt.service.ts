@@ -4,15 +4,15 @@ import type { SupabaseServer } from "@/lib/supabase/types";
 import type {
   MpReceiptCustomerOption,
   MpReceiptHistoryEntry,
+  MpReceiptMaterial,
 } from "@/lib/types/mp-receipt";
 import {
   deleteMpReceiptRpc,
   listMpReceiptCustomers,
   listMpReceiptHistory,
-  listMpReceiptItems,
+  listMpReceiptMaterials,
   saveMpReceiptRpc,
   type MpReceiptHistoryRow,
-  type MpReceiptItem,
 } from "@/lib/repositories/mp-receipt.repository";
 import { toNumber } from "@/lib/utils/formatting";
 
@@ -23,15 +23,23 @@ export async function getMpReceiptCustomers(
   return listMpReceiptCustomers(client);
 }
 
-/** Linhas elegíveis de uma OF para a tela de recebimento (057). */
-export async function getMpReceiptItems(
+/** Matérias-primas de uma OF para a tela de recebimento (059). */
+export async function getMpReceiptMaterials(
   client: SupabaseServer,
   orderId: string,
-): Promise<MpReceiptItem[]> {
-  return listMpReceiptItems(client, orderId);
+): Promise<MpReceiptMaterial[]> {
+  const rows = await listMpReceiptMaterials(client, orderId);
+  return rows.map((row) => ({
+    materialKey: row.materialKey,
+    description: row.description,
+    unit: row.unit,
+    totalKg: row.totalKg,
+    receivedKg: row.receivedKg,
+    balanceKg: row.balanceKg,
+  }));
 }
 
-/** Histórico de recebimentos de uma OF (nº, data, usuário e itens em kg). */
+/** Histórico de NOTAS DE ENTRADA de uma OF (nº, data, usuário e materiais). */
 export async function getMpReceiptHistory(
   client: SupabaseServer,
   orderId: string,
@@ -44,31 +52,40 @@ function mapHistoryRow(row: MpReceiptHistoryRow): MpReceiptHistoryEntry {
   return {
     id: row.id,
     number: toNumber(row.number) ?? 0,
-    receiptDate: row.receipt_date,
+    entryNumber: row.entry_number ?? "",
+    entryDate: row.entry_date,
     notes: row.notes,
     createdAt: row.created_at,
     userName: row.profiles?.name ?? null,
-    items: (row.mp_receipt_items ?? []).map((item) => ({
-      orderItemId: item.order_item_id,
-      description: item.order_items?.description ?? null,
-      quantityKg: toNumber(item.quantity_kg) ?? 0,
+    materials: (row.mp_receipt_materials ?? []).map((material) => ({
+      materialKey: material.material_key,
+      description: material.material_description,
+      unit: material.material_unit,
+      quantityKg: toNumber(material.quantity_kg) ?? 0,
     })),
   };
 }
 
-/** Registra um recebimento de MP (RPC transacional — 056). */
+/** Registra uma NOTA DE ENTRADA (RPC transacional — 059). */
 export async function saveMpReceipt(
   client: SupabaseServer,
   input: {
     orderId: string;
+    entryNumber: string;
+    entryDate: string | null;
     notes: string | null;
-    items: { orderItemId: string; quantityKg: number }[];
+    materials: {
+      materialKey: string;
+      description: string;
+      unit: string;
+      quantityKg: number;
+    }[];
   },
 ): Promise<{ id: string; number: number }> {
   return saveMpReceiptRpc(client, input);
 }
 
-/** Exclui um recebimento para correção (recalcula o espelho no banco). */
+/** Exclui uma nota de entrada (recalcula o espelho no banco). */
 export async function deleteMpReceipt(
   client: SupabaseServer,
   receiptId: string,

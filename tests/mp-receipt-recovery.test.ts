@@ -8,7 +8,10 @@ let db: PGlite;
 let close: () => Promise<void>;
 let adminId: string;
 
-/** OF com marca manual do MP no PAI (simula a Gestão de OF). */
+/**
+ * OF com marca manual do MP no PAI (simula a Gestão de OF).
+ * O pai tem 2 filhos que consomem o MESMO material (TB33: 10 kg cada).
+ */
 let orderA: string;
 let rootA: string;
 let childA1: string;
@@ -42,14 +45,29 @@ async function createItem(
   code: string,
   quantity: number,
   unitWeight: number,
+  seq: number | null = null,
 ): Promise<string> {
   const { rows } = await db.query<{ id: string }>(
     `insert into public.order_items
-       (order_id, parent_item, description, quantity, unit_weight_kg, parent_order_item_id, status)
-     values ($1, $2, 'Conjunto', $3, $4, $5, 'PLANEJADO') returning id`,
-    [orderId, code, quantity, unitWeight, parentItemId],
+       (order_id, parent_item, description, quantity, unit_weight_kg, parent_order_item_id, status, seq)
+     values ($1, $2, 'Conjunto', $3, $4, $5, 'PLANEJADO', $6) returning id`,
+    [orderId, code, quantity, unitWeight, parentItemId, seq],
   );
   return rows[0]?.id as string;
+}
+
+/** Material do item (o insumo que ele consome). */
+async function createMaterial(
+  itemId: string,
+  description: string,
+  quantity: number,
+  unit = "KG",
+): Promise<void> {
+  await db.query(
+    `insert into public.order_item_materials (order_item_id, description, quantity, unit)
+     values ($1, $2, $3, $4)`,
+    [itemId, description, quantity, unit],
+  );
 }
 
 /** Célula MP do item (como a lista mostra): status + kg + datas. */
@@ -156,19 +174,27 @@ async function recover(
   return rows[0]?.report ?? {};
 }
 
+/** Notas de entrada da OF (cabeçalho + materiais em kg). */
 async function receiptRows(orderId: string): Promise<
-  { id: string; date: string; notes: string | null; kg: number }[]
+  { id: string; number: string; date: string; notes: string | null; kg: number }[]
 > {
-  const { rows } = await db.query<{ id: string; date: string; notes: string | null; kg: string }>(
+  const { rows } = await db.query<{
+    id: string;
+    number: string;
+    date: string;
+    notes: string | null;
+    kg: string;
+  }>(
     `select r.id,
-            r.receipt_date::text as date,
+            r.entry_number as number,
+            r.entry_date::text as date,
             r.notes,
-            coalesce(sum(i.quantity_kg), 0)::text as kg
+            coalesce(sum(m.quantity_kg), 0)::text as kg
        from public.mp_receipts r
-       left join public.mp_receipt_items i on i.mp_receipt_id = r.id
+       left join public.mp_receipt_materials m on m.mp_receipt_id = r.id
       where r.order_id = $1
-      group by r.id, r.receipt_date, r.notes
-      order by r.receipt_date`,
+      group by r.id, r.entry_number, r.entry_date, r.notes
+      order by r.entry_date`,
     [orderId],
   );
   return rows.map((row) => ({ ...row, kg: Number(row.kg) }));
@@ -182,22 +208,27 @@ beforeAll(async () => {
   await asSuperUser(db);
   adminId = await createUser(db, "admin.recuperacao@serralheria.com", "ADMIN");
 
-  // OF-A: pai com 2 filhos (20 kg + 10 kg). O PAI foi marcado À MÃO
-  // (Gestão de OF) e o primeiro filho ficou CONCLUIDO por CASCATA.
+  // OF-A: pai com 2 filhos (20 kg + 10 kg de material). O PAI foi
+  // marcado À MÃO (Gestão de OF) e o primeiro filho ficou CONCLUIDO
+  // por CASCATA.
   orderA = await createOrder("OF-REC-001", "Cliente A");
-  rootA = await createItem(orderA, null, "PAI-1", 1, 30);
-  childA1 = await createItem(orderA, rootA, "CH-1", 2, 10);
-  childA2 = await createItem(orderA, rootA, "CH-2", 2, 5);
+  rootA = await createItem(orderA, null, "PAI-1", 1, 30, 1);
+  childA1 = await createItem(orderA, rootA, "CH-1", 2, 10, 2);
+  childA2 = await createItem(orderA, rootA, "CH-2", 2, 5, 3);
+  await createMaterial(childA1, "TB33.40X3.38", 10);
+  await createMaterial(childA2, "TB33.40X3.38", 10);
 
   // OF-B: MP só por cascata (o PRÉ-MTG do pai concluiu o MP dele).
   orderB = await createOrder("OF-REC-002", "Cliente B");
-  rootB = await createItem(orderB, null, "PAI-2", 1, 20);
-  childB1 = await createItem(orderB, rootB, "CH-3", 2, 10);
+  rootB = await createItem(orderB, null, "PAI-2", 1, 20, 10);
+  childB1 = await createItem(orderB, rootB, "CH-3", 2, 10, 11);
+  await createMaterial(childB1, "TB33.40X3.38", 10);
 
   // OF-C: raiz SEM filhos, marcada à mão e depois ZERADA pelo fluxo
   // novo (evento de espelho) — a recuperação não pode mexer nela.
   orderC = await createOrder("OF-REC-003", "Cliente C");
-  rootC = await createItem(orderC, null, "PAI-3", 1, 12);
+  rootC = await createItem(orderC, null, "PAI-3", 1, 12, 20);
+  await createMaterial(rootC, "TB33.40X3.38", 12);
 
   // Todo item tem linha para todo processo ativo (010/022): MP nasce
   // NAO_INICIADO e os demais, NAO_APLICAVEL.
@@ -225,7 +256,7 @@ beforeAll(async () => {
     `insert into public.production_events
        (production_process_id, user_id, event_type, old_status, new_status, notes, created_at)
      select pp.id, $2, 'STATUS_CHANGE', 'CONCLUIDO', 'NAO_INICIADO',
-            'Espelho do recebimento de MP (056)', $3::timestamptz
+            'Espelho do recebimento de MP (059)', $3::timestamptz
        from public.production_processes pp
        join public.processes pr on pr.id = pp.process_id
       where pp.order_item_id = $1 and pr.code = 'MP'`,
@@ -237,7 +268,7 @@ afterAll(async () => {
   await close();
 });
 
-describe("recuperação das marcações de MP (058)", () => {
+describe("recuperação das marcações de MP (059 — grão matéria-prima)", () => {
   it("dry-run não grava nada e conta as marcas", async () => {
     await asUser(db, "authenticated", adminId);
     const report = await recover(true);
@@ -298,21 +329,21 @@ describe("recuperação das marcações de MP (058)", () => {
     await recover(false, "manual");
     await asSuperUser(db);
 
-    // OF-A: o PAI volta a CONCLUIDO (verde) e os filhos também — o
-    // espelho do pai é o agregado dos filhos (057).
-    expect(await mpCell(rootA)).toMatchObject({ status: "CONCLUIDO", planned: 30, completed: 30 });
-    expect(await mpCell(childA1)).toMatchObject({ status: "CONCLUIDO", planned: 20, completed: 20 });
+    // OF-A: o material (20 kg) vira uma nota e o espelho fecha os
+    // dois filhos + o pai (agregado).
+    expect(await mpCell(childA1)).toMatchObject({ status: "CONCLUIDO", planned: 10, completed: 10 });
     expect(await mpCell(childA2)).toMatchObject({ status: "CONCLUIDO", planned: 10, completed: 10 });
+    expect(await mpCell(rootA)).toMatchObject({ status: "CONCLUIDO", planned: 20, completed: 20 });
 
     // OF-B: só tinha cascata → fica como estava.
     expect(await mpCell(rootB)).toMatchObject({ status: "NAO_INICIADO" });
     expect(await mpCell(childB1)).toMatchObject({ status: "NAO_INICIADO" });
 
-    // Um recibo por (OF, data) — a data original da marcação.
+    // Uma nota por (OF, data) — a data original da marcação.
     const receiptsA = await receiptRows(orderA);
     expect(receiptsA).toHaveLength(1);
     expect(receiptsA[0]?.date).toBe("2026-10-21");
-    expect(receiptsA[0]?.kg).toBe(30);
+    expect(receiptsA[0]?.kg).toBe(20);
     expect(receiptsA[0]?.notes).toContain("Recuperacao 058");
   });
 
@@ -342,8 +373,8 @@ describe("recuperação das marcações de MP (058)", () => {
     await recover(false, "todas");
     await asSuperUser(db);
 
-    expect(await mpCell(rootB)).toMatchObject({ status: "CONCLUIDO", planned: 20, completed: 20 });
-    expect(await mpCell(childB1)).toMatchObject({ status: "CONCLUIDO", planned: 20, completed: 20 });
+    expect(await mpCell(rootB)).toMatchObject({ status: "CONCLUIDO", planned: 10, completed: 10 });
+    expect(await mpCell(childB1)).toMatchObject({ status: "CONCLUIDO", planned: 10, completed: 10 });
 
     const receiptsB = await receiptRows(orderB);
     expect(receiptsB).toHaveLength(1);
@@ -367,8 +398,8 @@ describe("recuperação das marcações de MP (058)", () => {
     const report = await recover(false, "todas");
     await asSuperUser(db);
 
-    const linhas = report.linhas as Record<string, number>;
-    expect(linhas.a_lancar).toBe(0);
+    const materiais = report.materiais as Record<string, number>;
+    expect(materiais.a_lancar).toBe(0);
 
     expect(await receiptRows(orderA)).toHaveLength(before.receiptsA.length);
     expect(await receiptRows(orderB)).toHaveLength(before.receiptsB.length);
@@ -378,7 +409,7 @@ describe("recuperação das marcações de MP (058)", () => {
     });
   });
 
-  it("rollback apaga os recibos e restaura as células MP", async () => {
+  it("rollback apaga as notas e restaura as células MP", async () => {
     await asUser(db, "authenticated", adminId);
     const { rows } = await db.query<{ report: Record<string, unknown> }>(
       `select public.mp_receipt_rollback_legacy() as report`,
@@ -387,7 +418,7 @@ describe("recuperação das marcações de MP (058)", () => {
 
     expect((rows[0]?.report as Record<string, unknown>).modo).toBe("rollback");
 
-    // Sem recibos da recuperação.
+    // Sem notas da recuperação.
     expect(await receiptRows(orderA)).toHaveLength(0);
     expect(await receiptRows(orderB)).toHaveLength(0);
 

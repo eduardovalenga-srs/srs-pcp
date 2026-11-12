@@ -10,21 +10,19 @@ import {
   loadMpReceiptOrderAction,
   saveMpReceiptAction,
 } from "@/lib/actions/mp-receipt.actions";
-import { MP_RECEIPT_STATE_LABELS, mpReceiptClass } from "@/lib/utils/mp-receipt";
 import type {
   MpReceiptCustomerOption,
   MpReceiptHistoryEntry,
+  MpReceiptMaterial,
 } from "@/lib/types/mp-receipt";
-import type { MpReceiptItem } from "@/lib/repositories/mp-receipt.repository";
-import { formatBusinessDate, formatDate, formatDateTime } from "@/lib/utils/dates";
+import { formatBusinessDate, formatDate, formatDateTime, todayISODate } from "@/lib/utils/dates";
 import { errorMessage } from "@/lib/utils/supabase-result";
-import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
+import { formatWeight } from "@/lib/utils/formatting";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Combobox, type ComboboxOption } from "@/components/shared/combobox";
-import { MaterialsList } from "@/components/shared/MaterialsList";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
 
 const NO_CUSTOMER_KEY = "__sem_cliente__";
@@ -53,7 +51,7 @@ export function orderComboboxOptions(ofs: MpReceiptCustomerOption["ofs"]): Combo
     badge:
       of.pendingKg !== null
         ? `${formatWeight(of.pendingKg)} pendentes`
-        : `${of.pendingItems} ${of.pendingItems === 1 ? "item" : "itens"}`,
+        : `${of.pendingMaterials} ${of.pendingMaterials === 1 ? "matéria-prima" : "matérias-primas"}`,
   }));
 }
 
@@ -63,29 +61,72 @@ function parseKg(text: string | undefined): number {
   return Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
 }
 
-/** Itens com kg informado (> 0) — o payload do recebimento. */
-export function markedMpItems(
-  items: readonly MpReceiptItem[],
+/**
+ * Materiais com kg informado (> 0) — o payload da nota de entrada.
+ * A chave do material (`materialKey`) identifica a linha.
+ */
+export function markedMpMaterials(
+  materials: readonly MpReceiptMaterial[],
   quantities: Record<string, string>,
-): { orderItemId: string; quantityKg: number }[] {
-  return items.flatMap((item) => {
-    const quantityKg = parseKg(quantities[item.orderItemId]);
-    return quantityKg > 0 ? [{ orderItemId: item.orderItemId, quantityKg }] : [];
+): {
+  materialKey: string;
+  description: string;
+  unit: string;
+  quantityKg: number;
+}[] {
+  return materials.flatMap((material) => {
+    const quantityKg = parseKg(quantities[material.materialKey]);
+    return quantityKg > 0
+      ? [
+          {
+            materialKey: material.materialKey,
+            description: material.description,
+            unit: material.unit,
+            quantityKg,
+          },
+        ]
+      : [];
   });
 }
 
-/** Pelo menos um item com kg válido. */
+/** Pelo menos um material com kg válido. */
 export function canSaveMpReceipt(
-  items: readonly MpReceiptItem[],
+  materials: readonly MpReceiptMaterial[],
   quantities: Record<string, string>,
 ): boolean {
-  return markedMpItems(items, quantities).length > 0;
+  return markedMpMaterials(materials, quantities).length > 0;
 }
 
-/** Default do input: o que ainda falta receber (sem peso → vazio). */
-function defaultQuantity(item: MpReceiptItem): string {
-  if (item.state === "TOTAL") return "";
-  return item.pendingKg !== null && item.pendingKg > 0 ? String(item.pendingKg) : "";
+/**
+ * Campos de uma NOVA nota: TODOS vazios.
+ *
+ * Deliberado: um default preenchido (o Saldo) entrava na nota junto —
+ * o material que não tinha chegado era gravado como recebido por
+ * completo, zerava o saldo e liberava a produção sem o material. O
+ * que entra na nota é só o que o clerk DIGITOU; o botão "= saldo"
+ * preenche o saldo sob demanda (ação explícita, não default).
+ */
+export function initialMpQuantities(): Record<string, string> {
+  return {};
+}
+
+/**
+ * Valor EXIBIDO no campo de um material: **0** enquanto o clerk não
+ * digita nada (o campo nunca fica em branco — "zerado" é o estado de
+ * "não veio nesta nota"), e o que foi digitado depois disso.
+ *
+ * Campo LIMPADO volta a 0 (não fica em branco): limpar é o mesmo que
+ * dizer "zero nesta nota".
+ *
+ * O estado interno continua vazio (`initialMpQuantities`): o 0 é
+ * apresentação, não um recebimento.
+ */
+export function mpQuantityValue(
+  quantities: Record<string, string>,
+  materialKey: string,
+): string {
+  const raw = quantities[materialKey];
+  return raw === undefined || raw === "" ? "0" : raw;
 }
 
 interface RecebimentoMpFormProps {
@@ -96,19 +137,24 @@ interface RecebimentoMpFormProps {
 
 /**
  * /recebimento-mp: seletor em cascata (cliente → OFs com pendência) +
- * kg recebidos por LINHA (item filho, ou pai sem filhos; default =
- * pendência) + histórico com exclusão em dois passos. O salvamento é
- * um registro por ação (RPC transacional) e o espelho da coluna MP é
- * recalculado no banco — no pai, como agregado dos filhos (057).
+ * NOTA DE ENTRADA (nº + data) + o peso recebido de cada MATÉRIA-PRIMA
+ * (campos ZERADOS — só entra na nota o que foi digitado) + histórico
+ * com exclusão em dois passos.
+ *
+ * O salvamento é uma nota por ação (RPC transacional) e o espelho da
+ * coluna MP é recalculado no banco — por preenchimento sequencial do
+ * material na ordem de produção dos itens (059).
  */
 export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps) {
   const router = useRouter();
 
   const [customerValue, setCustomerValue] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
-  const [items, setItems] = useState<MpReceiptItem[] | null>(null);
+  const [materials, setMaterials] = useState<MpReceiptMaterial[] | null>(null);
   const [history, setHistory] = useState<MpReceiptHistoryEntry[]>([]);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [entryNumber, setEntryNumber] = useState("");
+  const [entryDate, setEntryDate] = useState("");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -128,38 +174,42 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
     [customer, orderId],
   );
 
-  // Troca de cliente zera a cascata (OF, itens e histórico).
-  const onCustomerChange = (next: string) => {
-    setCustomerValue(next);
-    setOrderId(null);
-    setItems(null);
+  // Zera a cascata (OF, materiais, nota e histórico).
+  const resetEntry = () => {
+    setMaterials(null);
     setHistory([]);
     setQuantities({});
+    setEntryNumber("");
+    setEntryDate(todayISODate());
     setNotes("");
     setDeletingId(null);
   };
 
-  // Troca de OF recarrega itens + histórico e devolve os inputs com a
-  // pendência de cada item.
+  // Troca de cliente zera a cascata.
+  const onCustomerChange = (next: string) => {
+    setCustomerValue(next);
+    setOrderId(null);
+    resetEntry();
+  };
+
+  // Troca de OF recarrega materiais + histórico e devolve os inputs com
+  // o saldo de cada matéria-prima.
   const onOrderChange = async (next: string) => {
     setOrderId(next);
-    setItems(null);
-    setHistory([]);
-    setQuantities({});
-    setNotes("");
-    setDeletingId(null);
+    resetEntry();
+
     if (!next) return;
 
     setLoading(true);
     try {
       const result = await loadMpReceiptOrderAction(next);
       if (!result.success) {
-        toast.error(result.message || "Não foi possível carregar os itens da OF.");
+        toast.error(result.message || "Não foi possível carregar as matérias-primas da OF.");
         return;
       }
-      setItems(result.items);
+      setMaterials(result.materials);
       setHistory(result.history);
-      setQuantities(Object.fromEntries(result.items.map((item) => [item.orderItemId, defaultQuantity(item)])));
+      setQuantities(initialMpQuantities());
     } catch (error) {
       console.error("[RecebimentoMpForm]", error);
       toast.error(errorMessage(error));
@@ -171,17 +221,21 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
   const reloadOrder = async (currentOrderId: string) => {
     const result = await loadMpReceiptOrderAction(currentOrderId);
     if (!result.success) return;
-    setItems(result.items);
+    setMaterials(result.materials);
     setHistory(result.history);
-    setQuantities(Object.fromEntries(result.items.map((item) => [item.orderItemId, defaultQuantity(item)])));
+    setQuantities(initialMpQuantities());
   };
 
   const handleSave = async () => {
-    if (saving || !selectedOf || !items) return;
+    if (saving || !selectedOf || !materials) return;
 
-    const marked = markedMpItems(items, quantities);
+    const marked = markedMpMaterials(materials, quantities);
     if (marked.length === 0) {
-      toast.error("Informe os kg recebidos de pelo menos um item.");
+      toast.error("Informe o peso recebido de pelo menos uma matéria-prima.");
+      return;
+    }
+    if (!entryNumber.trim()) {
+      toast.error("Informe o número da nota de entrada.");
       return;
     }
 
@@ -189,11 +243,13 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
     try {
       const result = await saveMpReceiptAction({
         orderId: selectedOf.orderId,
+        entryNumber: entryNumber.trim(),
+        entryDate: entryDate || null,
         notes,
-        items: marked,
+        materials: marked,
       });
       if (!result.success) {
-        toast.error(result.message || "Não foi possível registrar o recebimento.");
+        toast.error(result.message || "Não foi possível registrar a nota de entrada.");
         return;
       }
       toast.success(result.message);
@@ -217,7 +273,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
     try {
       const result = await deleteMpReceiptAction(receiptId);
       if (!result.success) {
-        toast.error(result.message || "Não foi possível excluir o recebimento.");
+        toast.error(result.message || "Não foi possível excluir a nota de entrada.");
         return;
       }
       toast.success(result.message);
@@ -231,8 +287,8 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
     }
   };
 
-  const marked = items ? markedMpItems(items, quantities) : [];
-  const markedKg = marked.reduce((total, item) => total + item.quantityKg, 0);
+  const marked = materials ? markedMpMaterials(materials, quantities) : [];
+  const markedKg = marked.reduce((total, material) => total + material.quantityKg, 0);
 
   return (
     <section aria-label="Recebimento de matéria-prima" className="space-y-3">
@@ -275,7 +331,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
           <div className="space-y-1 text-sm text-muted-foreground">
             <p>
               {selectedOf
-                ? "Informe os kg recebidos — parcial ou total, um registro por ação."
+                ? "Informe a nota de entrada e o peso recebido de cada matéria-prima."
                 : "Selecione o cliente e a OF para registrar o recebimento."}
             </p>
             {selectedOf ? (
@@ -286,7 +342,8 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
                 <span className="font-medium text-foreground tabular-nums">{selectedOf.code}</span>
                 <OrderStatusBadge status={selectedOf.status} />
                 <span className="tabular-nums">
-                  {selectedOf.pendingItems} {selectedOf.pendingItems === 1 ? "item" : "itens"} com
+                  {selectedOf.pendingMaterials}{" "}
+                  {selectedOf.pendingMaterials === 1 ? "matéria-prima" : "matérias-primas"} com
                   pendência
                 </span>
                 {selectedOf.pendingKg !== null ? (
@@ -299,7 +356,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
           <Button
             type="button"
             id="mp-recebimento-confirmar"
-            disabled={!canEdit || saving || !items || !canSaveMpReceipt(items, quantities)}
+            disabled={!canEdit || saving || !materials || !canSaveMpReceipt(materials, quantities)}
             onClick={() => void handleSave()}
           >
             {saving ? (
@@ -307,7 +364,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
             ) : (
               <PackageCheck className="h-4 w-4" aria-hidden />
             )}
-            Registrar recebimento
+            Registrar nota de entrada
           </Button>
         </div>
       </div>
@@ -315,114 +372,42 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
       {loading ? (
         <div className="flex items-center gap-2 rounded border bg-card p-4 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          Carregando itens da OF…
+          Carregando matérias-primas da OF…
         </div>
       ) : null}
 
-      {items ? (
+      {materials ? (
         <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">Itens da OF</h2>
-            <p className="text-xs text-muted-foreground">
-              Uma linha por item filho — o pai e a matéria-prima aparecem nas colunas (itens pai sem
-              filhos entram como linha própria). O campo nasce com o que falta receber — deixe vazio
-              (ou 0) nas linhas sem recebimento nesta ação.
-            </p>
-          </div>
+          {/* NOTA DE ENTRADA: nº + data (cabeçalho da nota). */}
+          <div className="grid gap-3 rounded border bg-card p-3 md:grid-cols-3">
+            <div className="space-y-1">
+              <Label htmlFor="mp-nota-numero" className="text-xs text-muted-foreground">
+                Nº da nota de entrada
+              </Label>
+              <Input
+                id="mp-nota-numero"
+                value={entryNumber}
+                onChange={(event) => setEntryNumber(event.target.value)}
+                disabled={!canEdit}
+                placeholder="Ex.: 12345"
+                maxLength={100}
+              />
+            </div>
 
-          <div className="overflow-x-auto rounded border bg-card">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Item
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Item pai
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Matéria-prima
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    Qtd.
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    Peso un.
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    Planejado
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    Já recebido
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-center font-medium">
-                    Situação
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    Kg neste recebimento
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.orderItemId} className="border-b last:border-b-0">
-                    <td className="px-3 py-2">
-                      <span className="block font-medium text-foreground">{item.description}</span>
-                      {item.code ? (
-                        <span className="block text-xs text-muted-foreground">{item.code}</span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">{item.parentLabel ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      <MaterialsList materials={item.materials} />
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {formatQuantity(item.quantity)}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {formatWeight(item.unitWeightKg)}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {formatWeight(item.plannedKg)}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {formatWeight(item.receivedKg)}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <span
-                        className={`inline-flex rounded border px-1.5 py-0.5 text-xs ${mpReceiptClass(item.state)}`}
-                        title={MP_RECEIPT_STATE_LABELS[item.state]}
-                      >
-                        {MP_RECEIPT_STATE_LABELS[item.state]}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <Input
-                        id={`mp-kg-${item.orderItemId}`}
-                        type="number"
-                        min={0}
-                        step="any"
-                        inputMode="decimal"
-                        value={quantities[item.orderItemId] ?? ""}
-                        onChange={(event) =>
-                          setQuantities((previous) => ({
-                            ...previous,
-                            [item.orderItemId]: event.target.value,
-                          }))
-                        }
-                        disabled={!canEdit}
-                        className="ml-auto w-32 text-right tabular-nums"
-                        aria-label={`Kg recebidos de ${item.description}`}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+            <div className="space-y-1">
+              <Label htmlFor="mp-nota-data" className="text-xs text-muted-foreground">
+                Data da nota de entrada
+              </Label>
+              <Input
+                id="mp-nota-data"
+                type="date"
+                value={entryDate}
+                onChange={(event) => setEntryDate(event.target.value)}
+                disabled={!canEdit}
+              />
+            </div>
 
-          <div className="flex flex-wrap items-end justify-between gap-3 rounded border bg-card p-3">
-            <div className="space-y-1 grow">
+            <div className="space-y-1">
               <Label htmlFor="mp-recebimento-notas" className="text-xs text-muted-foreground">
                 Observação
               </Label>
@@ -431,23 +416,133 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
                 disabled={!canEdit}
-                placeholder="Ex.: nota fiscal, transportadora, conferência…"
+                placeholder="Ex.: transportadora, conferência…"
                 maxLength={1000}
               />
             </div>
-            <p className="text-sm text-muted-foreground tabular-nums">
-              Neste registro: {marked.length} {marked.length === 1 ? "item" : "itens"} ·{" "}
-              {formatWeight(markedKg)}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">Matérias-primas da OF</h2>
+            <p className="text-xs text-muted-foreground">
+              Uma linha por matéria-prima — o peso total soma os itens que a consomem. Preencha
+              só os materiais que vieram <strong>nesta nota</strong>: os campos começam vazios e
+              material sem valor não entra no registro. Use “= saldo” para registrar o material
+              inteiro.
+            </p>
+          </div>
+
+          <div className="overflow-x-auto rounded border bg-card">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-muted-foreground">
+                  <th scope="col" className="px-3 py-2 font-medium">
+                    Matéria-prima
+                  </th>
+                  <th scope="col" className="px-3 py-2 font-medium">
+                    UM
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">
+                    Peso total
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">
+                    Saldo
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium">
+                    Recebido nesta nota
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {materials.map((material) => (
+                  <tr key={material.materialKey} className="border-b last:border-b-0">
+                    <td className="px-3 py-2">
+                      <span className="block font-medium text-foreground">{material.description}</span>
+                      {material.receivedKg > 0 ? (
+                        <span className="block text-xs text-muted-foreground tabular-nums">
+                          {formatWeight(material.receivedKg)} já recebidos
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">{material.unit}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {formatWeight(material.totalKg)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {formatWeight(material.balanceKg)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Input
+                          id={`mp-kg-${material.materialKey}`}
+                          type="number"
+                          min={0}
+                          step="any"
+                          inputMode="decimal"
+                          value={mpQuantityValue(quantities, material.materialKey)}
+                          onChange={(event) =>
+                            setQuantities((previous) => ({
+                              ...previous,
+                              [material.materialKey]: event.target.value,
+                            }))
+                          }
+                          onFocus={(event) => {
+                            // Campo ainda no 0 (intocado): seleciona o
+                            // texto para o clerk DIGITAR por cima. Com
+                            // valor já lançado, o cursor fica normal —
+                            // dá para acrescentar dígitos (25 → 250).
+                            if (event.target.value === "0") event.target.select();
+                          }}
+                          disabled={!canEdit}
+                          className="w-32 text-right tabular-nums"
+                          aria-label={`Peso recebido de ${material.description} nesta nota`}
+                        />
+                        {material.balanceKg > 0 ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={!canEdit}
+                            onClick={() =>
+                              setQuantities((previous) => ({
+                                ...previous,
+                                [material.materialKey]: String(material.balanceKg),
+                              }))
+                            }
+                            title={`Preencher com o saldo (${formatWeight(material.balanceKg)} kg)`}
+                            aria-label={`Preencher com o saldo de ${material.description}`}
+                            className="h-9 shrink-0 px-2 text-xs text-muted-foreground"
+                          >
+                            = saldo
+                          </Button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex flex-wrap items-end justify-between gap-3 rounded border bg-card p-3">
+            <p className="text-sm text-muted-foreground">
+              Nesta nota: {marked.length}{" "}
+              {marked.length === 1 ? "matéria-prima" : "matérias-primas"} ·{" "}
+              <span className="tabular-nums">{formatWeight(markedKg)}</span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              O material recebido cobre os itens na ordem de produção — um item só fecha quando o
+              material dele chega.
             </p>
           </div>
         </div>
       ) : null}
 
-      {items && history.length > 0 ? (
+      {materials && history.length > 0 ? (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <History className="h-4 w-4 text-muted-foreground" aria-hidden />
-            <h2 className="text-sm font-semibold">Histórico de recebimentos</h2>
+            <h2 className="text-sm font-semibold">Histórico de notas de entrada</h2>
           </div>
 
           <div className="overflow-x-auto rounded border bg-card">
@@ -464,7 +559,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
                     Usuário
                   </th>
                   <th scope="col" className="px-3 py-2 font-medium">
-                    Itens (kg)
+                    Matérias-primas (kg)
                   </th>
                   <th scope="col" className="px-3 py-2 font-medium">
                     Observação
@@ -477,16 +572,16 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
               <tbody>
                 {history.map((entry) => (
                   <tr key={entry.id} className="border-b last:border-b-0 align-top">
-                    <td className="px-3 py-2 tabular-nums">{entry.number}</td>
+                    <td className="px-3 py-2 tabular-nums">{entry.entryNumber || entry.number}</td>
                     <td className="px-3 py-2 tabular-nums">
-                      {entry.receiptDate ? formatBusinessDate(entry.receiptDate) : "—"}
+                      {entry.entryDate ? formatBusinessDate(entry.entryDate) : "—"}
                     </td>
                     <td className="px-3 py-2">{entry.userName ?? "—"}</td>
                     <td className="px-3 py-2">
                       <ul className="space-y-0.5">
-                        {entry.items.map((item, index) => (
+                        {entry.materials.map((material, index) => (
                           <li key={`${entry.id}-${index}`} className="tabular-nums">
-                            {item.description ?? item.orderItemId}: {formatWeight(item.quantityKg)}
+                            {material.description}: {formatWeight(material.quantityKg)}
                           </li>
                         ))}
                       </ul>
@@ -501,8 +596,8 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
                         onClick={() => void handleDelete(entry.id)}
                         aria-label={
                           deletingId === entry.id
-                            ? `Confirmar exclusão do recebimento ${entry.number}`
-                            : `Excluir recebimento ${entry.number}`
+                            ? `Confirmar exclusão da nota de entrada ${entry.entryNumber}`
+                            : `Excluir nota de entrada ${entry.entryNumber}`
                         }
                       >
                         <Trash2 className="h-4 w-4" aria-hidden />

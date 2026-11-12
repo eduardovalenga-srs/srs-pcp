@@ -9,14 +9,14 @@ import {
   deleteMpReceipt,
   getMpReceiptCustomers,
   getMpReceiptHistory,
-  getMpReceiptItems,
+  getMpReceiptMaterials,
   saveMpReceipt,
 } from "@/lib/services/mp-receipt.service";
 import type {
   MpReceiptCustomerOption,
   MpReceiptHistoryEntry,
+  MpReceiptMaterial,
 } from "@/lib/types/mp-receipt";
-import type { MpReceiptItem } from "@/lib/repositories/mp-receipt.repository";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { firstZodMessage } from "@/lib/validators/common";
 import { mpReceiptSchema } from "@/lib/validators/mp-receipt.schema";
@@ -68,13 +68,13 @@ export async function getMpReceiptCustomersAction(): Promise<
   }
 }
 
-/** Linhas elegíveis (filhos + pai sem filhos) + histórico de uma OF. */
+/** Matérias-primas da OF + histórico de notas de entrada. */
 export async function loadMpReceiptOrderAction(
   orderId: string,
 ): Promise<
   | {
       success: true;
-      items: MpReceiptItem[];
+      materials: MpReceiptMaterial[];
       history: MpReceiptHistoryEntry[];
     }
   | { success: false; message: string }
@@ -84,18 +84,21 @@ export async function loadMpReceiptOrderAction(
     if (!orderId.trim()) return { success: false, message: "Selecione a OF." };
 
     const client = await createClient();
-    const [items, history] = await Promise.all([
-      getMpReceiptItems(client, orderId),
+    const [materials, history] = await Promise.all([
+      getMpReceiptMaterials(client, orderId),
       getMpReceiptHistory(client, orderId),
     ]);
-    return { success: true, items, history };
+    return { success: true, materials, history };
   } catch (error) {
     console.error("[loadMpReceiptOrderAction]", error);
     return { success: false, message: errorMessage(error) };
   }
 }
 
-/** Registra um recebimento de MP (kg por linha: filho ou pai sem filhos). */
+/**
+ * Registra uma NOTA DE ENTRADA (nº + data + o peso recebido de cada
+ * matéria-prima). O espelho da coluna MP é recalculado no banco.
+ */
 export async function saveMpReceiptAction(
   input: z.input<typeof mpReceiptSchema>,
 ): Promise<MpReceiptActionResult> {
@@ -107,14 +110,16 @@ export async function saveMpReceiptAction(
     const client = await createClient();
     const result = await saveMpReceipt(client, {
       orderId: parsed.data.orderId,
+      entryNumber: parsed.data.entryNumber,
+      entryDate: parsed.data.entryDate,
       notes: parsed.data.notes,
-      items: parsed.data.items,
+      materials: parsed.data.materials,
     });
 
     revalidateMpReceipt();
     return {
       success: true,
-      message: `Recebimento nº ${result.number} registrado.`,
+      message: `Nota de entrada nº ${parsed.data.entryNumber} registrada.`,
       receiptId: result.id,
       number: result.number,
     };
@@ -124,9 +129,9 @@ export async function saveMpReceiptAction(
   }
 }
 
-const receiptIdSchema = z.string().trim().min(1, "Recebimento inválido.");
+const receiptIdSchema = z.string().trim().min(1, "Nota de entrada inválida.");
 
-/** Exclui um recebimento para correção (recalcula o espelho no banco). */
+/** Exclui uma nota de entrada para correção (recalcula o espelho no banco). */
 export async function deleteMpReceiptAction(receiptId: string): Promise<{
   success: boolean;
   message: string;
@@ -134,13 +139,13 @@ export async function deleteMpReceiptAction(receiptId: string): Promise<{
   try {
     await requireCapability("mp_receipt.edit");
     const parsed = receiptIdSchema.safeParse(receiptId);
-    if (!parsed.success) return { success: false, message: "Recebimento inválido." };
+    if (!parsed.success) return { success: false, message: "Nota de entrada inválida." };
 
     const client = await createClient();
     await deleteMpReceipt(client, parsed.data);
 
     revalidateMpReceipt();
-    return { success: true, message: "Recebimento excluído." };
+    return { success: true, message: "Nota de entrada excluída." };
   } catch (error) {
     console.error("[deleteMpReceiptAction]", error);
     return { success: false, message: errorMessage(error) };

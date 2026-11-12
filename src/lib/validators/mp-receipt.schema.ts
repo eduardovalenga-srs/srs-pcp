@@ -1,38 +1,48 @@
 import { z } from "zod";
 
-import { decimalInput, nullableText } from "@/lib/validators/common";
+import { decimalInput, nullableDate, nullableText } from "@/lib/validators/common";
 
 /**
- * Item de um recebimento de MP (056/057): linha elegível da OF —
- * item FILHO, ou pai SEM filhos — + kg recebidos NESTE recibo (> 0 —
- * o total é a soma de todos os recibos, validado no banco).
+ * MATERIAL de uma NOTA DE ENTRADA (059): a linha da nota é o material
+ * (com o peso recebido nele) — o item e o item pai saem da tela.
  */
-export const mpReceiptItemSchema = z.object({
-  orderItemId: z.string().trim().min(1, "Item inválido"),
+export const mpReceiptMaterialSchema = z.object({
+  /** Chave normalizada do material (descrição + unidade em maiúsculas). */
+  materialKey: z.string().trim().min(1, "Matéria-prima inválida"),
+  description: z.string().trim().min(1, "Matéria-prima inválida"),
+  unit: z.string().trim().min(1, "Unidade inválida"),
+  /** Kg recebidos NESTA nota (> 0 — o total é a soma das notas). */
   quantityKg: decimalInput("Quantidade", { min: 0.01 }),
 });
 
-/** Cabeçalho + itens de um recebimento de MP (um registro por ação). */
+/**
+ * Cabeçalho + materiais de uma NOTA DE ENTRADA (um registro por ação).
+ * O nº e a data da nota ficam no cabeçalho; os materiais, nas linhas.
+ */
 export const mpReceiptSchema = z
   .object({
     orderId: z.string().trim().min(1, "Selecione a OF"),
+    /** Nº digitado da nota de entrada. */
+    entryNumber: z.string().trim().min(1, "Informe o número da nota de entrada"),
+    /** Data da nota de entrada (AAAA-MM-DD). */
+    entryDate: nullableDate,
     notes: nullableText(1000),
-    items: z
-      .array(mpReceiptItemSchema)
-      .min(1, "Informe ao menos um kg recebido")
-      .max(500, "Máximo de 500 itens por recebimento"),
+    materials: z
+      .array(mpReceiptMaterialSchema)
+      .min(1, "Informe o peso recebido de pelo menos uma matéria-prima")
+      .max(500, "Máximo de 500 materiais por nota de entrada"),
   })
   .superRefine((receipt, ctx) => {
     const seen = new Set<string>();
-    for (const [index, item] of receipt.items.entries()) {
-      if (seen.has(item.orderItemId)) {
+    for (const [index, material] of receipt.materials.entries()) {
+      if (seen.has(material.materialKey)) {
         ctx.addIssue({
           code: "custom",
-          path: ["items", index, "orderItemId"],
-          message: "Item repetido no recebimento",
+          path: ["materials", index, "materialKey"],
+          message: "Matéria-prima repetida na nota de entrada",
         });
       }
-      seen.add(item.orderItemId);
+      seen.add(material.materialKey);
     }
   });
 
@@ -41,4 +51,4 @@ export type MpReceiptInput = z.input<typeof mpReceiptSchema>;
 
 /** Valores já convertidos (kg como número). */
 export type MpReceiptValues = z.output<typeof mpReceiptSchema>;
-export type MpReceiptItemValues = z.output<typeof mpReceiptItemSchema>;
+export type MpReceiptMaterialValues = z.output<typeof mpReceiptMaterialSchema>;

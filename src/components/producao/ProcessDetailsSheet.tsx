@@ -201,9 +201,10 @@ function ProcessForm({
   }, [selection.orderItemId, capabilities.canViewHistory, isGroup]);
 
   const isMp = selection.processCode === MP_PROCESS_CODE;
-  // 056/057: a folha do MP é somente leitura — o recebimento é registrado
-  // em /recebimento-mp (kg por item filho; o pai espelha o agregado) e o
-  // espelho grava status e quantidades a partir de lá.
+  // 056/057/059: a folha do MP é somente leitura — o recebimento é
+  // registrado em /recebimento-mp (nota de entrada, peso por
+  // matéria-prima; o pai espelha o agregado dos filhos) e o espelho
+  // grava status e quantidades a partir de lá.
   const readOnly = !capabilities.canUpdateStatus || isMp;
   const dirty =
     status !== selection.status ||

@@ -370,27 +370,46 @@ export type RomaneioCustomerRow = {
   }[];
 };
 
-/** Linha de `mp_receipts` (056) — cabeçalho de um recebimento de MP. */
+/** Linha de `mp_receipts` (056/059) — cabeçalho de uma NOTA DE ENTRADA. */
 export type MpReceiptRow = {
   id: string;
   number: number | string;
   order_id: string;
-  receipt_date: string;
+  /** Nº digitado da nota de entrada (059). */
+  entry_number: string;
+  /** Data da nota de entrada (059 — era `receipt_date` até a 059). */
+  entry_date: string;
   notes: string | null;
   created_by: string | null;
   created_at: string;
 };
 
-/** Linha de `mp_receipt_items` (056/057) — kg recebidos por linha (filho ou pai sem filhos). */
-export type MpReceiptItemRow = {
+/** Linha de `mp_receipt_materials` (059) — peso recebido de um MATERIAL na nota. */
+export type MpReceiptMaterialRow = {
   id: string;
   mp_receipt_id: string;
-  order_item_id: string;
+  /** Chave normalizada do material (descrição + unidade). */
+  material_key: string;
+  material_description: string;
+  material_unit: string;
   quantity_kg: number | string;
   created_at: string;
 };
 
-/** Linha retornada pela RPC get_mp_receipt_customers (056) — seletor em cascata. */
+/** Material da OF na tela de recebimento (059) — uma linha por material. */
+export type MpOrderMaterialRow = {
+  material_key: string;
+  description: string;
+  unit: string;
+  /** Peso total que a OF precisa (soma dos itens que consomem o material). */
+  need_kg: number | string;
+  /** Σ dos kg recebidos em todas as notas de entrada. */
+  received_kg: number | string;
+  /** O que ainda falta (need_kg − received_kg). */
+  balance_kg: number | string;
+};
+
+/** Linha retornada pela RPC get_mp_receipt_customers (056/059) — seletor em cascata. */
 export type MpReceiptCustomerRow = {
   customer_name: string | null;
   of_count: number | string;
@@ -401,7 +420,9 @@ export type MpReceiptCustomerRow = {
     type: string;
     delivery_date: string | null;
     status: string;
-    pending_items: number | string;
+    /** Materiais ainda com saldo (059 — era `pending_items`). */
+    pending_materials: number | string;
+    /** Kg pendentes (null = nenhuma linha tem peso cadastrado). */
     pending_kg: number | string | null;
   }[];
 };
@@ -797,7 +818,10 @@ export type Database = {
         Insert: {
           id?: string;
           order_id: string;
-          receipt_date?: string;
+          /** Nº da nota de entrada (059). */
+          entry_number?: string;
+          /** Data da nota de entrada (059). */
+          entry_date?: string;
           notes?: string | null;
           created_by?: string | null;
         };
@@ -812,28 +836,23 @@ export type Database = {
           },
         ];
       };
-      mp_receipt_items: {
-        Row: MpReceiptItemRow;
+      mp_receipt_materials: {
+        Row: MpReceiptMaterialRow;
         Insert: {
           id?: string;
           mp_receipt_id: string;
-          order_item_id: string;
+          material_key: string;
+          material_description: string;
+          material_unit: string;
           quantity_kg: number;
         };
         Update: never;
         Relationships: [
           {
-            foreignKeyName: "mp_receipt_items_mp_receipt_id_fkey";
+            foreignKeyName: "mp_receipt_materials_mp_receipt_id_fkey";
             columns: ["mp_receipt_id"];
             isOneToOne: false;
             referencedRelation: "mp_receipts";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "mp_receipt_items_order_item_id_fkey";
-            columns: ["order_item_id"];
-            isOneToOne: false;
-            referencedRelation: "order_items";
             referencedColumns: ["id"];
           },
         ];
@@ -1091,17 +1110,28 @@ export type Database = {
         Returns: RomaneioCustomerRow[];
       };
       get_mp_receipt_customers: {
-        // seletor em cascata de /recebimento-mp — OFs com pendência de MP (056)
+        // seletor em cascata de /recebimento-mp — OFs com pendência de MP (056/059)
         Args: Record<string, never>;
         Returns: MpReceiptCustomerRow[];
       };
+      mp_order_materials: {
+        // materiais da OF (grão MATÉRIA-PRIMA) — peso total, recebido e saldo (059)
+        Args: { p_order_id: string };
+        Returns: MpOrderMaterialRow[];
+      };
       save_mp_receipt: {
-        // cria o recebimento de MP (cabeçalho + kg por item + espelho do processo — 056)
-        Args: { p_order_id: string; p_notes: string | null; p_items: Json };
-        Returns: { id: string; number: number; receiptDate: string };
+        // cria a NOTA DE ENTRADA (nº + data + kg por material + espelho — 059)
+        Args: {
+          p_order_id: string;
+          p_entry_number: string;
+          p_entry_date: string | null;
+          p_notes: string | null;
+          p_materials: Json;
+        };
+        Returns: { id: string; number: number; entryNumber: string; entryDate: string };
       };
       delete_mp_receipt: {
-        // exclusão para correção — recalcula o espelho dos itens afetados (056)
+        // exclusão para correção — recalcula o espelho dos itens afetados (056/059)
         Args: { p_receipt_id: string };
         Returns: { id: string; orderId: string };
       };

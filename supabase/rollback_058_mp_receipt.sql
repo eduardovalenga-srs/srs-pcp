@@ -1,9 +1,9 @@
 -- =============================================================
--- ROLLBACK da recuperação das marcações de MP (migração 058)
+-- ROLLBACK da recuperação das marcações de MP (migração 058/059)
 --
 -- Desfaz o que `mp_receipt_recover_legacy(false)` fez:
---   1. apaga os recibos criados pela recuperação (as linhas caem
---      por cascade — a tabela `mp_receipt_items` referencia
+--   1. apaga as NOTAS DE ENTRADA criadas pela recuperação (as linhas
+--      caem por cascade — a tabela `mp_receipt_materials` referencia
 --      `mp_receipts` com ON DELETE CASCADE);
 --   2. restaura as células MP do backup (status, quantidades e
 --      datas que estavam antes da recuperação);
@@ -12,6 +12,9 @@
 --
 -- O histórico de `production_events` é append-only por projeto e
 -- NÃO é apagado (os eventos do espelho ficam como rastro).
+--
+-- Desde a 059 o grão é MATÉRIA-PRIMA: a nota de entrada guarda o
+-- peso de cada material (não mais de cada item).
 --
 -- USO (SQL Editor ou CLI):
 --   psql "$SUPABASE_DB_URL" -f supabase/rollback_058_mp_receipt.sql
@@ -28,17 +31,19 @@ begin;
 -- 1) Itens/OFs que os recibos da recuperação tocaram
 -- -------------------------------------------------------------
 create temporary table _mp_rollback_items on commit drop as
-select distinct ri.order_item_id as item_id, r.order_id
+select distinct pl.order_item_id as item_id, rb.order_id
   from public.mp_recovery_receipts_058 rec
   join public.mp_receipts r on r.id = rec.receipt_id
-  join public.mp_receipt_items ri on ri.mp_receipt_id = r.id;
+  join public.mp_receipt_materials rm on rm.mp_receipt_id = r.id
+  join lateral public.mp_order_material_plan(r.order_id) pl
+    on pl.material_key = rm.material_key;
 
 -- -------------------------------------------------------------
 -- 2) Apaga os recibos da recuperação (as linhas caem por cascade)
 -- -------------------------------------------------------------
 delete from public.mp_receipts r
  using public.mp_recovery_receipts_058 rec
- where r.id = rec.receipt_id;
+  where r.id = rec.receipt_id;
 
 -- -------------------------------------------------------------
 -- 3) Restaura as células MP do backup
@@ -112,7 +117,7 @@ delete from public.mp_recovery_backup_058;
 select jsonb_build_object(
   'modo', 'rollback',
   'itens', (select count(*) from _mp_rollback_items),
-  'recibos_restantes',
+  'notas_restantes',
     (select count(*) from public.mp_receipts
       where coalesce(notes, '') like 'Recuperacao 058%')
 ) as rollback_058;

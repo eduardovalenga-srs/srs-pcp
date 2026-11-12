@@ -92,6 +92,7 @@ cp .env.example .env.local
 #    supabase/migrations/056_mp_receipt.sql
 #    supabase/migrations/057_mp_receipt_child_items.sql
 #    supabase/migrations/058_mp_receipt_legacy_recovery.sql
+#    supabase/migrations/059_mp_entry_notes.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -925,6 +926,45 @@ psql "$SUPABASE_DB_URL" -f supabase/clear_data.sql
 - Depois da limpeza, refaça as importações e crie pedidos novos pela UI (ou rode
   `supabase/seed_demo.sql` para o demo de volta). Testado em `tests/clear_data.test.ts`.
 
+## Recebimento de MP por NOTA DE ENTRADA (migração 059)
+
+A tela **`/recebimento-mp`** passou a ser **por MATÉRIA-PRIMA**, e não mais por item
+filho. A unidade da tela e a unidade da verdade são a mesma:
+
+- uma **linha por material** da OF (os itens que consomem o mesmo material somam
+  numa linha só), com **UM**, **Peso total** (somado) e **Saldo** (o que falta);
+- o registro é uma **NOTA DE ENTRADA** — **nº** (digitado) + **data** — com o peso
+  recebido de cada material da nota;
+- **n notas** por OF: os recebimentos parciais somam entre si (o saldo cai a cada
+  nota).
+
+O grão do banco mudou junto: `mp_receipts` virou o **cabeçalho da nota**
+(`entry_number`, `entry_date`) e a nova tabela **`mp_receipt_materials`** guarda o
+peso de cada material da nota (a antiga `mp_receipt_items`, por item, foi
+convertida e removida).
+
+**O espelho por ITEM (a coluna MP das telas) continua funcionando** — é ele que
+libera a produção — mas passa a ser **derivado do material** pelo
+**preenchimento sequencial**: o material recebido vai cobrindo os itens na ordem de
+produção (seq do grupo, seq do item, código). Item coberto por completo = verde
+(`CONCLUIDO`); parcial = amarelo; nada = estado padrão. Assim dá para começar a
+produzir com parte do material.
+
+- Item **sem material em peso** cai num grupo **sintético** (a própria descrição do
+  item, em KG) com o peso planejado dele — ele continua sendo recebível.
+- Os campos de peso **começam zerados (0)**: a nota leva só o que foi digitado (material
+  sem valor não entra no registro e não aparece no histórico). O botão **"= saldo"**
+  preenche o saldo sob demanda, para registrar o material inteiro.
+- A data efetiva da célula MP ("recebida em DD/MM") é a **data da nota que cobriu
+  o material**.
+- Toda a agregação fica no **Postgres** (`mp_order_materials`,
+  `mp_order_material_allocation`) — o app não recalcula peso.
+
+```sql
+-- Materiais da OF (o que a tela mostra)
+select * from public.mp_order_materials('<uuid da OF>');
+```
+
 ## Recuperar as marcas de MP perdidas na 057 (migração 058)
 
 A migração **057** (§7, "backfill silêncioso") recalculou a célula MP dos itens
@@ -953,11 +993,11 @@ select public.mp_receipt_recover_legacy(false, 'todas', '<uuid da OF>');
   feitas à mão na Gestão de OF (as de cascata — `Concluído automaticamente ao
   concluir X` — vinham da regra 62 antiga, em que o MP era pré-requisito de todo
   processo e era concluído junto).
-- **Como vira recibo**: um item marcado gera recibo dos **filhos** (o verde do
-  pai é o agregado deles — 057); o kg é o **saldo** que falta (planejado −
-  recebido; 1 kg quando o item não tem peso cadastrado). Um recibo por (OF, data
-  da marcação), com a **data original** preservada (a lista mostra "recebida em
-  DD/MM").
+- **Como vira recibo**: um item marcado vira **nota de entrada** dos **materiais**
+  dos filhos (o verde do pai é o agregado deles — 057/059); o kg é o **saldo** que
+  falta (planejado − recebido; o peso do próprio item quando ele não tem material
+  cadastrado). Uma nota por (OF, data da marcação), com a **data original**
+  preservada (a lista mostra "recebida em DD/MM").
 - **O que a 058 restaura**: a data **EFETIVA** do recebimento ("recebida em
   DD/MM" na coluna MP). A data **PREVISTA** (a janela do processo — quando a
   matéria-prima deveria ter chegado) **não precisa** de restauração: ela nunca

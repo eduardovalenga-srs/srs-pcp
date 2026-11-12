@@ -34,7 +34,7 @@ export default async function RecebimentoMpPage() {
       <>
         <Header
           title="Recebimento de MP"
-          description="Registre os kg de matéria-prima recebidos por item filho da OF."
+          description="Registre as notas de entrada e o peso de matéria-prima recebido por material da OF."
           actions={backAction}
         />
         <AccessDenied message="Seu perfil não pode acessar o recebimento de matéria-prima." />
@@ -51,7 +51,7 @@ export default async function RecebimentoMpPage() {
       <>
         <Header
           title="Recebimento de MP"
-          description="Registre os kg de matéria-prima recebidos por item filho da OF."
+          description="Registre as notas de entrada e o peso de matéria-prima recebido por material da OF."
           actions={backAction}
         />
         <ErrorState
@@ -66,14 +66,14 @@ export default async function RecebimentoMpPage() {
     <>
       <Header
         title="Recebimento de MP"
-        description="Escolha o cliente e a OF, informe os kg recebidos de cada item filho — parcial ou total."
+        description="Escolha o cliente e a OF, informe a nota de entrada e o peso recebido de cada matéria-prima."
         actions={backAction}
       />
 
       {customers.length === 0 ? (
         <EmptyState
           title="Nenhuma OF com pendência"
-          description="Todas as OFs ativas já receberam a matéria-prima por completo (ou não têm itens para receber)."
+          description="Todas as OFs ativas já receberam a matéria-prima por completo (ou não têm materiais a receber)."
         />
       ) : (
         <RecebimentoMpForm customers={customers} canEdit={can(sessionUser.role, "mp_receipt.edit")} />

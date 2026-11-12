@@ -12,9 +12,9 @@ export type MpReceiptState = "NONE" | "PARCIAL" | "TOTAL";
  */
 export interface MpCellReceipt {
   state: MpReceiptState;
-  /** Σ dos kg recebidos (mp_receipt_items). */
+  /** Σ dos kg recebidos (derivado do material — 059). */
   receivedKg: number;
-  /** Peso planejado do item (total_weight_kg; null = sem peso cadastrado). */
+  /** Peso planejado do item (soma do material que o item consome). */
   plannedKg: number | null;
 }
 
@@ -25,8 +25,8 @@ export interface MpReceiptOfOption {
   type: OrderType;
   deliveryDate: string | null;
   status: OrderStatus;
-  /** Nº de linhas (filhos + pai sem filhos) ainda sem receber totalmente. */
-  pendingItems: number;
+  /** Materiais da OF ainda com saldo (um por matéria-prima). */
+  pendingMaterials: number;
   /** Kg pendentes (null = nenhuma linha tem peso cadastrado). */
   pendingKg: number | null;
 }
@@ -43,36 +43,42 @@ export interface MpReceiptCustomerOption {
 }
 
 /**
- * Item da OF na tela de recebimento (057): filho, ou pai sem filhos
- * (kg planejado/recebido/pendente por linha).
+ * MATÉRIA-PRIMA de uma OF na tela de recebimento (059): uma linha por
+ * material, somando os itens que o consomem. O item e o item pai saem
+ * da tela — o material é o insumo, o item é quem consome.
  */
-export interface MpReceiptItemRow {
-  orderItemId: string;
+export interface MpReceiptMaterial {
+  /** Chave normalizada do material (descrição + unidade em maiúsculas). */
+  materialKey: string;
+  /** Descrição do material como está na OF. */
   description: string;
-  /** Quantidade do item (un.) — contexto da linha. */
-  quantity: number;
-  unitWeightKg: number | null;
-  /** Peso planejado (total_weight_kg com fallback qtd × peso un.). */
-  plannedKg: number | null;
-  /** Σ dos kg já recebidos em recibos anteriores. */
+  /** Unidade de medida (KG, UN, M…). */
+  unit: string;
+  /** Peso total que a OF precisa (soma dos itens que consomem o material). */
+  totalKg: number;
+  /** Σ dos kg já recebidos em todas as notas de entrada. */
   receivedKg: number;
-  state: MpReceiptState;
-  /** Kg que ainda falta receber (null = sem peso cadastrado). */
-  pendingKg: number | null;
+  /** O que ainda falta (totalKg − receivedKg). */
+  balanceKg: number;
 }
 
-/** Linha do histórico de um recebimento (cabeçalho + itens). */
+/**
+ * Linha do histórico de uma NOTA DE ENTRADA (cabeçalho + materiais).
+ */
 export interface MpReceiptHistoryEntry {
   id: string;
   number: number;
-  /** Data física do recebimento (AAAA-MM-DD). */
-  receiptDate: string | null;
+  /** Nº digitado da nota de entrada. */
+  entryNumber: string;
+  /** Data da nota de entrada (AAAA-MM-DD). */
+  entryDate: string | null;
   notes: string | null;
   createdAt: string;
   userName: string | null;
-  items: {
-    orderItemId: string;
-    description: string | null;
+  materials: {
+    materialKey: string;
+    description: string;
+    unit: string;
     quantityKg: number;
   }[];
 }
