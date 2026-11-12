@@ -356,14 +356,59 @@ const NIL_UUID = "00000000-0000-0000-0000-000000000000";
  */
 const PARENT_ID_LOOKUP_LIMIT = 500;
 
+async function childItemRpcFilters(
+  client: SupabaseServer,
+  filters: ChildItemFilters,
+  processId: string | null,
+) {
+  const parentItem = filters.parentItem.trim();
+  let parentIds: string[] | null = null;
+  if (parentItem) {
+    const { data, error } = await client
+      .from("order_items")
+      .select("id")
+      .is("parent_order_item_id", null)
+      .ilike("parent_item", `%${parentItem}%`)
+      .order("id", { ascending: true })
+      .limit(PARENT_ID_LOOKUP_LIMIT);
+    assertOk(error, "Não foi possível filtrar por item pai");
+    parentIds = (data ?? []).map((row) => row.id);
+  }
+
+  return {
+    p_search: escapeFilterTerm(filters.search) || null,
+    p_order_code: filters.orderCode.trim() || null,
+    p_customer: filters.customer.trim() || null,
+    p_child_item: filters.childItem.trim() || null,
+    p_description: filters.description.trim() || null,
+    p_material: filters.material.trim() || null,
+    p_parent_ids: parentIds !== null
+      ? parentIds.length > 0
+        ? parentIds
+        : [NIL_UUID]
+      : null,
+    p_delivery_from: filters.deliveryFrom || null,
+    p_delivery_to: filters.deliveryTo || null,
+    p_process_id: processId,
+    p_process_status: filters.processStatus !== "ALL" ? filters.processStatus : null,
+    p_seq: filters.seq,
+    p_qty_min: filters.qtyMin,
+    p_qty_max: filters.qtyMax,
+    p_weight_min: filters.weightMin,
+    p_weight_max: filters.weightMax,
+    p_weight_unit_min: filters.weightUnitMin,
+    p_weight_unit_max: filters.weightUnitMax,
+  };
+}
+
 /**
  * Itens FILHOS agrupados por código dentro da OF (033) — base da tela
  * Fábrica 1 (visão de insumos: o componente repetido vira UMA linha).
  *
  * Caminhos de consulta:
  *  1. Listagem normal: RPCs paginadas existentes para página e totais;
- *  2. Recorte de atraso ou resumo sob demanda: RPC `get_child_item_groups_page`
- *     calcula os indicadores e aplica os recortes no banco;
+ *  2. Recorte de atraso: RPC `get_child_item_groups_page`; resumo sob demanda:
+ *     RPC agregada que devolve apenas os totais KIT;
  *  3. busca dos membros da página pelos ids, com os embeds de exibição
  *     (processos/materiais) e os PAIS numa consulta própria — o
  *     self-join do PostgREST só resolve a direção "filhos"; então
@@ -382,58 +427,13 @@ export async function listChildItemGroups(
   filters: ChildItemFilters,
   processId: string | null = null,
   today: string = todayISODate(),
-  summaryOnly = false,
 ): Promise<ChildItemGroupsResult & { kitOverdue: KitOverdueTotals | null }> {
-  const search = escapeFilterTerm(filters.search);
-  const orderCode = filters.orderCode.trim();
-  const customer = filters.customer.trim();
-  const childItem = filters.childItem.trim();
-  const description = filters.description.trim();
+  const rpcFilters = await childItemRpcFilters(client, filters, processId);
   const materialFilter = filters.material.trim();
   const materialEmbed = materialFilter ? "order_item_materials!inner" : "order_item_materials";
   const materialIlike = materialFilter ? `%${materialFilter}%` : null;
 
-  const parentItem = filters.parentItem.trim();
-  let parentIds: string[] | null = null;
-  if (parentItem) {
-    const { data, error } = await client
-      .from("order_items")
-      .select("id")
-      .is("parent_order_item_id", null)
-      .ilike("parent_item", `%${parentItem}%`)
-      .order("id", { ascending: true })
-      .limit(PARENT_ID_LOOKUP_LIMIT);
-    assertOk(error, "Não foi possível filtrar por item pai");
-    parentIds = (data ?? []).map((row) => row.id);
-  }
-
   // Filtros e argumentos compartilhados entre as RPCs da tela.
-  const rpcFilters = {
-    p_search: search || null,
-    p_order_code: orderCode || null,
-    p_customer: customer || null,
-    p_child_item: childItem || null,
-    p_description: description || null,
-    p_material: materialFilter || null,
-    p_parent_ids: parentIds !== null
-      ? parentIds.length > 0
-        ? parentIds
-        : [NIL_UUID]
-      : null,
-    p_delivery_from: filters.deliveryFrom || null,
-    p_delivery_to: filters.deliveryTo || null,
-    p_process_id: processId,
-    p_process_status: filters.processStatus !== "ALL" ? filters.processStatus : null,
-    // 038: seq por igualdade + faixas sobre os AGREGADOS do grupo
-    // (menor seq, Σ qtd, Σ peso, peso unitário exibido).
-    p_seq: filters.seq,
-    p_qty_min: filters.qtyMin,
-    p_qty_max: filters.qtyMax,
-    p_weight_min: filters.weightMin,
-    p_weight_max: filters.weightMax,
-    p_weight_unit_min: filters.weightUnitMin,
-    p_weight_unit_max: filters.weightUnitMax,
-  };
   const groupsRpcFilters = {
     ...rpcFilters,
     // 043: ordenação por coluna (whitelist do parser) — a RPC decide o
@@ -457,12 +457,12 @@ export async function listChildItemGroups(
   let groupsPayload: GroupsPayload;
   let kitOverdue: KitOverdueTotals | null = null;
 
-  if (summaryOnly || filters.overdue || filters.processOverdue) {
+  if (filters.overdue || filters.processOverdue) {
     const { data, error } = await client.rpc("get_child_item_groups_page", {
       ...groupsRpcFilters,
-      p_offset: summaryOnly ? 0 : from,
-      p_limit: summaryOnly ? 0 : filters.pageSize,
-      p_kit_overdue: summaryOnly ? false : filters.overdue,
+      p_offset: from,
+      p_limit: filters.pageSize,
+      p_kit_overdue: filters.overdue,
       p_process_overdue: filters.processOverdue,
       p_process_code: filters.processCode,
       p_today: today,
@@ -759,12 +759,21 @@ export async function getChildItemsKitOverdueTotals(
   processId: string | null = null,
   today: string = todayISODate(),
 ): Promise<KitOverdueTotals> {
-  const result = await listChildItemGroups(
-    client,
-    { ...filters, page: 1, pageSize: 0, overdue: false },
-    processId,
-    today,
-    true,
-  );
-  return result.kitOverdue ?? { records: 0, qty: 0, weight: 0 };
+  const rpcFilters = await childItemRpcFilters(client, { ...filters, overdue: false }, processId);
+  const { data, error } = await client.rpc("get_child_items_kit_overdue_totals", {
+    ...rpcFilters,
+    p_today: today,
+  });
+  assertOk(error, "Não foi possível carregar os atrasados da Fábrica 1");
+
+  const totals = (data ?? {}) as unknown as {
+    records?: number | string;
+    qty?: number | string;
+    weight?: number | string;
+  };
+  return {
+    records: toNumber(totals.records ?? null) ?? 0,
+    qty: toNumber(totals.qty ?? null) ?? 0,
+    weight: toNumber(totals.weight ?? null) ?? 0,
+  };
 }

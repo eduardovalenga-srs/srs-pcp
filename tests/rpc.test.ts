@@ -2226,6 +2226,24 @@ describe("get_child_item_groups (033) — grupos por código do filho", () => {
     };
   }
 
+  async function callKitOverdueTotals(
+    orderCode: string,
+    today: string,
+    qtyMin?: number,
+  ): Promise<{ records: number; qty: number; weight: number }> {
+    const { rows } = await db.query<{
+      data: { records: number; qty: number; weight: number };
+    }>(
+      `select public.get_child_items_kit_overdue_totals(
+         p_order_code => $1,
+         p_today => $2::date,
+         p_qty_min => $3::numeric
+       ) as data`,
+      [orderCode, today, qtyMin ?? null],
+    );
+    return rows[0]?.data as { records: number; qty: number; weight: number };
+  }
+
   async function callGroups(
     params: Record<string, unknown> = {},
   ): Promise<
@@ -2334,6 +2352,14 @@ describe("get_child_item_groups (033) — grupos por código do filho", () => {
     expect(data.groups).toHaveLength(1);
   });
 
+  it("agrega o atraso KIT do conjunto completo com os mesmos filtros da lista", async () => {
+    const data = await callKitOverdueTotals("OF-9003", "2026-10-20");
+    const filtered = await callKitOverdueTotals("OF-9003", "2026-10-20", 3);
+
+    expect(data).toEqual({ records: 2, qty: 5, weight: 62.5 });
+    expect(filtered).toEqual({ records: 1, qty: 3, weight: 37.5 });
+  });
+
   it("filtra KIT vencido antes da paginação e preserva os totais do conjunto", async () => {
     const first = await callGroupsPage({ overdue: true, limit: 1 });
     const second = await callGroupsPage({ overdue: true, limit: 1, offset: 1 });
@@ -2393,8 +2419,15 @@ describe("get_child_item_groups (033) — grupos por código do filho", () => {
       overdue: true,
       today: afterStart.toISOString().slice(0, 10),
     });
+    const summaryOnStart = await callKitOverdueTotals("OF-9004", window?.start ?? "2026-10-13");
+    const summaryNextDay = await callKitOverdueTotals(
+      "OF-9004",
+      afterStart.toISOString().slice(0, 10),
+    );
 
     expect(onStartDate.total).toBe(0); // Atraso é estritamente anterior ao início calculado.
     expect(nextDay.total).toBe(1);
+    expect(summaryOnStart).toEqual({ records: 0, qty: 0, weight: 0 });
+    expect(summaryNextDay).toEqual({ records: 1, qty: 4, weight: 50 });
   });
 });

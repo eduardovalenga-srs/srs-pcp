@@ -101,22 +101,12 @@ begin
 
   v_sql := $q$
     with
-    parent_balance as (
-      select oi.id as item_id,
-             oi.quantity as planned,
-             greatest(coalesce(oi.quantity, 0) - coalesce(s.shipped, 0), 0) as qty
-        from public.order_items oi
-        left join public.romaneio_shipped_by_item() s on s.item_id = oi.id
-       where oi.parent_order_item_id is null
-    ),
-    filtered as (
+    candidates as materialized (
       select oi.id, oi.order_id, oi.parent_item, oi.parent_order_item_id,
              oi.description, oi.delivery_date, oi.seq,
-             case when pb.planned > 0 then oi.quantity * pb.qty / pb.planned
-                  else oi.quantity end as quantity,
+             oi.quantity as planned_quantity,
              oi.unit_weight_kg as unit_w,
-             case when pb.planned > 0 then oi.total_weight_kg * pb.qty / pb.planned
-                  else oi.total_weight_kg end as total_w,
+             oi.total_weight_kg as planned_total_w,
              o.delivery_date as order_delivery_date,
              o.code as ord_code,
              coalesce(o.customer_name, '') as cust,
@@ -125,7 +115,6 @@ begin
                         where m.order_item_id = oi.id), '') as mat_desc
         from public.order_items oi
         join public.orders o on o.id = oi.order_id
-        left join parent_balance pb on pb.item_id = oi.parent_order_item_id
        where oi.parent_order_item_id is not null
          and ($1::text is null or oi.description ilike '%' || $1::text || '%'
               or coalesce(oi.parent_item, '') ilike '%' || $1::text || '%')
@@ -148,7 +137,37 @@ begin
                select 1 from public.production_processes pp
                 where pp.order_item_id = oi.id and pp.status = $11::text))
     ),
-    group_process_status as (
+    candidate_parents as materialized (
+      select distinct parent_order_item_id as parent_id from candidates
+    ),
+    parent_balance as materialized (
+      select parent.id as item_id,
+             parent.quantity as planned,
+             greatest(coalesce(parent.quantity, 0) - coalesce(shipped.quantity, 0), 0) as qty
+        from candidate_parents cp
+        join public.order_items parent
+          on parent.id = cp.parent_id
+         and parent.parent_order_item_id is null
+        left join lateral (
+          select coalesce(sum(ri.quantity), 0)::numeric as quantity
+            from public.romaneio_items ri
+            join public.romaneios r on r.id = ri.romaneio_id and r.status = 'CONFIRMADO'
+           where ri.order_item_id = parent.id
+        ) shipped on true
+    ),
+    filtered as materialized (
+      select c.id, c.order_id, c.parent_item, c.parent_order_item_id,
+             c.description, c.delivery_date, c.seq,
+             case when pb.planned > 0 then c.planned_quantity * pb.qty / pb.planned
+                  else c.planned_quantity end as quantity,
+             c.unit_w,
+             case when pb.planned > 0 then c.planned_total_w * pb.qty / pb.planned
+                  else c.planned_total_w end as total_w,
+             c.order_delivery_date, c.ord_code, c.cust, c.mat_desc
+        from candidates c
+        left join parent_balance pb on pb.item_id = c.parent_order_item_id
+    ),
+     group_process_status as (
       select f.order_id as ord_id,
              coalesce(nullif(btrim(f.parent_item), ''), btrim(f.description)) as gkey,
              pr.code as pcode,
@@ -162,8 +181,38 @@ begin
         join public.production_processes pp on pp.order_item_id = f.id
         join public.processes pr on pr.id = pp.process_id
        group by f.order_id, coalesce(nullif(btrim(f.parent_item), ''), btrim(f.description)), pr.code
-    ),
-    grouped as (
+     ),
+     kit_catalog as materialized (
+       select id, code, display_order
+         from public.processes
+        where code = 'KIT' and active
+     ),
+     kit_total_duration as materialized (
+       select kit.id as kit_process_id,
+              sum(case when scheduled.duration_days is null or scheduled.duration_days < 1
+                       then 1 else floor(scheduled.duration_days)::integer end)::integer as business_days
+         from kit_catalog kit
+         join public.processes scheduled
+           on scheduled.active
+          and (scheduled.display_order > kit.display_order
+               or (scheduled.display_order = kit.display_order and scheduled.code >= kit.code))
+        group by kit.id
+     ),
+     group_kit_skipped_duration as materialized (
+       select status.ord_id,
+              status.gkey,
+              sum(case when scheduled.duration_days is null or scheduled.duration_days < 1
+                       then 1 else floor(scheduled.duration_days)::integer end)::integer as skipped_days
+         from group_process_status status
+         join public.processes scheduled
+           on scheduled.code = status.pcode and scheduled.active
+         join kit_catalog kit
+           on (scheduled.display_order > kit.display_order
+               or (scheduled.display_order = kit.display_order and scheduled.code >= kit.code))
+        where status.status = 'NAO_APLICAVEL'
+        group by status.ord_id, status.gkey
+     ),
+     grouped as (
       select order_id,
              coalesce(nullif(btrim(parent_item), ''), btrim(description)) as gkey,
              min(coalesce(delivery_date, order_delivery_date)) as delivery_key,
@@ -219,16 +268,33 @@ begin
         from parent_mp_rank
        group by ord_id, gkey
     ),
-    due_groups as (
-      select g.*,
-             case
-               when g.delivery_key is null or kit_catalog.id is null or kit.status is null
-                 or kit.status in ('CONCLUIDO', 'NAO_APLICAVEL') then false
-               else public.sub_business_days(
-                      g.delivery_key,
-                      coalesce(kit_duration.days, 0)::integer
-                    ) < coalesce($26::date, current_date)
-             end as kit_is_overdue,
+     group_kit_schedule as (
+       select g.*,
+              kit_catalog.id as kit_process_id,
+              kit.status as kit_status,
+              greatest(
+                coalesce(kit_total_duration.business_days, 0) - coalesce(kit_skipped.skipped_days, 0),
+                0
+              ) as kit_business_days
+         from grouped g
+         left join kit_catalog on true
+         left join group_process_status kit
+           on kit.ord_id = g.order_id and kit.gkey = g.gkey and kit.pcode = 'KIT'
+         left join kit_total_duration
+           on kit_total_duration.kit_process_id = kit_catalog.id
+         left join group_kit_skipped_duration kit_skipped
+           on kit_skipped.ord_id = g.order_id and kit_skipped.gkey = g.gkey
+     ),
+     due_groups as (
+       select g.*,
+              case
+                when g.delivery_key is null or g.kit_process_id is null or g.kit_status is null
+                  or g.kit_status in ('CONCLUIDO', 'NAO_APLICAVEL') then false
+                else public.sub_business_days(
+                       g.delivery_key,
+                       g.kit_business_days
+                     ) < coalesce($26::date, current_date)
+              end as kit_is_overdue,
              case when not coalesce($24::boolean, false) or g.delivery_key is null then false else exists (
                select 1
                  from group_process_status target_status
@@ -253,26 +319,8 @@ begin
                         ), 0)::integer
                       ) < coalesce($26::date, current_date)
              ) end as process_is_overdue
-        from grouped g
-        left join group_process_status kit
-          on kit.ord_id = g.order_id and kit.gkey = g.gkey and kit.pcode = 'KIT'
-        left join public.processes kit_catalog on kit_catalog.code = 'KIT' and kit_catalog.active
-        left join lateral (
-          select sum(case when scheduled.duration_days is null or scheduled.duration_days < 1
-                          then 1 else floor(scheduled.duration_days)::integer end) as days
-            from public.processes scheduled
-            left join group_process_status scheduled_status
-              on scheduled_status.ord_id = g.order_id
-             and scheduled_status.gkey = g.gkey
-             and scheduled_status.pcode = scheduled.code
-           where scheduled.active
-             and kit_catalog.id is not null
-             and kit.status not in ('CONCLUIDO', 'NAO_APLICAVEL')
-             and (scheduled.display_order > kit_catalog.display_order
-                  or (scheduled.display_order = kit_catalog.display_order and scheduled.code >= kit_catalog.code))
-             and coalesce(scheduled_status.status, 'NAO_INICIADO') <> 'NAO_APLICAVEL'
-        ) kit_duration on true
-    ),
+         from group_kit_schedule g
+     ),
     eligible as (
       select * from due_groups
        where (not coalesce($23::boolean, false) or kit_is_overdue)

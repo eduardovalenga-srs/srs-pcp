@@ -35,15 +35,13 @@ describe("Fábrica 1 — caminho rápido e resumo sob demanda", () => {
 
   it("só consulta a agregação KIT quando o resumo é solicitado", async () => {
     const rpc = vi.fn(async (name: string, args?: Record<string, unknown>) => {
-      expect(name).toBe("get_child_item_groups_page");
-      expect(args).toMatchObject({ p_limit: 0, p_kit_overdue: false });
+      expect(name).toBe("get_child_items_kit_overdue_totals");
+      expect(args).toHaveProperty("p_today", "2026-11-12");
       return {
         data: {
-          total: 0,
-          qtyTotal: 0,
-          weightTotal: 0,
-          kitOverdue: { records: 2, qty: 8, weight: 12.5 },
-          groups: [],
+          records: 2,
+          qty: 8,
+          weight: 12.5,
         },
         error: null,
       };
@@ -58,6 +56,5 @@ describe("Fábrica 1 — caminho rápido e resumo sob demanda", () => {
 
     expect(totals).toEqual({ records: 2, qty: 8, weight: 12.5 });
     expect(rpc).toHaveBeenCalledTimes(1);
-    expect(rpc.mock.calls[0]?.[1]).toMatchObject({ p_limit: 0, p_kit_overdue: false });
   });
 });

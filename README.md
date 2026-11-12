@@ -440,9 +440,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   **janela da coluna KIT** — o INÍCIO previsto (`plan.start`, calculado no servidor;
   o mesmo valor que a célula exibe em vermelho) — é **anterior à data de
   referência** e cujo KIT ainda
-  **não concluiu**. O resumo de atrasados é carregado sob demanda: o usuário aciona
-  **Calcular atrasados**, e a RPC `get_child_item_groups_page` (migração 062) agrega
-  os números sem buscar os embeds dos itens;
+  **não concluiu**. O resumo de atrasados é carregado em segundo plano após a lista:
+  a RPC agregada `get_child_items_kit_overdue_totals` (migração 063) calcula os números
+  do conjunto filtrado inteiro sem buscar páginas ou embeds, sem bloquear a lista;
   Registros/Qtd./Peso somam só esses grupos, e linha **sem janela de KIT** (sem entrega,
   KIT desmarcado `NAO_APLICAVEL` ou sem processo KIT) não conta. O card **KIT** segue
   **global** (na Fábrica 1 o card da EXPEDIÇÃO do item raiz se resolve no KIT — objeto
@@ -452,7 +452,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   `families`/`family_totals`/`overdueFamilies`/`expeditionFamilies` seguem saindo
   das RPCs, sem leitura no front).
   A lista normal usa **`get_child_item_groups`** e **`get_child_items_totals`**. Quando
-  um recorte de atraso é ativado, `get_child_item_groups_page` (migração 062) aplica os
+  um recorte de atraso é ativado, `get_child_item_groups_page` (migrações 062/064) aplica os
   filtros, calcula os totais, filtra e pagina no banco. Grupos **nunca atravessam OFs**;
   os membros da página
   são buscados em seguida e montados no servidor (`lib/utils/child-item-groups.ts`).
@@ -498,7 +498,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   250 ids** no `.in()`, para não estourar o limite de URL do PostgREST) — trocar o tamanho
   ou o filtro preserva o restante da URL e volta para a página 1. Menu visível para **todos os
   perfis** (`menu.fabrica1`), página protegida por
-  `orders.view`; leitura 100% server-rendered (sem componentes client por linha).
+  `orders.view`; a lista é server-rendered e só o card de atrasos usa um componente
+  client para carregar o resumo agregado sem bloquear a página.
 - **Fábrica 2** (`/fabrica-2`): **réplica da gestão de OF com código próprio** —
   página em `app/(dashboard)/fabrica-2/` e cópia dos componentes em
   `components/fabrica2/` (`Fabrica2*`), de propósito: alterações futuras na gestão não

@@ -74,7 +74,7 @@ describe("Fabrica1Summary — card Atrasados pela regra do KIT", () => {
     expect(atrasados).toContain('href="/fabrica-1?atrasados=1"');
   });
 
-  it("deixa o resumo de atrasados sob demanda sem bloquear a renderização da lista", () => {
+  it("renderiza o resumo de atrasados em estado de carregamento sem bloquear a lista", () => {
     const deferred = renderToStaticMarkup(
       createElement(Fabrica1Summary, {
         total: 40,
@@ -86,7 +86,7 @@ describe("Fabrica1Summary — card Atrasados pela regra do KIT", () => {
       }),
     );
     const atrasados = cardSection(deferred, "Atrasados", "KIT");
-    expect(atrasados).toContain("Calcular atrasados");
+    expect(atrasados).toContain("Calculando…");
     expect(atrasados).not.toContain('href="/fabrica-1?atrasados=1"');
   });
 });

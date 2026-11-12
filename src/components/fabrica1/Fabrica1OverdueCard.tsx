@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 
@@ -18,11 +18,10 @@ interface Fabrica1OverdueCardProps {
 export function Fabrica1OverdueCard({ filters, active }: Fabrica1OverdueCardProps) {
   const summaryQuery = childItemQueryString({ ...filters, overdue: false, page: 1 });
   const [loaded, setLoaded] = useState<{ query: string; totals: KitOverdueTotals } | null>(null);
-  const [loadingQuery, setLoadingQuery] = useState<string | null>(null);
   const [requestError, setRequestError] = useState<{ query: string; message: string } | null>(null);
   const totals = loaded?.query === summaryQuery ? loaded.totals : null;
-  const loading = loadingQuery === summaryQuery;
   const error = requestError?.query === summaryQuery ? requestError.message : null;
+  const loading = totals === null && error === null;
 
   const className = cn(
     "flex h-full flex-col gap-1 rounded border border-status-late/50 bg-card px-3 py-2 text-status-late transition-colors col-span-2",
@@ -51,11 +50,37 @@ export function Fabrica1OverdueCard({ filters, active }: Fabrica1OverdueCardProp
     </span>
   );
 
+  const loadTotals = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const response = await fetch(
+        `/api/fabrica-1/overdue${summaryQuery ? `?${summaryQuery}` : ""}`,
+        { cache: "no-store", signal },
+      );
+      const payload = (await response.json()) as KitOverdueTotals | { error?: string };
+      if (!response.ok) {
+        throw new Error("error" in payload ? payload.error : "Não foi possível carregar os atrasados.");
+      }
+      setLoaded({ query: summaryQuery, totals: payload as KitOverdueTotals });
+    } catch (cause) {
+      if (signal?.aborted) return;
+      setRequestError({
+        query: summaryQuery,
+        message: cause instanceof Error ? cause.message : "Não foi possível carregar os atrasados.",
+      });
+    }
+  }, [summaryQuery]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.resolve().then(() => loadTotals(controller.signal));
+    return () => controller.abort();
+  }, [loadTotals]);
+
   if (totals !== null) {
-    const summaryQuery = childItemQueryString({ ...filters, overdue: true, page: 1 });
+    const overdueQuery = childItemQueryString({ ...filters, overdue: true, page: 1 });
     return (
       <Link
-        href={summaryQuery ? `/fabrica-1?${summaryQuery}` : "/fabrica-1"}
+        href={overdueQuery ? `/fabrica-1?${overdueQuery}` : "/fabrica-1"}
         aria-label={`Atrasados: ${formatQuantity(totals.records)} — aplicar filtro`}
         aria-current={active ? "true" : undefined}
         className={className}
@@ -66,36 +91,16 @@ export function Fabrica1OverdueCard({ filters, active }: Fabrica1OverdueCardProp
     );
   }
 
-  async function loadTotals() {
-    setLoadingQuery(summaryQuery);
-    setRequestError(null);
-    try {
-      const response = await fetch(
-        `/api/fabrica-1/overdue${summaryQuery ? `?${summaryQuery}` : ""}`,
-        { cache: "no-store" },
-      );
-      const payload = (await response.json()) as KitOverdueTotals | { error?: string };
-      if (!response.ok) {
-        throw new Error("error" in payload ? payload.error : "Não foi possível carregar os atrasados.");
-      }
-      setLoaded({ query: summaryQuery, totals: payload as KitOverdueTotals });
-    } catch (cause) {
-      setRequestError({
-        query: summaryQuery,
-        message: cause instanceof Error ? cause.message : "Não foi possível carregar os atrasados.",
-      });
-    } finally {
-      setLoadingQuery((current) => (current === summaryQuery ? null : current));
-    }
-  }
-
   return (
     <div className={className} aria-busy={loading}>
       {title}
       {body}
       <button
         type="button"
-        onClick={loadTotals}
+        onClick={() => {
+          setRequestError(null);
+          void loadTotals();
+        }}
         disabled={loading}
         className="self-start text-xs font-medium underline underline-offset-2 disabled:cursor-wait disabled:opacity-60"
       >
