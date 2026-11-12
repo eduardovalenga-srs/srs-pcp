@@ -94,6 +94,7 @@ cp .env.example .env.local
 #    supabase/migrations/058_mp_receipt_legacy_recovery.sql
 #    supabase/migrations/059_mp_entry_notes.sql
 #    supabase/migrations/060_mp_receipt_free_items.sql
+#    supabase/migrations/061_romaneio_exp_gate_in_load.sql
 #
 #    via CLI:  supabase db push   (após `supabase link`)
 
@@ -749,8 +750,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   confirma).
 - **Confirmação** (RPC `confirm_romaneio`, validada NO BANCO): exige (1) romaneio em
   CONFERIDO, (2) OF não cancelada, (3) **nota de industrialização registrada**, (4) ao menos um item
-  incluído, (5) **EXP = CONCLUIDO em TODOS os itens raiz aplicáveis da OF** (inclusive os
-  fora da carga) e (6) **Σ (este + já confirmados) ≤ quantidade do item**. Confirmar é o
+  incluído, (5) **EXP = CONCLUIDO nos itens raiz INCLUÍDOS na carga** (itens fora do
+  romaneio podem seguir em produção — 061) e (6) **Σ (este + já confirmados) ≤ quantidade
+  do item**. Confirmar é o
   momento da **BAIXA**: as quantidades passam a contar como expedidas na pendência de
   expedição da OF. Os gates viram checklist no **diálogo Emitir NF da lista**
   (`checkRomaneioConfirmation`, espelho puro da RPC, em `lib/utils/romaneio.ts`).

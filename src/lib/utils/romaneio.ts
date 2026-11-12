@@ -444,7 +444,11 @@ export interface RomaneioConfirmationInput {
   orderStatus: OrderStatus;
   /** Nota de industrialização registrada (requisito do CONFIRMADO = NF + baixa). */
   hasNfNumber: boolean;
-  /** TODOS os itens raiz da OF — quantity = incluído neste romaneio (0 = fora). */
+  /**
+   * TODOS os itens raiz da OF — quantity = incluído neste romaneio
+   * (0 = fora). O gate de EXP olha só os incluídos; os demais são
+   * apenas informativos na tela.
+   */
   items: readonly RomaneioConfirmationItem[];
 }
 
@@ -463,7 +467,7 @@ export interface RomaneioConfirmationGateResult {
  *  2) OF não cancelada;
  *  3) nota de industrialização registrada;
  *  4) ao menos um item incluído;
- *  5) EXP de todos os itens raiz aplicáveis = CONCLUIDO;
+ *  5) EXP aplicável = CONCLUIDO nos itens raiz INCLUÍDOS na carga;
  *  6) Σ (este + já confirmados) ≤ quantidade do item (expedição parcial).
  */
 export function checkRomaneioConfirmation(
@@ -485,16 +489,19 @@ export function checkRomaneioConfirmation(
     return { canConfirm: false, blockers };
   }
 
-  // Gate de produção: EXP aplicável CONCLUIDO em TODOS os itens raiz da OF
-  // (não só nos incluídos — a OF precisa estar pronta para sair).
-  const pendingExp = input.items.filter(
-    (item) => item.expStatus !== null && item.expStatus !== "CONCLUIDO",
+  // Gate de produção: EXP aplicável CONCLUIDO nos itens raiz DA CARGA —
+  // itens fora do romaneio podem seguir em produção (expedição parcial).
+  const pendingExp = included.filter(
+    (item) =>
+      item.expStatus !== null &&
+      item.expStatus !== "CONCLUIDO" &&
+      item.expStatus !== "NAO_APLICAVEL",
   ).length;
   if (pendingExp > 0) {
     blockers.push(
       pendingExp === 1
-        ? "1 item raiz com EXPEDIÇÃO pendente."
-        : `${pendingExp} itens raiz com EXPEDIÇÃO pendente.`,
+        ? "1 item da carga com EXPEDIÇÃO pendente."
+        : `${pendingExp} itens da carga com EXPEDIÇÃO pendente.`,
     );
   }
 

@@ -554,7 +554,7 @@ describe("regras puras do romaneio", () => {
     expect(materialReturnQuantity(null, 4)).toBeNull();
   });
 
-  it("lista os gates de confirmação que faltam (aberto, NF, EXP pendente, teto)", () => {
+  it("lista os gates de confirmação que faltam (aberto, NF, teto)", () => {
     const result = checkRomaneioConfirmation({
       status: "ABERTO",
       orderStatus: "EM_PRODUCAO",
@@ -569,10 +569,45 @@ describe("regras puras do romaneio", () => {
     expect(result.canConfirm).toBe(false);
     expect(result.blockers).toContain("Conclua a conferência (aceite) antes de confirmar.");
     expect(result.blockers).toContain("Registre o número da nota de industrialização.");
-    // EXP pendente conta TODOS os itens raiz da OF, mesmo fora da carga.
-    expect(result.blockers).toContain("1 item raiz com EXPEDIÇÃO pendente.");
+    // EXP pendente FORA da carga não bloqueia (expedição parcial).
+    expect(result.blockers).not.toContain("1 item da carga com EXPEDIÇÃO pendente.");
     // 8 já expedidas + 5 nesta carga > 10 do item.
     expect(result.blockers).toContain("1 item acima da pendência de expedição.");
+  });
+
+  it("o gate de EXP olha só os itens da carga (fora da carga e NAO_APLICAVEL liberam)", () => {
+    const foraDaCarga = checkRomaneioConfirmation({
+      status: "CONFERIDO",
+      orderStatus: "EM_PRODUCAO",
+      hasNfNumber: true,
+      items: [
+        { itemQuantity: 10, shippedQuantity: 0, quantity: 10, expStatus: "CONCLUIDO" },
+        { itemQuantity: 6, shippedQuantity: 0, quantity: 0, expStatus: "NAO_INICIADO" },
+      ],
+    });
+    expect(foraDaCarga).toEqual({ canConfirm: true, blockers: [] });
+
+    const naoAplicavel = checkRomaneioConfirmation({
+      status: "CONFERIDO",
+      orderStatus: "EM_PRODUCAO",
+      hasNfNumber: true,
+      items: [
+        { itemQuantity: 10, shippedQuantity: 0, quantity: 10, expStatus: "NAO_APLICAVEL" },
+      ],
+    });
+    expect(naoAplicavel).toEqual({ canConfirm: true, blockers: [] });
+
+    const naCarga = checkRomaneioConfirmation({
+      status: "CONFERIDO",
+      orderStatus: "EM_PRODUCAO",
+      hasNfNumber: true,
+      items: [
+        { itemQuantity: 10, shippedQuantity: 0, quantity: 10, expStatus: "NAO_INICIADO" },
+        { itemQuantity: 6, shippedQuantity: 0, quantity: 0, expStatus: "CONCLUIDO" },
+      ],
+    });
+    expect(naCarga.canConfirm).toBe(false);
+    expect(naCarga.blockers).toEqual(["1 item da carga com EXPEDIÇÃO pendente."]);
   });
 
   it("libera a confirmação quando todos os pré-requisitos batem", () => {
@@ -1154,7 +1189,7 @@ describe("RPC confirm_romaneio (045) — gates e baixa", () => {
     expect(await romaneioStatus(third.id)).toBe("CONFIRMADO");
   });
 
-  it("bloqueia a confirmação enquanto houver EXP pendente na OF", async () => {
+  it("confirma a carga com EXP pendente apenas nos itens fora dela (expedição parcial)", async () => {
     await asUser(db, "authenticated", gestorId);
 
     const { rows } = await db.query<{ id: string }>(
@@ -1163,13 +1198,34 @@ describe("RPC confirm_romaneio (045) — gates e baixa", () => {
     );
     const romaneioId = rows[0]!.id;
 
-    // Conferência ok, mas a raiz B (fora da carga) ainda tem EXP pendente.
+    // Conferência ok; a raiz A (da carga) tem EXP concluído e a raiz B
+    // (fora da carga) segue em produção — a carga de A pode sair.
     await setNfNumber(romaneioId, "999");
-    await expect(confirmRomaneio(romaneioId)).rejects.toThrow(/expedição pendente/i);
-
-    await concludeExp(rootB);
     await confirmRomaneio(romaneioId);
     expect(await romaneioStatus(romaneioId)).toBe("CONFIRMADO");
+  });
+
+  it("bloqueia a confirmação quando um item DA CARGA tem EXP pendente", async () => {
+    await asUser(db, "authenticated", gestorId);
+
+    const orderR10 = await createOrder("OF-R10");
+    const rootK = await createRootItem(orderR10, "Escada marinheiro", 3, [
+      { code: "EXP", status: "NAO_INICIADO" },
+    ]);
+    const created = await saveRomaneio({
+      orderId: orderR10,
+      items: [{ orderItemId: rootK, quantity: 3 }],
+    });
+    await signConference(created.id);
+    await setNfNumber(created.id, "52345");
+
+    await expect(confirmRomaneio(created.id)).rejects.toThrow(
+      /carga tem 1 item\(ns\) com expedição pendente/i,
+    );
+
+    await concludeExp(rootK);
+    await confirmRomaneio(created.id);
+    expect(await romaneioStatus(created.id)).toBe("CONFIRMADO");
   });
 
   it("bloqueia a conferência e a confirmação de um romaneio sem itens", async () => {
