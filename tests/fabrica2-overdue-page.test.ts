@@ -35,7 +35,7 @@ vi.mock("@/lib/repositories/order-items.repository", () => ({
   refreshOrderStatuses: vi.fn(),
 }));
 
-const { getProductionPage } = await import("@/lib/services/production.service");
+const { getFabrica2FilteredSummary, getProductionPage } = await import("@/lib/services/production.service");
 
 const CATALOG: ProcessDefinition[] = [
   { id: "p-acab", code: "ACAB", name: "ACAB", displayOrder: 110, active: true, location: null, durationDays: 2 },
@@ -116,7 +116,7 @@ beforeEach(() => {
 });
 
 describe("getProductionPage — card Atrasados pela data do ACAB", () => {
-  it("calcula o card sobre o conjunto filtrado inteiro (sem o filtro ligado)", async () => {
+  it("não varre todas as páginas para renderizar a página inicial", async () => {
     getProductionRowsMock.mockImplementation(
       async (_client: unknown, filters: { pageSize: number }) =>
         filters.pageSize === 1000 ? result(ALL_ROWS) : result(ALL_ROWS.slice(0, 2), ALL_ROWS.length),
@@ -124,14 +124,39 @@ describe("getProductionPage — card Atrasados pela data do ACAB", () => {
 
     const page = await getProductionPage({} as never, parseProductionFilters({}));
 
-    // Recorte do ACAB: só os três itens com ACAB vencido e não concluído.
-    expect(page.overdue).toEqual({ records: 3, qty: 9, weight: 12 });
-    // Card "Acabamento": itens com ACAB concluído no conjunto filtrado inteiro
-    // (o item "concluido" tem entrega passada, mas já passou pelo acabamento).
-    expect(page.acabamento).toEqual({ records: 1, qty: 1, weight: 0 });
+    expect(page.overdue).toBeNull();
+    expect(page.acabamento).toBeNull();
+    expect(getProductionRowsMock).toHaveBeenCalledTimes(1);
+    expect(getProductionRowsMock.mock.calls[0][1]).toMatchObject({
+      page: 1,
+      pageSize: parseProductionFilters({}).pageSize,
+    });
     // A página continua vindo da RPC, com os filtros do usuário.
     expect(page.rows).toHaveLength(2);
     expect(page.total).toBe(5);
+  });
+
+  it("calcula os dois cards na varredura sob demanda sobre o conjunto filtrado", async () => {
+    getProductionRowsMock.mockResolvedValue(result(ALL_ROWS));
+
+    const summary = await getFabrica2FilteredSummary({} as never, parseProductionFilters({}));
+
+    expect(summary.overdue).toEqual({ records: 3, qty: 9, weight: 12 });
+    expect(summary.acabamento).toEqual({ records: 1, qty: 1, weight: 0 });
+    expect(getProductionRowsMock).toHaveBeenCalledTimes(1);
+    expect(getProductionRowsMock.mock.calls[0][1]).toMatchObject({ page: 1, pageSize: 1000, delivery: "ALL" });
+  });
+
+  it("mantém os totais dos cards consistentes quando o filtro de atrasados já está ativo", async () => {
+    getProductionRowsMock.mockResolvedValue(result(ALL_ROWS));
+
+    const summary = await getFabrica2FilteredSummary(
+      {} as never,
+      parseProductionFilters({ entrega: "OVERDUE" }),
+    );
+
+    expect(summary.overdue).toEqual({ records: 3, qty: 9, weight: 12 });
+    expect(summary.acabamento).toEqual({ records: 0, qty: 0, weight: 0 });
   });
 
   it("com entrega=OVERDUE a lista é o recorte do ACAB, paginado em memória", async () => {

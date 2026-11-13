@@ -1,6 +1,14 @@
 import { z } from "zod";
 
-import { nullableText } from "@/lib/validators/common";
+export const PROCESS_FACTORIES = ["Fábrica 1", "Fábrica 2"] as const;
+const processFactoryField = z
+  .union([
+    z.string().trim().transform((value) => (value === "" ? null : value))
+      .pipe(z.enum(PROCESS_FACTORIES).nullable()),
+    z.null(),
+    z.undefined(),
+  ])
+  .transform((value) => (value == null ? null : value));
 
 /**
  * Duração do processo em DIAS ÚTEIS — seg–sex (obrigatório, 1 a 365).
@@ -78,7 +86,7 @@ export const createProcessSchema = z.object({
     .trim()
     .min(1, "Informe o nome do processo")
     .max(80, "Máximo de 80 caracteres"),
-  location: nullableText(60),
+  location: processFactoryField,
   durationDays: durationDaysField,
 });
 
@@ -94,7 +102,7 @@ export const updateProcessSchema = z.object({
     .min(1, "Informe o nome do processo")
     .max(80, "Máximo de 80 caracteres"),
   active: z.boolean(),
-  location: nullableText(60),
+  location: processFactoryField,
   durationDays: durationDaysField,
 });
 

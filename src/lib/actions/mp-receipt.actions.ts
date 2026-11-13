@@ -8,13 +8,11 @@ import { createClient } from "@/lib/supabase/server";
 import {
   deleteMpReceipt,
   getMpReceiptCustomers,
-  getMpReceiptHistory,
   getMpReceiptMaterials,
   saveMpReceipt,
 } from "@/lib/services/mp-receipt.service";
 import type {
   MpReceiptCustomerOption,
-  MpReceiptHistoryEntry,
   MpReceiptMaterial,
 } from "@/lib/types/mp-receipt";
 import { errorMessage } from "@/lib/utils/supabase-result";
@@ -75,7 +73,6 @@ export async function loadMpReceiptOrderAction(
   | {
       success: true;
       materials: MpReceiptMaterial[];
-      history: MpReceiptHistoryEntry[];
     }
   | { success: false; message: string }
 > {
@@ -84,11 +81,8 @@ export async function loadMpReceiptOrderAction(
     if (!orderId.trim()) return { success: false, message: "Selecione a OF." };
 
     const client = await createClient();
-    const [materials, history] = await Promise.all([
-      getMpReceiptMaterials(client, orderId),
-      getMpReceiptHistory(client, orderId),
-    ]);
-    return { success: true, materials, history };
+    const materials = await getMpReceiptMaterials(client, orderId);
+    return { success: true, materials };
   } catch (error) {
     console.error("[loadMpReceiptOrderAction]", error);
     return { success: false, message: errorMessage(error) };

@@ -58,6 +58,10 @@ describe("migrations", () => {
       "production_events",
       "import_batches",
       "import_errors",
+      "product_groups",
+      "product_group_process_capacities",
+      "product_group_items",
+      "product_group_item_process_capacities",
     ]) {
       expect(await tableExists(table), `tabela ${table}`).toBe(true);
     }

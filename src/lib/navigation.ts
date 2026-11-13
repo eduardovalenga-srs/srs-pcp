@@ -40,7 +40,7 @@ export interface NavGroup {
   label: string;
   icon: NavIcon;
   capability?: Capability;
-  items: NavItem[];
+  items: NavEntry[];
 }
 
 export type NavEntry = NavItem | NavGroup;
@@ -55,10 +55,9 @@ export function isNavGroup(entry: NavEntry): entry is NavGroup {
  * NOVOS MÓDULOS (RH, almoxarifado, …): acrescente um `NavGroup` aqui e, se
  * precisar, as capabilities em `permissions.ts`. Nenhum componente muda.
  *
- * Agrupamento de produto: "Gestão de Fábrica" concentra o dia a dia fabril
- * (gestão de OF, as duas fábricas, romaneio e processos); módulos que não são
- * fabricação nascem em grupos próprios (RH). O Dashboard é entrada de primeiro
- * nível — fora do menu de gestão de OF.
+ * Agrupamento de produto: "Gestão de Fábrica" concentra o dia a dia fabril.
+ * Os cadastros ficam agrupados num submenu próprio; módulos que não são
+ * fabricação nascem em grupos próprios (RH).
  */
 export const NAV_ENTRIES: NavEntry[] = [
   {
@@ -94,7 +93,28 @@ export const NAV_ENTRIES: NavEntry[] = [
         icon: PackageCheck,
         capability: "menu.recebimento_mp",
       },
-      { type: "item", href: "/processos", label: "Processos", icon: Workflow, capability: "menu.processes" },
+      {
+        type: "group",
+        id: "cadastros",
+        label: "Cadastros",
+        icon: ClipboardList,
+        items: [
+          {
+            type: "item",
+            href: "/processos",
+            label: "Processos",
+            icon: Workflow,
+            capability: "menu.processes",
+          },
+          {
+            type: "item",
+            href: "/grupos-produtos",
+            label: "Grupos de produtos",
+            icon: Boxes,
+            capability: "menu.product_groups",
+          },
+        ],
+      },
     ],
   },
   {
@@ -123,20 +143,21 @@ export const NAV_ENTRIES: NavEntry[] = [
  * assim um módulo sem permissão nunca deixa um grupo vazio na tela.
  */
 export function visibleEntries(role: Role | null | undefined): NavEntry[] {
-  const entries: NavEntry[] = [];
-
-  for (const entry of NAV_ENTRIES) {
-    if (entry.type === "item") {
-      if (!entry.capability || can(role, entry.capability)) entries.push(entry);
-      continue;
+  const filterEntries = (source: readonly NavEntry[]): NavEntry[] => {
+    const entries: NavEntry[] = [];
+    for (const entry of source) {
+      if (entry.type === "item") {
+        if (!entry.capability || can(role, entry.capability)) entries.push(entry);
+        continue;
+      }
+      if (entry.capability && !can(role, entry.capability)) continue;
+      const items = filterEntries(entry.items);
+      if (items.length === 0) continue;
+      entries.push({ ...entry, items });
     }
-    if (entry.capability && !can(role, entry.capability)) continue;
-    const items = entry.items.filter((item) => !item.capability || can(role, item.capability));
-    if (items.length === 0) continue;
-    entries.push({ ...entry, items });
-  }
-
-  return entries;
+    return entries;
+  };
+  return filterEntries(NAV_ENTRIES);
 }
 
 /**
@@ -147,10 +168,22 @@ export function isItemActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** Grupos que contêm a rota atual (usados para abrir o grupo na navegação). */
+/** Um item ou grupo contém a rota atual? */
+export function navEntryContainsPath(entry: NavEntry, pathname: string): boolean {
+  if (entry.type === "item") return isItemActive(pathname, entry.href);
+  return entry.items.some((item) => navEntryContainsPath(item, pathname));
+}
+
+/** Grupos ancestrais da rota atual (usados para abrir os submenus necessários). */
 export function activeGroupIds(pathname: string, entries: readonly NavEntry[]): string[] {
-  return entries
-    .filter(isNavGroup)
-    .filter((group) => group.items.some((item) => isItemActive(pathname, item.href)))
-    .map((group) => group.id);
+  const activeIds: string[] = [];
+  const visit = (items: readonly NavEntry[]) => {
+    for (const entry of items) {
+      if (!isNavGroup(entry) || !navEntryContainsPath(entry, pathname)) continue;
+      activeIds.push(entry.id);
+      visit(entry.items);
+    }
+  };
+  visit(entries);
+  return activeIds;
 }

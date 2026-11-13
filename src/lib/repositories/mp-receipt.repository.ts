@@ -5,6 +5,7 @@ import type {
   MpReceiptOfOption,
 } from "@/lib/types/mp-receipt";
 import { assertOk } from "@/lib/utils/supabase-result";
+import { collectAllPages, EXPORT_PAGE_SIZE } from "@/lib/utils/collect-pages";
 
 function toNumber(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined) return null;
@@ -103,27 +104,79 @@ export interface MpReceiptHistoryRow {
     | null;
 }
 
+/** Cabeçalho e materiais necessários à lista geral de recebimentos. */
+export interface MpReceiptListRow {
+  id: string;
+  number: number | string;
+  entry_number: string | null;
+  entry_date: string | null;
+  profiles: { name: string | null } | null;
+  orders: { code: string; customer_name: string | null } | null;
+  mp_receipt_materials:
+    | {
+        material_key: string;
+        material_description: string;
+        material_unit: string;
+        quantity_kg: number | string;
+      }[]
+    | null;
+}
+
+/** Registro completo de uma nota, incluindo OF e itens fora da OF. */
+export interface MpReceiptDetailRow extends MpReceiptHistoryRow {
+  order_id: string;
+  orders: { code: string; customer_name: string | null } | null;
+}
+
 /**
- * Histórico de NOTAS DE ENTRADA de uma OF (nº digitado, data, usuário +
- * materiais em kg), do mais recente para o mais antigo.
+ * Todos os recebimentos de MP, do mais recente para o mais antigo.
+ * A leitura é paginada para não ser truncada pelo limite do PostgREST.
  */
-export async function listMpReceiptHistory(
+export async function listMpReceiptEntries(
   client: SupabaseServer,
-  orderId: string,
-): Promise<MpReceiptHistoryRow[]> {
+): Promise<MpReceiptListRow[]> {
+  return collectAllPages(async (page) => {
+    const from = (page - 1) * EXPORT_PAGE_SIZE;
+    const to = from + EXPORT_PAGE_SIZE - 1;
+    const { data, error, count } = await client
+      .from("mp_receipts")
+      .select(
+        `id, number, entry_number, entry_date,
+         profiles ( name ),
+         orders ( code, customer_name ),
+         mp_receipt_materials ( material_key, material_description, material_unit, quantity_kg )`,
+        { count: "exact" },
+      )
+      .order("number", { ascending: false })
+      .range(from, to);
+
+    assertOk(error, "Não foi possível carregar os recebimentos de matéria-prima");
+    return {
+      rows: (data ?? []) as unknown as MpReceiptListRow[],
+      total: count ?? 0,
+    };
+  });
+}
+
+/** Consulta uma nota de entrada pelo identificador. */
+export async function getMpReceiptEntryById(
+  client: SupabaseServer,
+  receiptId: string,
+): Promise<MpReceiptDetailRow | null> {
   const { data, error } = await client
     .from("mp_receipts")
     .select(
-      `id, number, entry_number, entry_date, notes, created_at,
+      `id, number, order_id, entry_number, entry_date, notes, created_at,
        profiles ( name ),
+       orders ( code, customer_name ),
        mp_receipt_materials ( material_key, material_description, material_unit, quantity_kg ),
        mp_receipt_free_items ( description, unit, quantity )`,
     )
-    .eq("order_id", orderId)
-    .order("number", { ascending: false });
+    .eq("id", receiptId)
+    .maybeSingle();
 
-  assertOk(error, "Não foi possível carregar o histórico de recebimentos");
-  return (data ?? []) as unknown as MpReceiptHistoryRow[];
+  assertOk(error, "Não foi possível carregar a nota de entrada");
+  return data as unknown as MpReceiptDetailRow | null;
 }
 
 /** Grava uma NOTA DE ENTRADA (RPC transacional — 059/060). */

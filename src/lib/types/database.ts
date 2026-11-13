@@ -90,6 +90,44 @@ export type ProcessRow = {
   updated_at: string;
 };
 
+export type ProductGroupRow = {
+  id: number;
+  family_description: string;
+  family_abbreviation: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProductGroupProcessCapacityRow = {
+  id: string;
+  product_group_id: number;
+  factory: "Fábrica 1" | "Fábrica 2";
+  process_id: string;
+  unit: "KG" | "M2" | "UNIDADES";
+  capacity: number | string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProductGroupItemRow = {
+  id: string;
+  product_group_id: number;
+  description: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProductGroupItemProcessCapacityRow = {
+  id: string;
+  product_group_item_id: string;
+  factory: "Fábrica 1" | "Fábrica 2";
+  process_id: string;
+  unit: "KG" | "M2" | "UNIDADES";
+  capacity: number | string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ProductionProcessRow = {
   id: string;
   order_item_id: string;
@@ -595,6 +633,105 @@ export type Database = {
         }>;
         Relationships: [];
       };
+      product_groups: {
+        Row: ProductGroupRow;
+        Insert: {
+          id?: number;
+          family_description: string;
+          family_abbreviation: string;
+        };
+        Update: Partial<{
+          family_description: string;
+          family_abbreviation: string;
+        }>;
+        Relationships: [];
+      };
+      product_group_process_capacities: {
+        Row: ProductGroupProcessCapacityRow;
+        Insert: {
+          id?: string;
+          product_group_id: number;
+          factory: "Fábrica 1" | "Fábrica 2";
+          process_id: string;
+          unit: "KG" | "M2" | "UNIDADES";
+          capacity: number;
+        };
+        Update: Partial<{
+          factory: "Fábrica 1" | "Fábrica 2";
+          process_id: string;
+          unit: "KG" | "M2" | "UNIDADES";
+          capacity: number;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "product_group_process_capacities_product_group_id_fkey";
+            columns: ["product_group_id"];
+            isOneToOne: false;
+            referencedRelation: "product_groups";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "product_group_process_capacities_process_id_fkey";
+            columns: ["process_id"];
+            isOneToOne: false;
+            referencedRelation: "processes";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      product_group_items: {
+        Row: ProductGroupItemRow;
+        Insert: {
+          id?: string;
+          product_group_id: number;
+          description: string;
+        };
+        Update: Partial<{
+          description: string;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "product_group_items_product_group_id_fkey";
+            columns: ["product_group_id"];
+            isOneToOne: false;
+            referencedRelation: "product_groups";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      product_group_item_process_capacities: {
+        Row: ProductGroupItemProcessCapacityRow;
+        Insert: {
+          id?: string;
+          product_group_item_id: string;
+          factory: "Fábrica 1" | "Fábrica 2";
+          process_id: string;
+          unit: "KG" | "M2" | "UNIDADES";
+          capacity: number;
+        };
+        Update: Partial<{
+          factory: "Fábrica 1" | "Fábrica 2";
+          process_id: string;
+          unit: "KG" | "M2" | "UNIDADES";
+          capacity: number;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "product_group_item_process_capacities_product_group_item_id_fkey";
+            columns: ["product_group_item_id"];
+            isOneToOne: false;
+            referencedRelation: "product_group_items";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "product_group_item_process_capacities_process_id_fkey";
+            columns: ["process_id"];
+            isOneToOne: false;
+            referencedRelation: "processes";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       production_processes: {
         Row: ProductionProcessRow;
         Insert: {
@@ -1076,6 +1213,24 @@ export type Database = {
       reorder_processes: {
         Args: { p_ids: string[] };
         Returns: undefined;
+      };
+      save_product_group: {
+        Args: {
+          p_group_id: number | null;
+          p_family_description: string;
+          p_family_abbreviation: string;
+          p_capacities: Json;
+        };
+        Returns: { id: number; group_type: string }[];
+      };
+      save_product_group_with_items: {
+        Args: {
+          p_group_id: number | null;
+          p_family_description: string;
+          p_family_abbreviation: string;
+          p_items: Json;
+        };
+        Returns: { id: number; group_type: string }[];
       };
       backfill_process: {
         // null = todos os processos ativos (invariante item × processo)

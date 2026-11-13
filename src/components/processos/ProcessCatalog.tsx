@@ -56,6 +56,14 @@ import {
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { PROCESS_FACTORIES } from "@/lib/validators/process.schema";
 
 interface ProcessCatalogProps {
   processes: ProcessDefinition[];
@@ -90,6 +98,8 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
     resolver: zodResolver(updateProcessSchema),
   });
   const editActive = useWatch({ control: editForm.control, name: "active" });
+  const createLocation = useWatch({ control: createForm.control, name: "location" });
+  const editLocation = useWatch({ control: editForm.control, name: "location" });
 
   const onCreate = createForm.handleSubmit(async (values) => {
     setBusy(true);
@@ -264,7 +274,7 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
                     <th scope="col" className="px-3 py-2 font-semibold">Ordem</th>
                     <th scope="col" className="px-3 py-2 font-semibold">Código</th>
                     <th scope="col" className="px-3 py-2 font-semibold">Nome</th>
-                    <th scope="col" className="px-3 py-2 font-semibold">Local</th>
+                    <th scope="col" className="px-3 py-2 font-semibold">Fábrica</th>
                     <th scope="col" className="px-3 py-2 font-semibold">Duração</th>
                     <th scope="col" className="px-3 py-2 font-semibold">Situação</th>
                     <th scope="col" className="px-3 py-2 text-right font-semibold">Ações</th>
@@ -344,13 +354,27 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
             </div>
 
             <div className="space-y-1">
-              <Label htmlFor="processo-novo-local">Local</Label>
-              <Input
-                id="processo-novo-local"
-                placeholder="EX: Fábrica 1"
-                {...createForm.register("location")}
-                aria-invalid={!!createForm.formState.errors.location}
-              />
+              <Label htmlFor="processo-novo-local">Fábrica</Label>
+              <Select
+                value={createLocation || "SEM_FABRICA"}
+                onValueChange={(value) =>
+                  createForm.setValue(
+                    "location",
+                    value === "SEM_FABRICA" ? "" : (value as (typeof PROCESS_FACTORIES)[number]),
+                    { shouldValidate: true },
+                  )
+                }
+              >
+                <SelectTrigger id="processo-novo-local" aria-invalid={!!createForm.formState.errors.location}>
+                  <SelectValue placeholder="Selecione uma fábrica" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SEM_FABRICA">Selecione uma fábrica</SelectItem>
+                  {PROCESS_FACTORIES.map((factory) => (
+                    <SelectItem key={factory} value={factory}>{factory}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <p role="alert" className="text-xs text-status-blocked">
                 {createForm.formState.errors.location?.message}
               </p>
@@ -428,13 +452,27 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
             </div>
 
             <div className="space-y-1">
-              <Label htmlFor="processo-editar-local">Local</Label>
-              <Input
-                id="processo-editar-local"
-                placeholder="EX: Fábrica 1"
-                {...editForm.register("location")}
-                aria-invalid={!!editForm.formState.errors.location}
-              />
+              <Label htmlFor="processo-editar-local">Fábrica</Label>
+              <Select
+                value={editLocation || "SEM_FABRICA"}
+                onValueChange={(value) =>
+                  editForm.setValue(
+                    "location",
+                    value === "SEM_FABRICA" ? "" : (value as (typeof PROCESS_FACTORIES)[number]),
+                    { shouldValidate: true },
+                  )
+                }
+              >
+                <SelectTrigger id="processo-editar-local" aria-invalid={!!editForm.formState.errors.location}>
+                  <SelectValue placeholder="Selecione uma fábrica" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SEM_FABRICA">Selecione uma fábrica</SelectItem>
+                  {PROCESS_FACTORIES.map((factory) => (
+                    <SelectItem key={factory} value={factory}>{factory}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <p role="alert" className="text-xs text-status-blocked">
                 {editForm.formState.errors.location?.message}
               </p>

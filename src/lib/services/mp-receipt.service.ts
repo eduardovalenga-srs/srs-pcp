@@ -3,14 +3,17 @@ import "server-only";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type {
   MpReceiptCustomerOption,
+  MpReceiptDetail,
   MpReceiptFreeItem,
   MpReceiptHistoryEntry,
+  MpReceiptListEntry,
   MpReceiptMaterial,
 } from "@/lib/types/mp-receipt";
 import {
   deleteMpReceiptRpc,
+  getMpReceiptEntryById,
+  listMpReceiptEntries,
   listMpReceiptCustomers,
-  listMpReceiptHistory,
   listMpReceiptMaterials,
   saveMpReceiptRpc,
   type MpReceiptHistoryRow,
@@ -40,13 +43,42 @@ export async function getMpReceiptMaterials(
   }));
 }
 
-/** Histórico de NOTAS DE ENTRADA de uma OF (nº, data, usuário e materiais). */
-export async function getMpReceiptHistory(
+/** Lista geral de todos os recebimentos cadastrados. */
+export async function getMpReceiptEntries(
   client: SupabaseServer,
-  orderId: string,
-): Promise<MpReceiptHistoryEntry[]> {
-  const rows = await listMpReceiptHistory(client, orderId);
-  return rows.map(mapHistoryRow);
+): Promise<MpReceiptListEntry[]> {
+  const rows = await listMpReceiptEntries(client);
+  return rows.map((row) => ({
+    id: row.id,
+    number: toNumber(row.number) ?? 0,
+    entryNumber: row.entry_number ?? "",
+    entryDate: row.entry_date,
+    userName: row.profiles?.name ?? null,
+    orderCode: row.orders?.code ?? null,
+    customerName: row.orders?.customer_name ?? null,
+    materials: (row.mp_receipt_materials ?? []).map((material) => ({
+      materialKey: material.material_key,
+      description: material.material_description,
+      unit: material.material_unit,
+      quantityKg: toNumber(material.quantity_kg) ?? 0,
+    })),
+  }));
+}
+
+/** Dados completos de uma nota de entrada para a tela de consulta. */
+export async function getMpReceiptEntry(
+  client: SupabaseServer,
+  receiptId: string,
+): Promise<MpReceiptDetail | null> {
+  const row = await getMpReceiptEntryById(client, receiptId);
+  if (!row) return null;
+
+  return {
+    ...mapHistoryRow(row),
+    orderId: row.order_id,
+    orderCode: row.orders?.code ?? null,
+    customerName: row.orders?.customer_name ?? null,
+  };
 }
 
 function mapHistoryRow(row: MpReceiptHistoryRow): MpReceiptHistoryEntry {

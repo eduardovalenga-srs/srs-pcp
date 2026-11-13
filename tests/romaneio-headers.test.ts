@@ -86,7 +86,7 @@ function summary(overrides: Partial<RomaneioSummary> = {}): RomaneioSummary {
 }
 
 describe("cabeçalhos de ordenação — RomaneioList (/romaneio)", () => {
-  it("sinaliza a coluna default (nº desc) com o toggle para asc", () => {
+  it("sinaliza a data de saída default (desc) com o toggle para asc", () => {
     const markup = html(
       createElement(RomaneioList, {
         romaneios: [summary()],
@@ -96,7 +96,7 @@ describe("cabeçalhos de ordenação — RomaneioList (/romaneio)", () => {
     );
     const table = tableMarkup(markup);
     expect(table).toContain('aria-sort="descending"');
-    expect(table).toContain('aria-label="Ordenar por Número, atualmente decrescente"');
+    expect(table).toContain('aria-label="Ordenar por Data de saída, atualmente decrescente"');
     expect(table).toContain('href="/romaneio?direcao=asc"');
   });
 
@@ -285,7 +285,7 @@ describe("colunas de processos saíram da listagem (049 → detalhe)", () => {
       }),
     );
     const table = tableMarkup(markup);
-    // `ordem=<código de processo>` não é mais coluna: cai no default (nº).
+    // `ordem=<código de processo>` não é mais coluna: cai no default (saída).
     expect(table).toContain('aria-sort="descending"');
     expect(table).not.toContain("Ordenar por SOLDA");
   });

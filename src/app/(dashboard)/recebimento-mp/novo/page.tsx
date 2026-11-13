@@ -1,0 +1,83 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
+
+import { can } from "@/lib/auth/permissions";
+import { getSessionUser } from "@/lib/auth/session";
+import { createClient } from "@/lib/supabase/server";
+import { getMpReceiptCustomers } from "@/lib/services/mp-receipt.service";
+import type { MpReceiptCustomerOption } from "@/lib/types/mp-receipt";
+import { AccessDenied } from "@/components/shared/AccessDenied";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { ErrorState } from "@/components/shared/ErrorState";
+import { Header } from "@/components/layout/Header";
+import { Button } from "@/components/ui/button";
+import { RecebimentoMpForm } from "@/components/recebimento-mp/RecebimentoMpForm";
+
+export const metadata = { title: "Nova nota de entrada" };
+
+export default async function NovoRecebimentoMpPage() {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) redirect("/login");
+
+  const backAction = (
+    <Button type="button" variant="outline" size="sm" asChild>
+      <Link href="/recebimento-mp">
+        <ArrowLeft className="h-4 w-4" aria-hidden />
+        Voltar
+      </Link>
+    </Button>
+  );
+
+  if (!can(sessionUser.role, "menu.recebimento_mp") || !can(sessionUser.role, "mp_receipt.edit")) {
+    return (
+      <>
+        <Header
+          title="Nova nota de entrada"
+          description="Registre o peso recebido de cada matéria-prima."
+          actions={backAction}
+        />
+        <AccessDenied message="Seu perfil não pode registrar recebimentos de matéria-prima." />
+      </>
+    );
+  }
+
+  let customers: MpReceiptCustomerOption[];
+  try {
+    const client = await createClient();
+    customers = await getMpReceiptCustomers(client);
+  } catch (error) {
+    return (
+      <>
+        <Header
+          title="Nova nota de entrada"
+          description="Registre o peso recebido de cada matéria-prima."
+          actions={backAction}
+        />
+        <ErrorState
+          title="Não foi possível carregar as OFs"
+          message={error instanceof Error ? error.message : "Erro desconhecido."}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Header
+        title="Nova nota de entrada"
+        description="Escolha o cliente e a OF, informe os dados da nota e os pesos recebidos."
+        actions={backAction}
+      />
+
+      {customers.length === 0 ? (
+        <EmptyState
+          title="Nenhuma OF com pendência"
+          description="Todas as OFs ativas já receberam a matéria-prima por completo (ou não têm materiais a receber)."
+        />
+      ) : (
+        <RecebimentoMpForm customers={customers} canEdit />
+      )}
+    </>
+  );
+}

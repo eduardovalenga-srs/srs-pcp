@@ -21,6 +21,7 @@ export type Capability =
   | "menu.gestao"
   | "menu.dashboard"
   | "menu.processes"
+  | "menu.product_groups"
   | "menu.fabrica1"
   | "fabrica2.view"
   | "menu.fabrica2"
@@ -55,6 +56,7 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "menu.gestao",
     "menu.dashboard",
     "menu.processes",
+    "menu.product_groups",
     "menu.fabrica1",
     "fabrica2.view",
     "menu.fabrica2",
@@ -81,6 +83,7 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "processes.view",
     "menu.gestao",
     "menu.processes",
+    "menu.product_groups",
     "menu.fabrica1",
     "fabrica2.view",
     "menu.fabrica2",

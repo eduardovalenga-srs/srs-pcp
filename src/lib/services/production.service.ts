@@ -4,7 +4,7 @@ import type { SessionUser } from "@/lib/auth/session";
 import { PROCESS_STATUS_LABELS, type ProcessStatus, type WeightGranularity } from "@/lib/constants/production";
 import { ACAB_PROCESS_CODE, MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { SupabaseServer } from "@/lib/supabase/types";
-import type { CompletedWeightStats, FilteredKpiTotals, ProductionEvent, ProductionFilters, ProductionOrderResult, ProductionResult, ProductionRow, ProductionStats, ProcessDefinition } from "@/lib/types/production";
+import type { CompletedWeightStats, FilteredKpiTotals, ProductionEvent, ProductionFilteredSummary, ProductionFilters, ProductionOrderResult, ProductionResult, ProductionRow, ProductionStats, ProcessDefinition } from "@/lib/types/production";
 import {
   getActiveProcesses,
   getCompletedWeightStats as getCompletedWeightStatsFromRepository,
@@ -34,13 +34,15 @@ import { todayISODate } from "@/lib/utils/dates";
 import { processUpdateSchema, type ProcessUpdateInput } from "@/lib/validators/production.schema";
 import { firstZodMessage } from "@/lib/validators/common";
 
-export interface ProductionPage extends Omit<ProductionResult, "expedition"> {
+export interface ProductionPage extends Omit<ProductionResult, "expedition" | "overdue"> {
+  /** KPIs calculados durante a varredura necessária para filtrar a lista, se houver. */
+  overdue: FilteredKpiTotals | null;
   processes: ProcessDefinition[];
   /**
    * 065: itens do recorte com o ACABAMENTO (ACAB) concluído — card
    * "Acabamento" da Fábrica 2 (substituiu o card "Expedição").
    */
-  acabamento: FilteredKpiTotals;
+  acabamento: FilteredKpiTotals | null;
   /** Data de referência (AAAA-MM-DD) usada pela RPC — mesma base da regra de atraso. */
   today: string;
 }
@@ -108,21 +110,47 @@ function acabamentoTotalsOf(rows: readonly ProductionRow[]) {
 }
 
 /**
+ * Totais dos cards da Fábrica 2. Executado pela API sob demanda para não
+ * atrasar a renderização inicial da página com a varredura de todas as linhas.
+ */
+export async function getFabrica2FilteredSummary(
+  client: SupabaseServer,
+  filters: ProductionFilters,
+): Promise<ProductionFilteredSummary> {
+  const today = todayISODate();
+  const processes = await getActiveProcesses(client);
+  // O recorte de entrega OVERDUE depende da janela de ACAB, calculada em
+  // memória. Busca o conjunto-base e reaplica esse recorte abaixo.
+  const rows = await listFabrica2FilteredRows(
+    client,
+    { ...filters, delivery: "ALL", page: 1 },
+    today,
+    processes,
+  );
+  const filteredRows =
+    filters.delivery === "OVERDUE" ? rows.filter((row) => isAcabOverdue(row, processes, today)) : rows;
+
+  return {
+    overdue: acabOverdueTotalsOf(filteredRows, processes, today),
+    acabamento: acabamentoTotalsOf(filteredRows),
+  };
+}
+
+/**
  * Página da Fábrica 2 (uma linha por item).
  *
  * O card "Atrasados" desta tela usa a data da coluna ACAB (início previsto
- * anterior a hoje), não a entrega: como a janela não existe no banco, o
- * conjunto filtrado inteiro é varrido e recortado em memória — paginação,
- * totais e exportação falam a mesma língua. Com o filtro ligado
- * (`delivery=OVERDUE`), a lista passa a ser o próprio recorte de atrasados.
+ * anterior a hoje), não a entrega. Seus KPIs e o card "Acabamento" são
+ * carregados sob demanda por `getFabrica2FilteredSummary`, sem atrasar a
+ * primeira renderização. Com o filtro ligado (`delivery=OVERDUE`), a lista
+ * passa a ser o próprio recorte de atrasados e precisa da varredura em memória.
  *
  * 051: o mesmo caminho vale para a opção "Atrasados" dos filtros de PROCESSO
  * (`procsatrasado=1`) — com ela ligada, a lista é o recorte daquele processo
  * (ou de qualquer um, no filtro do grupo), combinando por E com o da entrega.
  *
- * 065: o card "Acabamento" conta, sobre o MESMO conjunto varrido, os itens
- * com o processo ACAB marcado como concluído (antes era o card "Expedição",
- * que pedia EXP concluída).
+ * 065: o card "Acabamento" conta os itens com o processo ACAB marcado como
+ * concluído; seu resumo também é calculado pela varredura sob demanda.
  *
  * A gestão de OF continua usando `getProductionOrdersPage` (regra de atraso
  * por entrega, calculada na RPC).
@@ -134,8 +162,8 @@ export async function getProductionPage(
   const today = todayISODate();
   const processes = await getActiveProcesses(client);
 
-  // Recorte em memória ligado (entrega e/ou processo): varredura única — a
-  // lista, a paginação, os totais e os cards saem do MESMO conjunto.
+  // Recorte em memória ligado (entrega e/ou processo): a lista, a paginação,
+  // os totais e os KPIs saem do MESMO conjunto varrido.
   if (filters.delivery === "OVERDUE" || filters.processOverdue) {
     const cut = await listFabrica2FilteredRows(client, filters, today, processes);
     const totals = productionRowsTotals(cut);
@@ -156,22 +184,18 @@ export async function getProductionPage(
     };
   }
 
-  const [result, scanned] = await Promise.all([
-    getProductionRows(client, filters, today),
-    listFabrica2FilteredRows(client, filters, today, processes),
-  ]);
+  // Os KPIs são carregados depois da página pelo endpoint de resumo. A lista
+  // visível e seus totais já vêm completos da RPC, sem varrer todas as páginas.
+  const result = await getProductionRows(client, filters, today);
   const { rows, total, qtyTotal, weightTotal } = result;
   return {
     rows,
     total,
     qtyTotal,
     weightTotal,
-    // Card "Atrasados": regra do ACAB (data anterior a hoje e ainda não
-    // concluído) sobre o conjunto filtrado varrido inteiro.
-    overdue: acabOverdueTotalsOf(scanned, processes, today),
-    // Card "Acabamento": itens com o ACAB concluído — MESMA varredura, sem
-    // custo extra (as colunas `expedition_*` da RPC não são mais lidas aqui).
-    acabamento: acabamentoTotalsOf(scanned),
+    // Sem varredura síncrona: o cliente carrega os dois KPIs em segundo plano.
+    overdue: null,
+    acabamento: null,
     processes,
     today,
   };

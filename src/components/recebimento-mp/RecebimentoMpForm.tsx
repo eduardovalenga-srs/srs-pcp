@@ -2,20 +2,18 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { History, Loader2, PackageCheck, Trash2 } from "lucide-react";
+import { Loader2, PackageCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import {
-  deleteMpReceiptAction,
   loadMpReceiptOrderAction,
   saveMpReceiptAction,
 } from "@/lib/actions/mp-receipt.actions";
 import type {
   MpReceiptCustomerOption,
-  MpReceiptHistoryEntry,
   MpReceiptMaterial,
 } from "@/lib/types/mp-receipt";
-import { formatBusinessDate, formatDate, formatDateTime, todayISODate } from "@/lib/utils/dates";
+import { formatDate, todayISODate } from "@/lib/utils/dates";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { formatWeight } from "@/lib/utils/formatting";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +24,6 @@ import { Combobox, type ComboboxOption } from "@/components/shared/combobox";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
 import {
   MpFreeItemsEditor,
-  formatMpFreeItemQuantity,
   invalidMpFreeItemMessage,
   markedMpFreeItems,
   type MpFreeItemDraft,
@@ -150,11 +147,10 @@ interface RecebimentoMpFormProps {
 }
 
 /**
- * /recebimento-mp: seletor em cascata (cliente → OFs com pendência) +
+ * /recebimento-mp/novo: seletor em cascata (cliente → OFs com pendência) +
  * NOTA DE ENTRADA (nº + data) + o peso recebido de cada MATÉRIA-PRIMA
  * (campos ZERADOS — só entra na nota o que foi digitado) + itens
- * opcionais FORA DA OF (descrição + UM + quantidade, só registro) +
- * histórico com exclusão em dois passos.
+ * opcionais FORA DA OF (descrição + UM + quantidade, só registro).
  *
  * O salvamento é uma nota por ação (RPC transacional) e o espelho da
  * coluna MP é recalculado no banco — por preenchimento sequencial do
@@ -166,7 +162,6 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
   const [customerValue, setCustomerValue] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
   const [materials, setMaterials] = useState<MpReceiptMaterial[] | null>(null);
-  const [history, setHistory] = useState<MpReceiptHistoryEntry[]>([]);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [freeItems, setFreeItems] = useState<MpFreeItemDraft[]>([]);
   const [entryNumber, setEntryNumber] = useState("");
@@ -174,7 +169,6 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const customer = useMemo(
     () => customers.find((entry) => customerKey(entry) === customerValue) ?? null,
@@ -190,16 +184,14 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
     [customer, orderId],
   );
 
-  // Zera a cascata (OF, materiais, nota e histórico).
+  // Zera a cascata (OF, materiais e nota).
   const resetEntry = () => {
     setMaterials(null);
-    setHistory([]);
     setQuantities({});
     setFreeItems([]);
     setEntryNumber("");
     setEntryDate(todayISODate());
     setNotes("");
-    setDeletingId(null);
   };
 
   // Troca de cliente zera a cascata.
@@ -209,8 +201,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
     resetEntry();
   };
 
-  // Troca de OF recarrega materiais + histórico e devolve os inputs com
-  // o saldo de cada matéria-prima.
+  // Troca de OF recarrega os materiais e zera os campos da nova nota.
   const onOrderChange = async (next: string) => {
     setOrderId(next);
     resetEntry();
@@ -225,7 +216,6 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
         return;
       }
       setMaterials(result.materials);
-      setHistory(result.history);
       setQuantities(initialMpQuantities());
     } catch (error) {
       console.error("[RecebimentoMpForm]", error);
@@ -233,15 +223,6 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
     } finally {
       setLoading(false);
     }
-  };
-
-  const reloadOrder = async (currentOrderId: string) => {
-    const result = await loadMpReceiptOrderAction(currentOrderId);
-    if (!result.success) return;
-    setMaterials(result.materials);
-    setHistory(result.history);
-    setQuantities(initialMpQuantities());
-    setFreeItems([]);
   };
 
   const handleSave = async () => {
@@ -279,37 +260,12 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
         return;
       }
       toast.success(result.message);
-      await reloadOrder(selectedOf.orderId);
-      router.refresh();
+      router.push("/recebimento-mp");
     } catch (error) {
       console.error("[RecebimentoMpForm]", error);
       toast.error(errorMessage(error));
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleDelete = async (receiptId: string) => {
-    if (!selectedOf || deletingId !== receiptId) {
-      // Primeiro clique arma a confirmação; o segundo exclui.
-      setDeletingId(receiptId);
-      return;
-    }
-
-    try {
-      const result = await deleteMpReceiptAction(receiptId);
-      if (!result.success) {
-        toast.error(result.message || "Não foi possível excluir a nota de entrada.");
-        return;
-      }
-      toast.success(result.message);
-      await reloadOrder(selectedOf.orderId);
-      router.refresh();
-    } catch (error) {
-      console.error("[RecebimentoMpForm]", error);
-      toast.error(errorMessage(error));
-    } finally {
-      setDeletingId(null);
     }
   };
 
@@ -578,101 +534,6 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
         </div>
       ) : null}
 
-      {materials && history.length > 0 ? (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <History className="h-4 w-4 text-muted-foreground" aria-hidden />
-            <h2 className="text-sm font-semibold">Histórico de notas de entrada</h2>
-          </div>
-
-          <div className="overflow-x-auto rounded border bg-card">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Nº
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Data
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Usuário
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Matérias-primas (kg)
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Fora da OF
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Observação
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    Ações
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((entry) => (
-                  <tr key={entry.id} className="border-b last:border-b-0 align-top">
-                    <td className="px-3 py-2 tabular-nums">{entry.entryNumber || entry.number}</td>
-                    <td className="px-3 py-2 tabular-nums">
-                      {entry.entryDate ? formatBusinessDate(entry.entryDate) : "—"}
-                    </td>
-                    <td className="px-3 py-2">{entry.userName ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      <ul className="space-y-0.5">
-                        {entry.materials.map((material, index) => (
-                          <li key={`${entry.id}-${index}`} className="tabular-nums">
-                            {material.description}: {formatWeight(material.quantityKg)}
-                          </li>
-                        ))}
-                      </ul>
-                    </td>
-                    <td className="px-3 py-2">
-                      {entry.freeItems.length === 0 ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <ul className="space-y-0.5">
-                          {entry.freeItems.map((item, index) => (
-                            <li key={`${entry.id}-free-${index}`} className="tabular-nums">
-                              {item.description}:{" "}
-                              {formatMpFreeItemQuantity(item.quantity, item.unit)}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">{entry.notes ?? "—"}</td>
-                    <td className="px-3 py-2 text-right">
-                      <Button
-                        type="button"
-                        variant={deletingId === entry.id ? "destructive" : "ghost"}
-                        size="sm"
-                        disabled={!canEdit}
-                        onClick={() => void handleDelete(entry.id)}
-                        aria-label={
-                          deletingId === entry.id
-                            ? `Confirmar exclusão da nota de entrada ${entry.entryNumber}`
-                            : `Excluir nota de entrada ${entry.entryNumber}`
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" aria-hidden />
-                        {deletingId === entry.id ? "Confirmar" : "Excluir"}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            Criado em {history[0] ? formatDateTime(history[0].createdAt) : ""}. A exclusão corrige o
-            registro e recalcula o espelho da coluna MP.
-          </p>
-        </div>
-      ) : null}
     </section>
   );
 }

@@ -834,7 +834,7 @@ describe("parseRomaneioFilters (047 — filtros em todas as colunas)", () => {
       weightTo: null,
       nfNumber: "",
       returnNfNumber: "",
-      sort: "number",
+      sort: "shipment_date",
       sortDir: "desc",
       page: 1,
       pageSize: ROMANEIO_PAGE_SIZE,
@@ -897,17 +897,17 @@ describe("parseRomaneioFilters (047 — filtros em todas as colunas)", () => {
     const filters = parseRomaneioFilters({ ordem: "status", direcao: "asc" });
     expect(filters.sort).toBe("status");
     expect(filters.sortDir).toBe("asc");
-    // Chave que não é coluna cai no default.
-    expect(parseRomaneioFilters({ ordem: "123abc" }).sort).toBe("number");
+    // Chave que não é coluna cai no default (data de saída).
+    expect(parseRomaneioFilters({ ordem: "123abc" }).sort).toBe("shipment_date");
   });
 
   it("códigos de processo na URL não ordenam mais (049 saiu da listagem)", () => {
     // As colunas de processo passaram a viver no detalhe — um link
-    // antigo com `ordem=<código>` cai no default (nº desc).
-    expect(parseRomaneioFilters({ ordem: "SOLDA" }).sort).toBe("number");
-    expect(parseRomaneioFilters({ ordem: "solda" }).sort).toBe("number");
-    expect(parseRomaneioFilters({ ordem: "MP" }).sort).toBe("number");
-    expect(parseRomaneioFilters({ ordem: "KIT" }).sort).toBe("number");
+    // antigo com `ordem=<código>` cai no default (saída desc).
+    expect(parseRomaneioFilters({ ordem: "SOLDA" }).sort).toBe("shipment_date");
+    expect(parseRomaneioFilters({ ordem: "solda" }).sort).toBe("shipment_date");
+    expect(parseRomaneioFilters({ ordem: "MP" }).sort).toBe("shipment_date");
+    expect(parseRomaneioFilters({ ordem: "KIT" }).sort).toBe("shipment_date");
   });
 
   it("chaves de processo na URL são ignoradas (não há mais filtro na lista)", () => {

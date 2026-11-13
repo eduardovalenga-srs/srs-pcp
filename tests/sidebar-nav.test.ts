@@ -73,6 +73,8 @@ describe("AppSidebar (menu lateral, 043)", () => {
     expect(markup).toContain('href="/romaneio"');
     expect(markup).not.toContain('href="/dashboard"');
     expect(markup).toContain('href="/processos"');
+    expect(markup).toContain('href="/grupos-produtos"');
+    expect(markup).toContain('aria-label="Cadastros"');
   });
 
   it("marca a página atual com aria-current=page", () => {
@@ -83,6 +85,17 @@ describe("AppSidebar (menu lateral, 043)", () => {
 
     const other = markup.match(/<a[^>]*href="\/gestao-entregas"[^>]*>/)?.[0] ?? "";
     expect(other).not.toContain('aria-current="page"');
+  });
+
+  it("abre Gestão de Fábrica e Cadastros ao acessar um cadastro", () => {
+    const markup = renderSidebar("ADMIN", "/grupos-produtos");
+    const factoryMenu = markup.match(/<button[^>]*aria-label="Gestão de Fábrica"[^>]*>/)?.[0] ?? "";
+    const cadastrosMenu = markup.match(/<button[^>]*aria-label="Cadastros"[^>]*>/)?.[0] ?? "";
+    const groupLink = markup.match(/<a[^>]*href="\/grupos-produtos"[^>]*>/)?.[0] ?? "";
+
+    expect(factoryMenu).toContain('aria-expanded="true"');
+    expect(cadastrosMenu).toContain('aria-expanded="true"');
+    expect(groupLink).toContain('aria-current="page"');
   });
 
   it("mantém a Configurações fora da sidebar (vive no menu do usuário)", () => {
@@ -123,6 +136,7 @@ describe("filtragem por papel (capabilities da sidebar)", () => {
     expect(markup).not.toContain('href="/fabrica-2"');
     expect(markup).not.toContain('href="/romaneio"');
     expect(markup).not.toContain('href="/processos"');
+    expect(markup).not.toContain('href="/grupos-produtos"');
     // 043: Dashboard virou entrada de primeiro nível e o OPERADOR_F1 a vê.
     expect(markup).toContain('href="/dashboard"');
     // 043: RH passa a ser de ADMIN e operadores (F1).
@@ -137,6 +151,7 @@ describe("filtragem por papel (capabilities da sidebar)", () => {
     expect(markup).not.toContain('href="/gestao-entregas"');
     expect(markup).not.toContain('href="/romaneio"');
     expect(markup).not.toContain('href="/processos"');
+    expect(markup).not.toContain('href="/grupos-produtos"');
     expect(markup).not.toContain('href="/dashboard"');
     expect(markup).not.toContain('href="/rh/funcionarios"');
   });
@@ -150,6 +165,7 @@ describe("filtragem por papel (capabilities da sidebar)", () => {
     expect(markup).not.toContain('href="/fabrica-2"');
     expect(markup).not.toContain('href="/dashboard"');
     expect(markup).not.toContain('href="/processos"');
+    expect(markup).not.toContain('href="/grupos-produtos"');
     expect(markup).not.toContain('href="/rh/funcionarios"');
   });
 
@@ -197,6 +213,7 @@ describe("helpers de navegação", () => {
     const entries = visibleEntries("ADMIN");
 
     expect(activeGroupIds("/gestao-entregas", entries)).toContain("fabrica");
+    expect(activeGroupIds("/processos", entries)).toEqual(["fabrica", "cadastros"]);
     expect(activeGroupIds("/rh/funcionarios", entries)).toEqual(["rh"]);
     expect(activeGroupIds("/fora-do-menu", entries)).toEqual([]);
   });

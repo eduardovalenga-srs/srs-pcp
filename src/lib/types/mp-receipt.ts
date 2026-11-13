@@ -96,3 +96,20 @@ export interface MpReceiptHistoryEntry {
   /** Materiais recebidos fora da OF nesta mesma nota (060). */
   freeItems: MpReceiptFreeItem[];
 }
+
+/** Campos exibidos na lista geral de recebimentos de MP. */
+export interface MpReceiptListEntry
+  extends Pick<
+    MpReceiptHistoryEntry,
+    "id" | "number" | "entryNumber" | "entryDate" | "userName" | "materials"
+  > {
+  orderCode: string | null;
+  customerName: string | null;
+}
+
+/** Dados completos de uma nota de entrada para consulta. */
+export interface MpReceiptDetail extends MpReceiptHistoryEntry {
+  orderId: string;
+  orderCode: string | null;
+  customerName: string | null;
+}

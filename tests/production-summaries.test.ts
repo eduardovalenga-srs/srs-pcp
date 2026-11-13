@@ -100,3 +100,24 @@ describe("Fabrica2Summary — cards Atrasados/Acabamento filtrados (041/065)", (
     expect(html).toContain('href="/fabrica-2?processo=ACAB&amp;situacao=CONCLUIDO"');
   });
 });
+
+describe("Fabrica2Summary — carregamento assíncrono dos KPIs", () => {
+  it("renderiza Eventos sem esperar a varredura dos cards", () => {
+    const html = renderToStaticMarkup(
+      createElement(Fabrica2Summary, {
+        total: 20,
+        qtyTotal: 45,
+        weightTotal: 200,
+        filters: parseProductionFilters({}),
+        overdue: null,
+        acabamento: null,
+      }),
+    );
+
+    expect(cardSection(html, "Eventos", "Atrasados")).toContain(">20<");
+    expect(html).toContain("Atrasados");
+    expect(html).toContain("Acabamento");
+    expect(html).toContain("Calculando…");
+    expect(html).toContain('aria-busy="true"');
+  });
+});

@@ -4,7 +4,12 @@ import { useId, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 
-import { isItemActive, type NavGroup } from "@/lib/navigation";
+import {
+  activeGroupIds,
+  isNavGroup,
+  navEntryContainsPath,
+  type NavGroup,
+} from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 import { SidebarNavItem } from "@/components/layout/SidebarNavItem";
 
@@ -36,7 +41,7 @@ interface SidebarGroupProps {
  */
 export function SidebarGroup({ group, defaultOpen, collapsed, onExpand, onNavigate }: SidebarGroupProps) {
   const pathname = usePathname();
-  const containsActive = group.items.some((item) => isItemActive(pathname, item.href));
+  const containsActive = navEntryContainsPath(group, pathname);
 
   const [open, setOpen] = useState(defaultOpen || containsActive);
   const [lastPath, setLastPath] = useState(pathname);
@@ -89,11 +94,22 @@ export function SidebarGroup({ group, defaultOpen, collapsed, onExpand, onNaviga
         hidden={collapsed || !open}
         className={cn("mt-0.5 space-y-0.5 border-l pl-2 ml-3.5", collapsed && "border-l-0 ml-0 pl-0")}
       >
-        {group.items.map((item) => (
-          <li key={item.href}>
-            <SidebarNavItem item={item} collapsed={collapsed} onNavigate={onNavigate} />
-          </li>
-        ))}
+        {group.items.map((item) =>
+          isNavGroup(item) ? (
+            <SidebarGroup
+              key={item.id}
+              group={item}
+              defaultOpen={activeGroupIds(pathname, [item]).includes(item.id)}
+              collapsed={collapsed}
+              onExpand={onExpand}
+              onNavigate={onNavigate}
+            />
+          ) : (
+            <li key={item.href}>
+              <SidebarNavItem item={item} collapsed={collapsed} onNavigate={onNavigate} />
+            </li>
+          ),
+        )}
       </ul>
     </li>
   );

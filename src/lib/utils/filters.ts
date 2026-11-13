@@ -71,8 +71,8 @@ export function isChildItemSortableColumn(value: string): value is ChildItemSort
 }
 
 /**
- * 043: chaves de ordenação da listagem de romaneios. `number` é o
- * default (desc — os romaneios novos saem no topo).
+ * 043: chaves de ordenação da listagem de romaneios. `shipment_date` é o
+ * default (desc — as saídas mais recentes aparecem primeiro).
  */
 export const ROMANEIO_SORT_KEYS = [
   "number",
@@ -86,8 +86,8 @@ export const ROMANEIO_SORT_KEYS = [
 ] as const;
 export type RomaneioSortKey = (typeof ROMANEIO_SORT_KEYS)[number];
 
-/** Ordem default da listagem de romaneios: nº decrescente. */
-export const DEFAULT_ROMANEIO_SORT: RomaneioSortKey = "number";
+/** Ordem default da listagem de romaneios: data de saída decrescente. */
+export const DEFAULT_ROMANEIO_SORT: RomaneioSortKey = "shipment_date";
 export const DEFAULT_ROMANEIO_SORT_DIR: "asc" | "desc" = "desc";
 
 export function isRomaneioSortableColumn(value: string): value is RomaneioSortKey {

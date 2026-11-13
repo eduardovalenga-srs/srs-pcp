@@ -148,6 +148,12 @@ export interface FilteredKpiTotals {
   weight: number;
 }
 
+/** Cards de resumo da Fábrica 2, carregados juntos sob demanda. */
+export interface ProductionFilteredSummary {
+  overdue: FilteredKpiTotals;
+  acabamento: FilteredKpiTotals;
+}
+
 /** Resultado da listagem da Fábrica 2 (uma linha por item raiz). */
 export interface ProductionResult {
   rows: ProductionRow[];
