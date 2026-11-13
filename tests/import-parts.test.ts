@@ -245,14 +245,14 @@ describe("buildPartsOfStructure", () => {
     expect(child.code).toBe("P113");
     expect(child.description).toBe("TB. RED. 42,2X3,56");
     expect(child.family).toBe(familyFromDescription("TB. RED. 42,2X3,56"));
-    expect(child.quantity).toBe(1);
+    expect(child.quantity).toBe(2);
     expect(child.unitWeightKg).toBeCloseTo(0.91, 10);
-    expect(child.totalWeightKg).toBeCloseTo(0.91, 10);
+    expect(child.totalWeightKg).toBeCloseTo(1.82, 10);
     expect(child.materials).toEqual([
       {
         description: "TB. RED. 42,2X3,56",
-        // MASSA(Kg) × QTDE = 0,91 vira a QUANTIDADE da MP em KG.
-        quantity: 0.91,
+        // MASSA(Kg) × QTDE por conjunto, escalada × QTDE do pai.
+        quantity: 1.82,
         unit: "KG",
         notes: "DIN 2440 · 260 mm",
       },
@@ -260,7 +260,7 @@ describe("buildPartsOfStructure", () => {
 
     const second = first.children[1]!;
     expect(second.code).toBe("P194");
-    expect(second.quantity).toBe(10);
+    expect(second.quantity).toBe(20);
     expect(second.materials[0]?.notes).toBe("A36 · 995 mm");
 
     const other = order.parents[1]!;
@@ -309,7 +309,7 @@ describe("buildPartsOfStructure", () => {
     ]);
     const order = orders[0]!;
     expect(order.parents[0]?.children).toHaveLength(1);
-    expect(order.parents[0]?.children[0]?.quantity).toBe(1);
+    expect(order.parents[0]?.children[0]?.quantity).toBe(2);
     expect(order.issues[0]).toMatchObject({ type: "DUPLICATE", severity: "warning" });
     expect(orderStatusOf(order.issues)).toBe("WARNING");
   });

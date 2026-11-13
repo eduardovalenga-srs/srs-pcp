@@ -306,7 +306,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   **KIT** (F1) e a data da coluna **ACAB** (F2) do conjunto filtrado (ver as
   telas). **Desde a 041** os cards **Atrasados** e **Expedição** são calculados
   sobre o **conjunto filtrado** (na gestão: contam **itens** das OFs que passam
-  no filtro) — só o dashboard continua global.
+  no filtro; na Fábrica 2 o terceiro card é o **Acabamento** — 065) — só o
+  dashboard continua global.
 - **Importação (layout novo — estrutura OF)**: o arquivo da fábrica **substitui** a
   planilha antiga de 22 colunas. Ele traz a árvore completa — **OF → itens pai
   (`ps_idPos`) → itens filhos (`cp_comp`) → matéria-prima por item** — reconhecida
@@ -327,7 +328,11 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   `ACAB`, `QUALITY` e `EXP` (o kit montado acontece nele); no **filho**, o
   `KIT` (encerra a cadeia da Fábrica 1) — os dois entram assim na previsão de
   datas, enquanto `LASER`/`PUNC`/`METALEIRA`/`FICEP` seguem manuais.
-  `parent_order_item_id` liga filho ao pai
+  `cp_compqtdetotal` é a quantidade do filho **por posição**: ao gravar,
+  multiplica pela `ps_Qtde` do pai para a Fábrica 1 fechar com Gestão/Fábrica 2
+  (a validação de `cp_comppesototal` continua por posição). A migração 065
+  corrige o mesmo dado histórico de forma idempotente, sem alterar os pais nem
+  kg já recebidos. `parent_order_item_id` liga filho ao pai
   (migração 016; toda linha com `ps_Tipo` = X é descartada — o material direto vem
   de linha sem filhos e sem X).
   Nunca grava sem prévia e confirmação; cada OF já existente exige uma decisão —
@@ -371,7 +376,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   conjunto; as linhas logo abaixo (`CONJUNTO` = `#`) viram **filhos** — `PEÇA` o código,
   `QTDE` a quantidade **por conjunto**, `PERFIL` a **matéria-prima** (papel do `cp_DesMaterial`),
   `MATERIAL` a qualidade do aço e `MASSA` o peso unitário, com `COMPR.(mm)` entrando na
-  observação da MP (`DIN 2440 · 995 mm`); filho sem PERFIL cai para o código como descrição
+  observação da MP (`DIN 2440 · 995 mm`); a `QTDE` dos filhos é **por conjunto** e é
+  multiplicada pela QTDE da linha-mãe ao gravar (massa e materiais também escalam; o peso
+  do pai continua sendo calculado por conjunto antes da escala); filho sem PERFIL cai para o código como descrição
   e avisa "sem matéria-prima". O **código da OF não vem do arquivo**: é **gerado do nome do
   arquivo sem a extensão** (`orderCodeFromFileName` — `TT10.xlsx` → `OF TT10`,
   `tt4 gc (5) (1).xlsx` → `OF TT4-GC-5-1`), determinístico de propósito (reimportar o MESMO
@@ -413,8 +420,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
 - **Fábrica 1** (`/fabrica-1`): lista de **itens filhos agrupados por código dentro da
   mesma OF** (033) com suas **matérias-primas e quantidades somadas** — visão de
   insumos/compras: o mesmo componente repetido entre os pais da OF vira **UMA linha**
-  (Σ de quantidade, peso total Σ, entrega = menor dos membros; peso unitário só quando
-  todos os membros coincidem, senão "—"). Colunas, nesta ordem:
+  (Σ de quantidade, peso total Σ, entrega = menor dos membros; peso unitário = **maior**
+  entre os membros, e "—" só quando nenhum tem peso). Colunas, nesta ordem:
   **Seq.** (036 — prioridade do planejamento: o MENOR seq dos membros; editar aplica o
   número a TODO o grupo, `orders.edit`), OF (link para `/pedidos/[id]`),
   **filho** (somente o **código** em badge — sem descrição e sem multiplicador `×N`,
@@ -466,7 +473,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   mostra só os materiais correspondentes), e os **filtros por coluna do cabeçalho**
   (038 — desktop): **Seq.** (igualdade sobre o MENOR seq do grupo), **Qtd.** e
   **Peso total** (faixa De/Até sobre Σ dos membros), **Peso un.** (faixa sobre o peso
-  unitário EXIBIDO — só quando todos os membros coincidem, senão "—") e **uma
+  unitário EXIBIDO — maior peso dos membros; grupos sem peso ficam fora da faixa) e **uma
   situação por coluna de processo** (o backend aceita um filtro de processo por vez;
   ativar numa coluna substitui o de outra).
   **052 — filtros de processo com a opção "Atrasados"**: os três filtros de processo
@@ -523,11 +530,17 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   os cards **Atrasados** e **Expedição** são calculados sobre o **conjunto filtrado**,
   e não mais do KPI global. Na Fábrica 2 o card **Atrasados** usa a **data da coluna
   ACAB** (acabamento): o item conta quando o **início previsto** da janela do ACAB é
-  anterior a hoje (ACAB `CONCLUIDO`/`NAO_APLICAVEL` fica fora) — a janela é calculada
+  anterior a hoje **e o processo ainda não concluído** (ACAB `CONCLUIDO`/`NAO_APLICAVEL`
+  fica fora) — a janela é calculada
   **em memória**, então o serviço varre o conjunto filtrado inteiro antes de paginar,
   e o clique no card (`entrega=OVERDUE`) usa exatamente o mesmo recorte na lista e na
-  exportação. O card **Expedição** continua vindo das colunas `expedition_*` da
-  `get_production_rows`. As colunas
+  exportação. **065 — o card "Expedição" saiu da Fábrica 2**: o terceiro card passou a
+  se chamar **Acabamento** (ícone de pincel) e conta, sobre o **MESMO conjunto filtrado
+  varrido**, os itens com o processo **ACAB marcado como concluído** (a data da janela
+  não importa); ele também é clicável e aplica `processo=ACAB&situacao=CONCLUIDO`
+  (fica destacado com o filtro ativo). As colunas `expedition_*` que a
+  `get_production_rows` ainda devolve ficaram **sem leitor** (a gestão de OF tem as
+  suas na RPC por OF) — o cálculo da F2 é em memória, sem migration nova. As colunas
   ganharam filtros de cabeçalho (038 — mesmos da gestão): Seq., TP ("contém"), OP
   ("contém"), Qtd./Peso/Peso un. (faixas) e situação por coluna de processo.
   **051 — filtros de processo com a opção "Atrasados"**: os três filtros de processo
@@ -543,7 +556,7 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   Atrasados" ou "Atrasados (qualquer processo)" — e a chave some ao desligar). Como
   a janela não existe no banco, o corte acontece **em memória**: o serviço varre o
   conjunto filtrado inteiro, recorta (combinando **por E** com o
-  `entrega=OVERDUE` do ACAB) e só então pagina; os cards "Atrasados"/"Expedição" e
+  `entrega=OVERDUE` do ACAB) e só então pagina; os cards "Atrasados"/"Acabamento" e
   a exportação `.xlsx` usam o MESMO recorte. Só a Fábrica 2 aplica — a Gestão de OF
   ignora a chave e a RPC nunca a vê.
 - **Gestão como hub**: o código da OF/OS na tabela de entregas (desktop e mobile) abre a
@@ -603,7 +616,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
 - **Quebra por família nos cards — removida da UI** (migração 037, saída na **038**):
   a lista **Famílias** que aparecia sob os cards das três telas (Fábrica 1, Fábrica 2 e
   Gestão) foi retirada — os cards viraram só os três números (F1: Eventos, Atrasados e
-  **KIT**; F2/Gestão: Eventos, Atrasados e Expedição). Os campos `families` (035),
+  **KIT**; F2: Eventos, Atrasados e **Acabamento** (065); Gestão: Eventos, Atrasados e
+  Expedição). Os campos `families` (035),
   `family_totals` (037) e `overdueFamilies`/`expeditionFamilies` continuam saindo das
   RPCs sem leitura no front — dá para reutilizá-los sem nova migration.
 - **Filtros por coluna em TODAS as listas** (038): no desktop cada coluna do cabeçalho
@@ -677,11 +691,15 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   sem a lista Famílias (a quebra por TP saiu dos cards na 038).
   Os três números vêm da MESMA consulta da lista (migração 041), então
   **acompanham qualquer filtro** — a Fábrica 2 faz o mesmo com
-  `get_production_rows` (colunas iguais, contadas sobre os próprios itens
-  filtrados), com a exceção do card **Atrasados**, que na Fábrica 2 segue a
-  **data da coluna ACAB** (início previsto anterior a hoje, recorte em memória).
+  `get_production_rows`, com DUAS exceções calculadas **em memória** sobre o
+  conjunto filtrado varrido: o card **Atrasados**, que segue a **data da
+  coluna ACAB** (início previsto anterior a hoje **e** processo ainda não
+  concluído), e o card **Acabamento** (065 — na Fábrica 2 substituiu o
+  **Expedição**), que conta os itens com **ACAB concluído** e aplica
+  `processo=ACAB&situacao=CONCLUIDO` no clique.
   Atenção às unidades: o card **OFs conta PEDIDOS** (a lista é por OF) e
-  Atrasados / Expedição contam **ITENS** (escopo dos antigos chips de entrega,
+  Atrasados / Expedição (Acabamento na Fábrica 2) contam **ITENS** (escopo dos
+  antigos chips de entrega,
   que saíram junto com "Em produção" e "Concluídos"); os dois são clicáveis e aplicam
   o filtro correspondente na lista. Itens sem peso ou sem quantidade entram
   como 0.

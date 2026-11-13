@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { AlertTriangle, Inbox, Truck } from "lucide-react";
+import { AlertTriangle, Inbox, Paintbrush } from "lucide-react";
 
 import type { FilteredKpiTotals, ProductionFilters } from "@/lib/types/production";
 import { productionQueryString } from "@/lib/utils/filters";
@@ -17,11 +17,11 @@ interface Fabrica2SummaryProps {
   filters: ProductionFilters;
   /**
    * Itens atrasados do conjunto FILTRADO — na Fábrica 2 a data da coluna
-   * ACAB (acabamento) anterior a hoje.
+   * ACAB (acabamento) anterior a hoje e o processo ainda não concluído.
    */
   overdue: FilteredKpiTotals;
-  /** 041: itens com EXPEDIÇÃO concluída do conjunto filtrado — também filtrado. */
-  expedition: FilteredKpiTotals;
+  /** 065: itens com ACABAMENTO (ACAB) concluído do conjunto filtrado. */
+  acabamento: FilteredKpiTotals;
 }
 
 interface Chip {
@@ -45,7 +45,7 @@ export function Fabrica2Summary({
   weightTotal,
   filters,
   overdue,
-  expedition,
+  acabamento,
 }: Fabrica2SummaryProps) {
   const chips: Chip[] = [
     {
@@ -61,8 +61,9 @@ export function Fabrica2Summary({
     },
     {
       // Fábrica 2: itens atrasados do conjunto FILTRADO pela data da coluna
-      // ACAB (acabamento) anterior a hoje (a linha da tabela é o item, então
-      // "Registros" bate com a contagem por item).
+      // ACAB (acabamento) anterior a hoje e com o processo ainda não
+      // concluído (a linha da tabela é o item, então "Registros" bate com a
+      // contagem por item).
       key: "overdue",
       label: "Atrasados",
       value: overdue.records,
@@ -77,20 +78,21 @@ export function Fabrica2Summary({
       ],
     },
     {
-      // 041: itens com EXPEDIÇÃO concluída do conjunto filtrado.
+      // 065: itens com o ACABAMENTO (ACAB) concluído do conjunto filtrado —
+      // substituiu o card "Expedição" (EXP concluída) desta tela.
       // 051: escolher um filtro de processo limpa a opção "Atrasados"
       // (mesma regra dos menus: um valor por filtro de processo).
-      key: "expedition",
-      label: "Expedição",
-      value: formatQuantity(expedition.records),
-      icon: <Truck className="h-4 w-4" aria-hidden />,
+      key: "acabamento",
+      label: "Acabamento",
+      value: formatQuantity(acabamento.records),
+      icon: <Paintbrush className="h-4 w-4" aria-hidden />,
       tone: "success",
-      filter: { processCode: "EXP", processStatus: "CONCLUIDO", processOverdue: false },
-      active: filters.processCode === "EXP" && filters.processStatus === "CONCLUIDO",
+      filter: { processCode: "ACAB", processStatus: "CONCLUIDO", processOverdue: false },
+      active: filters.processCode === "ACAB" && filters.processStatus === "CONCLUIDO",
       details: [
-        { label: "Registros", value: formatQuantity(expedition.records) },
-        { label: "Qtd. total", value: formatQuantity(expedition.qty) },
-        { label: "Peso total", value: `${formatWeight(expedition.weight)} kg` },
+        { label: "Registros", value: formatQuantity(acabamento.records) },
+        { label: "Qtd. total", value: formatQuantity(acabamento.qty) },
+        { label: "Peso total", value: `${formatWeight(acabamento.weight)} kg` },
       ],
     },
   ];

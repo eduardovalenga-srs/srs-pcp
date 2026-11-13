@@ -21,7 +21,8 @@ import { orderCodeFromFileName } from "@/lib/utils/order-code";
  *     coluna PERFIL traz o TIPO DO PRODUTO (ex.: GUARDA-CORPO) e a
  *     MASSA o peso TOTAL do conjunto;
  *   * linhas logo abaixo (CONJUNTO = "#"): itens FILHOS — PEÇA é o
- *     código do filho, QTDE a quantidade POR CONJUNTO, PERFIL a
+ *     código do filho, QTDE a quantidade POR CONJUNTO (gravada nos
+ *     filhos × a QTDE do conjunto — ver Pesos), PERFIL a
  *     MATÉRIA-PRIMA relacionada (ex.: BARRA22X3.2, mesmo papel do
  *     cp_DesMaterial do layout da fábrica), MATERIAL a qualidade do aço
  *     (A36, DIN 2440) e MASSA o peso UNITÁRIO do filho;
@@ -35,7 +36,10 @@ import { orderCodeFromFileName } from "@/lib/utils/order-code";
  * como nos demais formatos.
  *
  * Pesos: o peso unitário do pai = massa de UM conjunto (Σ filho unit ×
- * qtd) e o total = qtd × unit (023 — o banco recalcula por trigger). A
+ * qtd) e o total = qtd × unit (023 — o banco recalcula por trigger).
+ * Os FILHOS, por sua vez, são gravados com a quantidade × a QTDE do
+ * conjunto (a planilha traz a peça para UM conjunto) — é isso que faz
+ * a Fábrica 1 fechar com a Gestão de OF/Fábrica 2. A
  * MASSA da linha-mãe só serve para AVISAR quando diverge da fórmula
  * (tolerância de 0,5%: a lista arredonda a massa para 1 casa).
  */
@@ -253,7 +257,8 @@ export function buildPartsOfStructure(
         const rawLength = cellText(row, col.COMPRMM);
         const notes = [quality, rawLength ? `${rawLength} mm` : ""].filter(Boolean).join(" · ");
         // MASSA(Kg) × QTDE vira a QUANTIDADE do material em KG (sem
-        // massa, continua a quantidade de peças em "UN").
+        // massa, continua a quantidade de peças em "UN") — valor POR
+        // CONJUNTO, escalado junto com o filho na finalização dos pais.
         const materialQuantity = materialQuantityAndUnit(totalWeightKg, quantity.value ?? 0);
         child.materials.push({
           description: material,
@@ -379,6 +384,24 @@ export function buildPartsOfStructure(
             rawValue: spreadsheet.raw,
           }),
         );
+      }
+    }
+
+    // A QTDE da linha de peça é POR CONJUNTO (comentário do cabeçalho) e
+    // o pai acima é qtd_conjunto × Σ(filha unit × qtd) — então o filho
+    // só bate com a Gestão de OF/Fábrica 2 gravado × a QTDE do pai.
+    // Depois do setMass, de propósito: a massa do pai usa as quantidades
+    // POR CONJUNTO e não pode ser inflada. QTDE do pai inválida já vira
+    // erro abaixo — nesse caso os filhos ficam como estão.
+    if (parent.quantity > 0) {
+      for (const child of parent.children) {
+        child.quantity *= parent.quantity;
+        child.totalWeightKg = calculateTotalWeight(child.quantity, child.unitWeightKg);
+        // Material do filho também é por conjunto (KG = massa da linha;
+        // UN = qtd de peças da linha).
+        for (const material of child.materials) {
+          material.quantity *= parent.quantity;
+        }
       }
     }
 

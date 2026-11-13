@@ -56,33 +56,36 @@ describe("ProductionSummary — cards Atrasados/Expedição filtrados (041)", ()
   });
 });
 
-describe("Fabrica2Summary — cards Atrasados/Expedição filtrados (041)", () => {
+describe("Fabrica2Summary — cards Atrasados/Acabamento filtrados (041/065)", () => {
   const html = renderToStaticMarkup(
     createElement(Fabrica2Summary, {
       total: 20,
       qtyTotal: 45,
       weightTotal: 200,
       filters: parseProductionFilters({}),
-      // 041: itens atrasados/expeditos do CONJUNTO FILTRADO.
+      // 041: itens atrasados do CONJUNTO FILTRADO; 065: itens com o ACAB
+      // concluído do mesmo conjunto.
       overdue: { records: 5, qty: 11, weight: 30 },
-      expedition: { records: 7, qty: 14, weight: 21 },
+      acabamento: { records: 7, qty: 14, weight: 21 },
     }),
   );
 
   it("mostra o KPI de itens atrasados do recorte filtrado", () => {
-    const atrasados = cardSection(html, "Atrasados", "Expedição");
+    const atrasados = cardSection(html, "Atrasados", "Acabamento");
     expect(atrasados).not.toBe("");
     expect(atrasados).toContain(">5<"); // Registros
     expect(atrasados).toContain(">11<"); // Qtd. total
     expect(atrasados).toContain("30 kg"); // Peso total
   });
 
-  it("mostra o KPI de expedição do recorte filtrado", () => {
-    const expedicao = cardSection(html, "Expedição");
-    expect(expedicao).not.toBe("");
-    expect(expedicao).toContain(">7<"); // Registros
-    expect(expedicao).toContain(">14<"); // Qtd. total
-    expect(expedicao).toContain("21 kg"); // Peso total
+  it("mostra o KPI de acabamento do recorte filtrado (antes Expedição)", () => {
+    const acabamento = cardSection(html, "Acabamento");
+    expect(acabamento).not.toBe("");
+    expect(acabamento).toContain(">7<"); // Registros
+    expect(acabamento).toContain(">14<"); // Qtd. total
+    expect(acabamento).toContain("21 kg"); // Peso total
+    // O card de expedição saiu desta tela.
+    expect(html).not.toContain("Expedição");
   });
 
   it("o card Eventos continua com a lista filtrada inteira", () => {
@@ -94,6 +97,6 @@ describe("Fabrica2Summary — cards Atrasados/Expedição filtrados (041)", () =
 
   it("os cards seguem clicáveis aplicando o atalho de filtro", () => {
     expect(html).toContain('href="/fabrica-2?entrega=OVERDUE"');
-    expect(html).toContain('href="/fabrica-2?processo=EXP&amp;situacao=CONCLUIDO"');
+    expect(html).toContain('href="/fabrica-2?processo=ACAB&amp;situacao=CONCLUIDO"');
   });
 });

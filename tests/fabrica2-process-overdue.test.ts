@@ -207,8 +207,8 @@ describe("getProductionPage — filtro de processo 'Atrasados' (051)", () => {
     expect(page.weightTotal).toBe(12);
     // Cards acompanham o recorte: ACAB vencido só em dois deles…
     expect(page.overdue).toEqual({ records: 2, qty: 6, weight: 6 });
-    // …e a EXPEDIÇÃO concluída, no único que restou com ela marcada.
-    expect(page.expedition).toEqual({ records: 1, qty: 3, weight: 6 });
+    // …e o ACABAMENTO concluído, no único que restou com ele marcado.
+    expect(page.acabamento).toEqual({ records: 1, qty: 3, weight: 6 });
   });
 
   it("na coluna, recorta só o processo escolhido (e o manda à RPC)", async () => {

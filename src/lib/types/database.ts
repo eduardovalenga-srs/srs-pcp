@@ -956,6 +956,14 @@ export type Database = {
         Args: { p_today?: string | null };
         Returns: Json;
       };
+      get_completed_weight_stats: {
+        Args: {
+          p_granularity?: string;
+          p_anchor?: string | null;
+          p_timezone?: string;
+        };
+        Returns: Json;
+      };
       get_dashboard_orders: {
         // top clientes + envelhecimento agregados no banco (024)
         Args: Record<string, never>;

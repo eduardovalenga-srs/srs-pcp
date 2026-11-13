@@ -126,6 +126,9 @@ describe("getProductionPage — card Atrasados pela data do ACAB", () => {
 
     // Recorte do ACAB: só os três itens com ACAB vencido e não concluído.
     expect(page.overdue).toEqual({ records: 3, qty: 9, weight: 12 });
+    // Card "Acabamento": itens com ACAB concluído no conjunto filtrado inteiro
+    // (o item "concluido" tem entrega passada, mas já passou pelo acabamento).
+    expect(page.acabamento).toEqual({ records: 1, qty: 1, weight: 0 });
     // A página continua vindo da RPC, com os filtros do usuário.
     expect(page.rows).toHaveLength(2);
     expect(page.total).toBe(5);
@@ -150,8 +153,8 @@ describe("getProductionPage — card Atrasados pela data do ACAB", () => {
     expect(page.overdue).toEqual({ records: 3, qty: 9, weight: 12 });
     expect(page.qtyTotal).toBe(9);
     expect(page.weightTotal).toBe(12);
-    // Expedição dentro do recorte: só o item com EXP concluída.
-    expect(page.expedition).toEqual({ records: 1, qty: 3, weight: 6 });
+    // Acabamento dentro do recorte: nenhum dos atrasados concluiu o ACAB.
+    expect(page.acabamento).toEqual({ records: 0, qty: 0, weight: 0 });
   });
 
   it("a varredura usa páginas de exportação (não a página da tela)", async () => {

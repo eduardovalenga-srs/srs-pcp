@@ -63,6 +63,93 @@ describe("migrations", () => {
     }
   });
 
+  it("065 escala filhos, materiais e espelho MP uma vez, sem alterar pesos recebidos", async () => {
+    await asSuperUser(db);
+    const { rows: order } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-065-SET', 'OF') returning id`,
+    );
+    const orderId = order[0]?.id as string;
+    const { rows: parent } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, description, quantity, unit_weight_kg)
+       values ($1, 'Conjunto', 2, 5) returning id`,
+      [orderId],
+    );
+    const parentId = parent[0]?.id as string;
+    const { rows: child } = await db.query<{ id: string }>(
+      `insert into public.order_items (
+         order_id, parent_order_item_id, parent_item, description, quantity, unit_weight_kg
+       ) values ($1, $2, 'KIT-065', 'Peça', 1, 5) returning id`,
+      [orderId, parentId],
+    );
+    const childId = child[0]?.id as string;
+    const { rows: mp } = await db.query<{ id: string }>(
+      `select id from public.processes where code = 'MP'`,
+    );
+    const mpId = mp[0]?.id as string;
+
+    await db.query(
+      `insert into public.order_item_materials (order_item_id, description, quantity, unit)
+       values ($1, 'Aço teste', 5, 'KG')`,
+      [childId],
+    );
+    await db.query(
+      `insert into public.production_processes
+         (order_item_id, process_id, quantity_planned, quantity_completed)
+       values ($1, $3, 5, 1), ($2, $3, 5, 1)`,
+      [parentId, childId, mpId],
+    );
+
+    const migration = readFileSync(
+      path.join(process.cwd(), "supabase", "migrations", "065_child_quantity_by_set_fix.sql"),
+      "utf8",
+    );
+    await db.exec(migration);
+
+    const { rows: corrected } = await db.query<{
+      quantity: number;
+      total_weight_kg: number;
+      parent_quantity: number;
+      parent_total_weight_kg: number;
+      material_quantity: number;
+      quantity_planned: number;
+      quantity_completed: number;
+    }>(
+      `select c.quantity, c.total_weight_kg,
+              p.quantity as parent_quantity, p.total_weight_kg as parent_total_weight_kg,
+              m.quantity as material_quantity,
+              pp.quantity_planned, pp.quantity_completed
+         from public.order_items c
+         join public.order_items p on p.id = c.parent_order_item_id
+         join public.order_item_materials m on m.order_item_id = c.id
+         join public.production_processes pp on pp.order_item_id = c.id
+         join public.processes pr on pr.id = pp.process_id and pr.code = 'MP'
+        where c.id = $1`,
+      [childId],
+    );
+    expect(corrected[0]).toBeDefined();
+    expect(Number(corrected[0]?.quantity)).toBe(2);
+    expect(Number(corrected[0]?.total_weight_kg)).toBe(10);
+    expect(Number(corrected[0]?.parent_quantity)).toBe(2);
+    expect(Number(corrected[0]?.parent_total_weight_kg)).toBe(10);
+    expect(Number(corrected[0]?.material_quantity)).toBe(10);
+    expect(Number(corrected[0]?.quantity_planned)).toBe(10);
+    expect(Number(corrected[0]?.quantity_completed)).toBe(1);
+
+    // Idempotência: a assinatura deixa de valer após escalar os filhos.
+    await db.exec(migration);
+    const { rows: rerun } = await db.query<{ quantity: number; material_quantity: number }>(
+      `select c.quantity, m.quantity as material_quantity
+         from public.order_items c
+         join public.order_item_materials m on m.order_item_id = c.id
+        where c.id = $1`,
+      [childId],
+    );
+    expect(Number(rerun[0]?.quantity)).toBe(2);
+    expect(Number(rerun[0]?.material_quantity)).toBe(10);
+
+    await db.query(`delete from public.orders where id = $1`, [orderId]);
+  });
+
   it("popula o catálogo: MP na frente + os 13 processos do seed (021)", async () => {
     const { rows } = await db.query<{ code: string }>(
       "select code from public.processes order by display_order",
@@ -1455,7 +1542,7 @@ describe("migrations", () => {
     );
     const rootA = rootRows[0]?.id as string;
     // Grupos do filho: X (2 itens, peso unit. uniforme, seq 3 e 5),
-    // Y (unit. uniforme, sem seq) e Z (unit. DIVERGENTE — exibe "—").
+    // Y (unit. uniforme, sem seq) e Z (unit. divergente; exibe o maior = 2).
     await db.query(
       `insert into public.order_items (order_id, parent_order_item_id, family, parent_item, description, quantity, unit_weight_kg, seq)
        values ($1, $2, 'TP', 'F-038-X', 'Tampo X', 4, 2.5, 3),
@@ -1551,15 +1638,53 @@ describe("migrations", () => {
     // Faixa de Peso total (X = 10 + 15 = 25 kg; Z = 1 + 2 = 3 kg).
     expect(await groupKeys(", p_weight_min => 20")).toEqual({ keys: ["F-038-X"], total: 1 });
     expect(await groupKeys(", p_weight_max => 5")).toEqual({ keys: ["F-038-Z"], total: 1 });
-    // Peso unitário exibido: só grupos com membros coincidentes (Z = "—").
+    // Peso unitário exibido = maior dos membros (X = 5, Y = 7, Z = 2).
     expect(await groupKeys(", p_weight_unit_min => 7")).toEqual({
       keys: ["F-038-Y"],
       total: 1,
     });
     expect(await groupKeys(", p_weight_unit_max => 3")).toEqual({
-      keys: ["F-038-X"],
-      total: 1,
+      keys: ["F-038-X", "F-038-Z"],
+      total: 2,
     });
+
+    // A RPC paginada usa o mesmo max para filtro e ordenação por peso unitário.
+    const { rows: pageByMaxWeight } = await db.query<{ page: GroupPage }>(
+      `select public.get_child_item_groups_page(
+         p_order_code => 'OF-038-A',
+         p_weight_unit_max => 5,
+         p_sort => 'unit_weight_kg',
+         p_sort_dir => 'desc'
+       ) as page`,
+    );
+    expect(pageByMaxWeight[0]?.page.groups.map((group) => group.key)).toEqual([
+      "F-038-X",
+      "F-038-Z",
+    ]);
+
+    // O resumo KIT também filtra pelo maior peso unitário exibido.
+    const { rows: kitProcess } = await db.query<{ id: string }>(
+      `select id from public.processes where code = 'KIT'`,
+    );
+    await db.query(
+      `insert into public.production_processes (order_item_id, process_id, status)
+       select id, $2, 'NAO_INICIADO'
+         from public.order_items
+        where order_id = $1 and parent_item in ('F-038-X', 'F-038-Z')`,
+      [orderA, kitProcess[0]?.id],
+    );
+    const { rows: overdueTotals } = await db.query<{
+      totals: { records: number | string; qty: number | string; weight: number | string };
+    }>(
+      `select public.get_child_items_kit_overdue_totals(
+         p_order_code => 'OF-038-A',
+         p_weight_unit_max => 3,
+         p_today => current_date + 100
+       ) as totals`,
+    );
+    expect(Number(overdueTotals[0]?.totals.records)).toBe(2);
+    expect(Number(overdueTotals[0]?.totals.qty)).toBe(12);
+    expect(Number(overdueTotals[0]?.totals.weight)).toBe(28);
 
     // --- Totais do card casam com a lista filtrada ---
     const readTotals = async (extra: string): Promise<Totals> => {

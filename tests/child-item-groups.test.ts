@@ -160,7 +160,7 @@ describe("materiais mesclados do grupo", () => {
 describe("buildChildItemGroup — linha agrupada da Fábrica 1", () => {
   const order = { id: "o1", code: "OF-107482", customerName: "ACME" };
 
-  it("soma quantidade e peso, com peso unitário só quando todos coincidem", () => {
+  it("soma quantidade e peso, exibindo o maior peso unitário do grupo", () => {
     const iguais = buildChildItemGroup({
       order,
       key: "CH-1",
@@ -182,7 +182,7 @@ describe("buildChildItemGroup — linha agrupada da Fábrica 1", () => {
       childItem: "CH-2",
       members: [member({ quantity: 2, unitWeightKg: 1.5 }), member({ id: "m2", quantity: 3, unitWeightKg: 2 })],
     });
-    expect(divergentes.unitWeightKg).toBeNull(); // exibe "—" na coluna
+    expect(divergentes.unitWeightKg).toBe(2); // maior peso unitário entre os membros
     expect(divergentes.weightTotal).toBe(9); // mas o total continua somando
 
     const semPeso = buildChildItemGroup({

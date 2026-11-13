@@ -4,11 +4,12 @@ import { revalidatePath } from "next/cache";
 
 import { requireCapability } from "@/lib/auth/guards";
 import { can } from "@/lib/auth/permissions";
-import { isProcessStatus } from "@/lib/constants/production";
+import { isProcessStatus, isWeightGranularity } from "@/lib/constants/production";
 import { createClient } from "@/lib/supabase/server";
-import type { ProductionEvent } from "@/lib/types/production";
-import { getItemHistory, updateProcess, updateProcessBatch } from "@/lib/services/production.service";
+import type { CompletedWeightStats, ProductionEvent } from "@/lib/types/production";
+import { getDashboardCompletedWeight, getItemHistory, updateProcess, updateProcessBatch } from "@/lib/services/production.service";
 import { errorMessage } from "@/lib/utils/supabase-result";
+import { isValidISODate, todayISODate } from "@/lib/utils/dates";
 
 /** Normaliza valor de formulário para o texto esperado pelos schemas. */
 function toText(value: string | number | null | undefined): string {
@@ -20,6 +21,26 @@ export interface ProcessActionResult {
   success: boolean;
   message: string;
   changed: boolean;
+}
+
+/** Consulta o peso concluído no dashboard; a autorização é verificada a cada chamada. */
+export async function getCompletedWeightStatsAction(input: {
+  granularity: string;
+  anchor: string;
+}): Promise<{ success: true; data: CompletedWeightStats } | { success: false; message: string }> {
+  try {
+    await requireCapability("dashboard.view");
+    if (!isWeightGranularity(input.granularity)) {
+      return { success: false, message: "Período inválido." };
+    }
+    const anchor = isValidISODate(input.anchor) ? input.anchor : todayISODate();
+    const client = await createClient();
+    const data = await getDashboardCompletedWeight(client, input.granularity, anchor);
+    return { success: true, data };
+  } catch (error) {
+    console.error("[getCompletedWeightStatsAction]", error);
+    return { success: false, message: errorMessage(error) };
+  }
 }
 
 /**

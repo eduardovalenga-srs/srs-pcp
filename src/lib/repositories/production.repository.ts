@@ -1,8 +1,9 @@
-import type { ProcessStatus } from "@/lib/constants/production";
+import type { ProcessStatus, WeightGranularity } from "@/lib/constants/production";
 import { CHILD_SCOPED_PROCESS_CODES } from "@/lib/constants/processes";
 import type { ProductionOrderRowRecord, ProductionRowRecord, ProcessStatusValue } from "@/lib/types/database";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type {
+  CompletedWeightStats,
   OrderProcessCell,
   ProductionEvent,
   ProductionFilters,
@@ -309,6 +310,21 @@ export async function getProductionStats(client: SupabaseServer, today: string):
   // A RPC (037) ainda devolve as listas por família (overdue/expedition
   // families) — a quebra por família não é mais exibida nos cards.
   return data as unknown as ProductionStats;
+}
+
+/** Peso concluído por processo e série temporal do painel do dashboard (067). */
+export async function getCompletedWeightStats(
+  client: SupabaseServer,
+  granularity: WeightGranularity,
+  anchor: string,
+): Promise<CompletedWeightStats> {
+  const { data, error } = await client.rpc("get_completed_weight_stats", {
+    p_granularity: granularity,
+    p_anchor: anchor,
+    p_timezone: process.env.BUSINESS_TIMEZONE ?? "America/Sao_Paulo",
+  });
+  assertOk(error, "Não foi possível carregar o peso concluído");
+  return data as unknown as CompletedWeightStats;
 }
 
 /** Catálogo de processos ativos, na ordem de exibição. */

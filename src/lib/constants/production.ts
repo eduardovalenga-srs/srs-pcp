@@ -61,3 +61,21 @@ export function isProcessStatus(value: string): value is ProcessStatus {
 export const PROCESS_OVERDUE_OPTION = "ATRASADO";
 export const PROCESS_OVERDUE_SYMBOL = "⚠";
 export const PROCESS_OVERDUE_LABEL = "Atrasados";
+
+/**
+ * Granularidades do período do painel "Peso concluído por processo" do
+ * dashboard (067): um dia, uma semana civil (seg–dom) ou um mês civil.
+ */
+export const WEIGHT_GRANULARITIES = ["day", "week", "month"] as const;
+export type WeightGranularity = (typeof WEIGHT_GRANULARITIES)[number];
+
+/** Abas do painel de peso concluído. */
+export const WEIGHT_GRANULARITY_LABELS: Record<WeightGranularity, string> = {
+  day: "Dia",
+  week: "Semana",
+  month: "Mês",
+};
+
+export function isWeightGranularity(value: string): value is WeightGranularity {
+  return (WEIGHT_GRANULARITIES as readonly string[]).includes(value);
+}

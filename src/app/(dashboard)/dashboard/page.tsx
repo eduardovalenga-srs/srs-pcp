@@ -13,14 +13,17 @@ import {
 import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { getDashboardData } from "@/lib/services/production.service";
+import { getDashboardCompletedWeight, getDashboardData } from "@/lib/services/production.service";
 import { getDashboardOrders } from "@/lib/repositories/orders.repository";
+import type { CompletedWeightStats } from "@/lib/types/production";
+import { todayISODate } from "@/lib/utils/dates";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Header } from "@/components/layout/Header";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { ProcessLoadTable } from "@/components/dashboard/ProcessLoadTable";
+import { CompletedWeightPanel } from "@/components/dashboard/CompletedWeightPanel";
 
 export const metadata = { title: "Dashboard" };
 
@@ -55,8 +58,12 @@ export default async function DashboardPage() {
 
   let stats: Awaited<ReturnType<typeof getDashboardData>>;
   let orders: Awaited<ReturnType<typeof getDashboardOrders>>;
+  let completedWeight: CompletedWeightStats | null = null;
+  let completedWeightError = "";
+  const today = todayISODate();
+  let client: Awaited<ReturnType<typeof createClient>>;
   try {
-    const client = await createClient();
+    client = await createClient();
     [stats, orders] = await Promise.all([getDashboardData(client), getDashboardOrders(client)]);
   } catch (error) {
     return (
@@ -68,6 +75,11 @@ export default async function DashboardPage() {
         />
       </>
     );
+  }
+  try {
+    completedWeight = await getDashboardCompletedWeight(client, "month", today);
+  } catch (error) {
+    completedWeightError = error instanceof Error ? error.message : "Erro desconhecido.";
   }
 
   const topCustomers = orders.topCustomers;
@@ -151,6 +163,12 @@ export default async function DashboardPage() {
           <h2 className="text-sm font-semibold">Carga de trabalho por processo</h2>
           <ProcessLoadTable processes={stats.processes} />
         </section>
+
+        <CompletedWeightPanel
+          initialData={completedWeight}
+          today={today}
+          initialError={completedWeightError}
+        />
 
         <div className="grid gap-3 lg:grid-cols-2">
           <section aria-label="Clientes que mais pedem" className="rounded border bg-card p-3">

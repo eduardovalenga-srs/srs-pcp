@@ -350,7 +350,7 @@ describe("buildOfStructure", () => {
     values.ps_Qtde = 5;
     values.ps_Peso = 10;
     values.pos_PesoTotal = 999;
-    // filho 72-742: 3 × 4,16 = 12,48 (planilha 12,48 — sem divergência).
+    // Filho por posição: 3 × 4,16 = 12,48; × 5 posições = 62,4 gravado.
     values.cp_comppesototal = 999;
 
     const { orders } = buildRows([makeRow(values)]);
@@ -358,7 +358,8 @@ describe("buildOfStructure", () => {
     if (!order) return;
 
     expect(order.parents[0]?.totalWeightKg).toBe(50);
-    expect(order.parents[0]?.children[0]?.totalWeightKg).toBe(12.48);
+    expect(order.parents[0]?.children[0]?.quantity).toBe(15);
+    expect(order.parents[0]?.children[0]?.totalWeightKg).toBeCloseTo(62.4, 10);
     // Dois avisos (pai e filho), apontando a coluna pos_PesoTotal/cp_comppesototal.
     const avisos = order.issues.filter((entry) => entry.rawValue === "999");
     expect(avisos).toHaveLength(2);
@@ -442,6 +443,7 @@ describe("buildOfStructure", () => {
     const order = orders[0];
     expect(order?.parents[0]?.children).toHaveLength(1);
     expect(order?.parents[0]?.children[0]?.description).toBe("PRIMEIRA");
+    expect(order?.parents[0]?.children[0]?.quantity).toBe(2);
     expect(order?.issues.some((issue) => issue.type === "DUPLICATE" && issue.severity === "warning")).toBe(true);
   });
 

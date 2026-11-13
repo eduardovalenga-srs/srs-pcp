@@ -1,12 +1,13 @@
 import "server-only";
 
 import type { SessionUser } from "@/lib/auth/session";
-import { PROCESS_STATUS_LABELS, type ProcessStatus } from "@/lib/constants/production";
-import { MP_PROCESS_CODE, SHIPMENT_PROCESS_CODE } from "@/lib/constants/processes";
+import { PROCESS_STATUS_LABELS, type ProcessStatus, type WeightGranularity } from "@/lib/constants/production";
+import { ACAB_PROCESS_CODE, MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { SupabaseServer } from "@/lib/supabase/types";
-import type { ProductionEvent, ProductionFilters, ProductionOrderResult, ProductionResult, ProductionRow, ProductionStats, ProcessDefinition } from "@/lib/types/production";
+import type { CompletedWeightStats, FilteredKpiTotals, ProductionEvent, ProductionFilters, ProductionOrderResult, ProductionResult, ProductionRow, ProductionStats, ProcessDefinition } from "@/lib/types/production";
 import {
   getActiveProcesses,
+  getCompletedWeightStats as getCompletedWeightStatsFromRepository,
   getEventsByItemId,
   getOrderProcessTargets,
   getProductionOrderRows,
@@ -33,8 +34,13 @@ import { todayISODate } from "@/lib/utils/dates";
 import { processUpdateSchema, type ProcessUpdateInput } from "@/lib/validators/production.schema";
 import { firstZodMessage } from "@/lib/validators/common";
 
-export interface ProductionPage extends ProductionResult {
+export interface ProductionPage extends Omit<ProductionResult, "expedition"> {
   processes: ProcessDefinition[];
+  /**
+   * 065: itens do recorte com o ACABAMENTO (ACAB) concluído — card
+   * "Acabamento" da Fábrica 2 (substituiu o card "Expedição").
+   */
+  acabamento: FilteredKpiTotals;
   /** Data de referência (AAAA-MM-DD) usada pela RPC — mesma base da regra de atraso. */
   today: string;
 }
@@ -94,10 +100,10 @@ function acabOverdueTotalsOf(
   return productionRowsTotals(rows.filter((row) => isAcabOverdue(row, processes, today)));
 }
 
-/** Itens do recorte com EXPEDIÇÃO concluída — card "Expedição" da Fábrica 2. */
-function expeditionTotalsOf(rows: readonly ProductionRow[]) {
+/** Itens do recorte com o ACABAMENTO concluído — card "Acabamento" da Fábrica 2. */
+function acabamentoTotalsOf(rows: readonly ProductionRow[]) {
   return productionRowsTotals(
-    rows.filter((row) => row.processes[SHIPMENT_PROCESS_CODE]?.status === "CONCLUIDO"),
+    rows.filter((row) => row.processes[ACAB_PROCESS_CODE]?.status === "CONCLUIDO"),
   );
 }
 
@@ -113,6 +119,10 @@ function expeditionTotalsOf(rows: readonly ProductionRow[]) {
  * 051: o mesmo caminho vale para a opção "Atrasados" dos filtros de PROCESSO
  * (`procsatrasado=1`) — com ela ligada, a lista é o recorte daquele processo
  * (ou de qualquer um, no filtro do grupo), combinando por E com o da entrega.
+ *
+ * 065: o card "Acabamento" conta, sobre o MESMO conjunto varrido, os itens
+ * com o processo ACAB marcado como concluído (antes era o card "Expedição",
+ * que pedia EXP concluída).
  *
  * A gestão de OF continua usando `getProductionOrdersPage` (regra de atraso
  * por entrega, calculada na RPC).
@@ -139,7 +149,8 @@ export async function getProductionPage(
       // `entrega=OVERDUE` a própria lista já é esse recorte.
       overdue:
         filters.delivery === "OVERDUE" ? totals : acabOverdueTotalsOf(cut, processes, today),
-      expedition: expeditionTotalsOf(cut),
+      // Card "Acabamento": itens com o ACAB concluído dentro do MESMO recorte.
+      acabamento: acabamentoTotalsOf(cut),
       processes,
       today,
     };
@@ -149,7 +160,21 @@ export async function getProductionPage(
     getProductionRows(client, filters, today),
     listFabrica2FilteredRows(client, filters, today, processes),
   ]);
-  return { ...result, processes, today, overdue: acabOverdueTotalsOf(scanned, processes, today) };
+  const { rows, total, qtyTotal, weightTotal } = result;
+  return {
+    rows,
+    total,
+    qtyTotal,
+    weightTotal,
+    // Card "Atrasados": regra do ACAB (data anterior a hoje e ainda não
+    // concluído) sobre o conjunto filtrado varrido inteiro.
+    overdue: acabOverdueTotalsOf(scanned, processes, today),
+    // Card "Acabamento": itens com o ACAB concluído — MESMA varredura, sem
+    // custo extra (as colunas `expedition_*` da RPC não são mais lidas aqui).
+    acabamento: acabamentoTotalsOf(scanned),
+    processes,
+    today,
+  };
 }
 
 export interface ProductionOrderPage extends ProductionOrderResult {
@@ -178,6 +203,15 @@ export async function getProductionOrdersPage(
 /** Indicadores do dashboard. */
 export async function getDashboardData(client: SupabaseServer): Promise<ProductionStats> {
   return getProductionStats(client, todayISODate());
+}
+
+/** Peso marcado como concluído por processo, com série do período para o dashboard. */
+export async function getDashboardCompletedWeight(
+  client: SupabaseServer,
+  granularity: WeightGranularity,
+  anchor: string,
+): Promise<CompletedWeightStats> {
+  return getCompletedWeightStatsFromRepository(client, granularity, anchor);
 }
 
 /** Histórico de alterações de um item. */

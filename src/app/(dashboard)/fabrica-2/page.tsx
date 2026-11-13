@@ -40,8 +40,8 @@ export default async function Fabrica2Page({ searchParams }: PageProps<"/fabrica
   let data: Awaited<ReturnType<typeof getProductionPage>>;
   try {
     const client = await createClient();
-    // 041: os cards "Atrasados"/"Expedição" vêm da MESMA RPC da lista
-    // (com os filtros ativos) — não precisa mais do get_production_stats.
+    // Os cards "Atrasados"/"Acabamento" saem do MESMO conjunto varrido com
+    // os filtros ativos (regras em memória) — não precisa do get_production_stats.
     data = await getProductionPage(client, filters);
   } catch (error) {
     return (
@@ -84,7 +84,7 @@ export default async function Fabrica2Page({ searchParams }: PageProps<"/fabrica
           weightTotal={data.weightTotal}
           filters={filters}
           overdue={data.overdue}
-          expedition={data.expedition}
+          acabamento={data.acabamento}
         />
 
         {/* Chips de filtros ativos: removem um a um ou limpam tudo. */}

@@ -1,6 +1,6 @@
 import type { DeliveryFilter } from "@/lib/constants/pagination";
 import type { OrderStatus } from "@/lib/constants/orders";
-import type { ProcessStatus } from "@/lib/constants/production";
+import type { ProcessStatus, WeightGranularity } from "@/lib/constants/production";
 
 /** Situação de um processo em um item (célula da tabela). */
 export interface ProcessCell {
@@ -136,7 +136,8 @@ export interface ProductionFilters {
 
 /**
  * Totais de um recorte do conjunto filtrado (janela inteira, todas as
- * páginas) — 041: cards "Atrasados" e "Expedição" das telas de produção.
+ * páginas) — 041: cards "Atrasados"/"Expedição" das telas de produção;
+ * 065: na Fábrica 2 o terceiro card é "Acabamento" (ACAB concluído).
  */
 export interface FilteredKpiTotals {
   /** Nº de ITENS (raiz) do recorte. */
@@ -157,11 +158,15 @@ export interface ProductionResult {
   qtyTotal: number;
   /**
    * 041: itens atrasados do conjunto FILTRADO. Na Fábrica 2 a regra é a
-   * data da coluna ACAB (início previsto anterior a hoje), calculada em
-   * memória pelo serviço.
+   * data da coluna ACAB (início previsto anterior a hoje) com o processo
+   * ainda não concluído, calculada em memória pelo serviço.
    */
   overdue: FilteredKpiTotals;
-  /** 041: itens com EXPEDIÇÃO concluída do conjunto filtrado (card "Expedição"). */
+  /**
+   * 041: itens com EXPEDIÇÃO concluída do conjunto filtrado (card
+   * "Expedição"). 065: a Fábrica 2 não lê mais este campo — o card dela é
+   * "Acabamento" (`ProductionPage.acabamento`, ACAB concluído em memória).
+   */
   expedition: FilteredKpiTotals;
 }
 
@@ -230,6 +235,51 @@ export interface ProductionStats {
     weight: number;
   };
   processes: ProcessStat[];
+}
+
+/** Processo com peso concluído no período selecionado do dashboard (067). */
+export interface CompletedWeightProcessStat {
+  code: string;
+  name: string;
+  displayOrder: number;
+  /** kg = quantidade concluída × peso unitário do item. */
+  weightKg: number;
+  /** Peças concluídas no processo. */
+  quantity: number;
+  /** Quantos itens tiveram peso neste período. */
+  items: number;
+}
+
+/** Bucket da série de evolução do painel de peso concluído (067). */
+export interface CompletedWeightBucket {
+  /** Início do bucket (AAAA-MM-DD): o dia, a segunda da semana ou o 1º. */
+  bucket: string;
+  weightKg: number;
+  quantity: number;
+  /** Peso por processo dentro do bucket (para barras empilhadas). */
+  processes: { code: string; weightKg: number }[];
+}
+
+/** Totais de um período (peso/peças) — período atual ou anterior. */
+export interface CompletedWeightTotals {
+  weightKg: number;
+  quantity: number;
+}
+
+/**
+ * Peso (kg) concluído por processo no período (067 — aba Dia/Semana/Mês
+ * do dashboard). `periodEnd` é INCLUSIVO; a série cobre 14 dias,
+ * 12 semanas ou 12 meses terminando no período do `anchor`.
+ */
+export interface CompletedWeightStats {
+  granularity: WeightGranularity;
+  anchor: string;
+  periodStart: string;
+  periodEnd: string;
+  processes: CompletedWeightProcessStat[];
+  total: CompletedWeightTotals;
+  previous: CompletedWeightTotals;
+  series: CompletedWeightBucket[];
 }
 
 /** Evento de histórico de produção. */

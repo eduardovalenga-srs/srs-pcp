@@ -173,7 +173,7 @@ interface Fabrica1NumericFilterProps {
 
 /**
  * Filtro de faixa numérica (De/Até) por coluna da Fábrica 1 (038) —
- * a faixa vale sobre os AGREGADOS do grupo (Σ qtd, Σ peso, peso unitário).
+ * a faixa vale sobre os AGREGADOS do grupo (Σ qtd, Σ peso, maior peso unitário).
  */
 export function Fabrica1NumericFilter({
   filters,

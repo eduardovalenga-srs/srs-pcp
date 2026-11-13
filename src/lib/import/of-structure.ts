@@ -476,6 +476,25 @@ export function buildOfStructure(
     }
 
     for (const parent of order.parents) {
+      // cp_compqtdetotal vem POR POSIÇÃO (a lista de composição traz o
+      // BOM de UMA posição) — o filho é gravado × a ps_Qtde do pai para
+      // a Fábrica 1 fechar com a Gestão de OF/Fábrica 2. O escalo roda
+      // DEPOIS do laço de leitura: as validações de linha
+      // (cp_comppesototal) comparam com a quantidade por posição.
+      // ps_Qtde inválida já vira erro abaixo — nesse caso os filhos
+      // ficam como estão.
+      if (parent.quantity > 0) {
+        for (const child of parent.children) {
+          child.quantity *= parent.quantity;
+          child.totalWeightKg = calculateTotalWeight(child.quantity, child.unitWeightKg);
+          // Material do filho também é por posição (KG = peso da linha;
+          // UN = qtd de peças da linha).
+          for (const material of child.materials) {
+            material.quantity *= parent.quantity;
+          }
+        }
+      }
+
       // Material direto do pai: a planilha não traz peso POR material,
       // mas numa posição FOLHA (sem componentes) o peso total do item é
       // o da própria matéria-prima — a linha nasce em KG, do mesmo

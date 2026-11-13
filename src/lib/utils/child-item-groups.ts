@@ -166,8 +166,10 @@ export function buildChildItemGroup(input: {
     memberCount: members.length,
     memberIds: members.map((member) => member.id),
     quantity: members.reduce((total, member) => total + member.quantity, 0),
-    // Peso unitário só quando todos os membros coincidem; senão "—".
-    unitWeightKg: unitWeights.length === 1 ? unitWeights[0] : null,
+    // Peso unitário do grupo = MAIOR entre os membros (as OFs de kit
+    // gravam o mesmo filho com quantidades diferentes; exibir o maior
+    // mantém a célula útil — sem peso em nenhum membro continua "—").
+    unitWeightKg: unitWeights.length > 0 ? Math.max(...unitWeights) : null,
     weightTotal: memberWeights.some((value) => value !== null)
       ? memberWeights.reduce<number>((total, value) => total + (value ?? 0), 0)
       : null,
