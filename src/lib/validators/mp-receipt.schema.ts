@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { MATERIAL_UNITS } from "@/lib/constants/materials";
 import { decimalInput, nullableDate, nullableText } from "@/lib/validators/common";
+import { roundWeight, WEIGHT_DECIMALS } from "@/lib/utils/formatting";
 
 /**
  * MATERIAL de uma NOTA DE ENTRADA (059): a linha da nota é o material
@@ -13,22 +14,35 @@ export const mpReceiptMaterialSchema = z.object({
   description: z.string().trim().min(1, "Matéria-prima inválida"),
   unit: z.string().trim().min(1, "Unidade inválida"),
   /** Kg recebidos NESTA nota (> 0 — o total é a soma das notas). */
-  quantityKg: decimalInput("Quantidade", { min: 0.01 }),
+  quantityKg: decimalInput("Quantidade", { min: 0.01, decimals: WEIGHT_DECIMALS }),
 });
 
 /**
  * MATERIAL FORA DA OF de uma nota de entrada (060): descrição + unidade
  * de medida + quantidade. É só registro — não afeta saldo nem espelho MP.
  */
-export const mpReceiptFreeItemSchema = z.object({
-  description: z
-    .string()
-    .trim()
-    .min(1, "Informe a matéria-prima")
-    .max(200, "Máximo de 200 caracteres"),
-  unit: z.enum(MATERIAL_UNITS, { message: "Unidade de medida inválida" }),
-  quantity: decimalInput("Quantidade", { min: 0.001 }),
-});
+export const mpReceiptFreeItemSchema = z
+  .object({
+    description: z
+      .string()
+      .trim()
+      .min(1, "Informe a matéria-prima")
+      .max(200, "Máximo de 200 caracteres"),
+    unit: z.enum(MATERIAL_UNITS, { message: "Unidade de medida inválida" }),
+    quantity: decimalInput("Quantidade", { min: 0.001 }),
+  })
+  .transform((item) =>
+    item.unit === "KG" ? { ...item, quantity: roundWeight(item.quantity) } : item,
+  )
+  .superRefine((item, ctx) => {
+    if (item.unit === "KG" && item.quantity < 0.001) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["quantity"],
+        message: "Quantidade deve ser maior ou igual a 0.001",
+      });
+    }
+  });
 
 /**
  * Cabeçalho + materiais de uma NOTA DE ENTRADA (um registro por ação).

@@ -358,7 +358,7 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
                 column="Peso"
                 context="peso total"
                 idPrefix="gestao-peso"
-                step="0.001"
+                step="0.01"
               />
             }
           />

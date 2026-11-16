@@ -10,6 +10,7 @@ import { IMPORT_DECISION_LABELS, IMPORT_DECISIONS, type ImportDecision } from "@
 import { undecidedOrders } from "@/lib/import/of-plan";
 import type { AnalyzeOutput, ExecuteImportOutput } from "@/lib/services/import.service";
 import type { ImportPreview, OfDecisionMap } from "@/lib/types/import";
+import type { ProductGroupDefinition } from "@/lib/types/product-group";
 import { orderCodeFromFileName } from "@/lib/utils/order-code";
 import { FileDrop } from "@/components/importacao/FileDrop";
 import { OfPreviewList } from "@/components/importacao/OfPreviewList";
@@ -35,6 +36,8 @@ interface ImportWizardProps {
     canViewOrders: boolean;
     canViewProduction: boolean;
   };
+  /** Famílias cadastradas — uma é escolhida e aplicada a todas as OFs. */
+  productGroups: ProductGroupDefinition[];
 }
 
 interface PostInput {
@@ -43,6 +46,7 @@ interface PostInput {
   sheetName?: string;
   customerName?: string;
   deliveryDate?: string;
+  productGroupId?: number;
   decisions?: OfDecisionMap;
 }
 
@@ -67,6 +71,7 @@ async function postImport(input: PostInput): Promise<unknown> {
   if (input.sheetName) formData.set("sheetName", input.sheetName);
   if (input.customerName) formData.set("customerName", input.customerName);
   if (input.deliveryDate) formData.set("deliveryDate", input.deliveryDate);
+  if (input.productGroupId !== undefined) formData.set("productGroupId", String(input.productGroupId));
   if (input.decisions) formData.set("decisions", JSON.stringify(input.decisions));
 
   let response: Response;
@@ -87,7 +92,7 @@ async function postImport(input: PostInput): Promise<unknown> {
  * Toda a leitura/validação do arquivo é feita no servidor; aqui fica
  * apenas a orquestração da interface.
  */
-export function ImportWizard({ capabilities }: ImportWizardProps) {
+export function ImportWizard({ capabilities, productGroups }: ImportWizardProps) {
   const router = useRouter();
   const [step, setStep] = useState<WizardStep>(1);
   const [file, setFile] = useState<File | null>(null);
@@ -95,6 +100,7 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
   const [sheetName, setSheetName] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
+  const [productGroupId, setProductGroupId] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [decisions, setDecisions] = useState<OfDecisionMap>({});
   const [result, setResult] = useState<ExecuteImportOutput | null>(null);
@@ -187,6 +193,10 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
       fail("Informe a data de entrega.");
       return false;
     }
+    if (!productGroupId.trim()) {
+      fail("Selecione a família do produto.");
+      return false;
+    }
     return true;
   };
 
@@ -215,6 +225,7 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
         sheetName: sheet,
         customerName: customerName.trim(),
         deliveryDate,
+        productGroupId: Number(productGroupId),
       })) as ImportPreview;
 
       setPreview(data);
@@ -255,6 +266,7 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
         sheetName: preview.sheetName,
         customerName: preview.customerName,
         deliveryDate: preview.deliveryDate,
+        productGroupId: preview.productGroup.id,
         decisions,
       })) as ExecuteImportOutput;
 
@@ -286,6 +298,7 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
     setSheetName("");
     setCustomerName("");
     setDeliveryDate("");
+    setProductGroupId("");
     setPreview(null);
     setDecisions({});
     setResult(null);
@@ -348,7 +361,7 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
           <div className="space-y-4">
             <FileDrop file={file} onChange={(next) => void handleFileChange(next)} disabled={busy !== null} />
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label htmlFor="importacao-cliente">Cliente *</Label>
                 <Input
@@ -385,6 +398,33 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
                   {generatedOrderCode
                     ? `Vinculada a todos os registros. Nesta lista o código da OF é gerado do nome do arquivo: ${generatedOrderCode}.`
                     : "Vinculada a todos os registros: OF, itens pai e filhos."}
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="importacao-familia">Família do produto *</Label>
+                <Select
+                  value={productGroupId}
+                  onValueChange={(value) => {
+                    setProductGroupId(value);
+                    invalidatePreview();
+                  }}
+                  disabled={busy !== null || productGroups.length === 0}
+                >
+                  <SelectTrigger id="importacao-familia" aria-invalid={Boolean(error) && !productGroupId.trim()}>
+                    <SelectValue placeholder="Selecione a família" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {productGroups.map((group) => (
+                      <SelectItem key={group.id} value={String(group.id)}>
+                        {group.groupType} — {group.familyDescription}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Vale para todas as OFs do arquivo. O sequenciamento usa esta família para buscar a
+                  capacidade do processo.
                 </p>
               </div>
             </div>
@@ -454,6 +494,13 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
         {/* Etapa 2 — prévia hierárquica + decisões por OF */}
         {step === 2 && preview ? (
           <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Família do produto:{" "}
+              <strong className="text-foreground">
+                {preview.productGroup.groupType} — {preview.productGroup.familyDescription}
+              </strong>
+            </p>
+
             {existingCodes.length > 1 ? (
               <div className="flex flex-wrap items-center gap-2 rounded border bg-muted/30 p-2">
                 <span className="text-xs font-medium">
@@ -522,6 +569,12 @@ export function ImportWizard({ capabilities }: ImportWizardProps) {
                   <dt className="text-muted-foreground">Entrega:</dt>
                   <dd className="font-medium tabular-nums">
                     {preview.deliveryDate.split("-").reverse().join("/")}
+                  </dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="text-muted-foreground">Família:</dt>
+                  <dd className="font-medium">
+                    {preview.productGroup.groupType} — {preview.productGroup.familyDescription}
                   </dd>
                 </div>
               </dl>

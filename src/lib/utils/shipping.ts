@@ -10,6 +10,8 @@
  * Nunca usar para persistir valores: só para exibição/filtro em memória.
  */
 
+import { roundWeight } from "@/lib/utils/formatting";
+
 /**
  * Fração do planejado que JÁ foi expedida, limitada a [0, 1].
  * Planejado sem sentido (≤ 0) devolve 0 — quem usa trata a fração como
@@ -39,9 +41,9 @@ export function pendingWeight(
 ): number | null {
   if (totalWeightKg === null || !Number.isFinite(totalWeightKg)) return null;
   if (!Number.isFinite(shipped) || shipped <= 0 || unitWeightKg === null || !Number.isFinite(unitWeightKg)) {
-    return totalWeightKg;
+    return roundWeight(totalWeightKg);
   }
-  return Math.max(totalWeightKg - shipped * unitWeightKg, 0);
+  return roundWeight(Math.max(totalWeightKg - shipped * roundWeight(unitWeightKg), 0));
 }
 
 /**
@@ -69,5 +71,5 @@ export function pendingRootWeight(
   rootShipped: number,
 ): number | null {
   if (totalWeightKg === null || !Number.isFinite(totalWeightKg)) return null;
-  return totalWeightKg * (1 - shippedFraction(rootPlanned, rootShipped));
+  return roundWeight(totalWeightKg * (1 - shippedFraction(rootPlanned, rootShipped)));
 }

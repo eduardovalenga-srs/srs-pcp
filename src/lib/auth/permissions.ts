@@ -30,6 +30,8 @@ export type Capability =
   // 056: recebimento de matéria-prima (estilo romaneio).
   | "menu.recebimento_mp"
   | "mp_receipt.edit"
+  // 070: sequenciamento de produção por processo.
+  | "menu.sequenciamento"
   // 043: módulo RH (sidebar agrupada).
   | "menu.rh"
   | "rh.view"
@@ -65,6 +67,8 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     // 056: recebimento de MP (leitura + escrita).
     "menu.recebimento_mp",
     "mp_receipt.edit",
+    // 070: sequenciamento (leitura + gravação da fila).
+    "menu.sequenciamento",
     // 043: RH — admin gerencia (cadastro completo).
     "menu.rh",
     "rh.view",
@@ -93,6 +97,8 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     // 056: recebimento de MP (leitura + escrita).
     "menu.recebimento_mp",
     "mp_receipt.edit",
+    // 070: sequenciamento (leitura + gravação da fila).
+    "menu.sequenciamento",
   ],
   // OPERADOR_F1 (era OPERADOR): não vê a gestão de entregas (menu nem
   // página) — o trabalho dele entra pela Fábrica 1 → link da OF → folha do
@@ -130,6 +136,8 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "menu.romaneio",
     // 056: consulta do recebimento de MP (sem escrita).
     "menu.recebimento_mp",
+    // 070: consulta do sequenciamento (sem gravação — production.edit).
+    "menu.sequenciamento",
   ],
 };
 

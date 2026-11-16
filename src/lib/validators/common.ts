@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { roundTo } from "@/lib/utils/formatting";
+
 /**
  * Campo de texto opcional.
  *
@@ -31,7 +33,28 @@ export const nullableDate = z
  * Sem isto, `safeParse` do servidor falhava com
  * "Invalid input: expected string, received number".
  */
-export const decimalInput = (label: string, { min = 0 }: { min?: number } = {}) =>
+export interface DecimalOptions {
+  min?: number;
+  /**
+   * Casas decimais do valor final (arredondamento half-up). Usado nos
+   * pesos em kg (2 casas — migração 075). Sem a opção o valor é gravado
+   * como digitado (quantidades de peças, metros, m²…).
+   */
+  decimals?: number;
+}
+
+/** Aplica a escala do campo (quando informada) ao número já validado. */
+function scaled(value: number, decimals: number | undefined): number {
+  return decimals === undefined ? value : roundTo(value, decimals);
+}
+
+function validateMinimum(value: number, min: number, label: string, ctx: z.RefinementCtx): boolean {
+  if (value >= min) return true;
+  ctx.addIssue({ code: "custom", message: `${label} deve ser maior ou igual a ${min}` });
+  return false;
+}
+
+export const decimalInput = (label: string, { min = 0, decimals }: DecimalOptions = {}) =>
   z
     .union([z.string(), z.number()])
     .transform((raw, ctx) => {
@@ -40,11 +63,8 @@ export const decimalInput = (label: string, { min = 0 }: { min?: number } = {}) 
           ctx.addIssue({ code: "custom", message: `${label} inválido` });
           return z.NEVER;
         }
-        if (raw < min) {
-          ctx.addIssue({ code: "custom", message: `${label} deve ser maior ou igual a ${min}` });
-          return z.NEVER;
-        }
-        return raw;
+        const value = scaled(raw, decimals);
+        return validateMinimum(value, min, label, ctx) ? value : z.NEVER;
       }
 
       const value = raw.trim();
@@ -62,11 +82,8 @@ export const decimalInput = (label: string, { min = 0 }: { min?: number } = {}) 
         ctx.addIssue({ code: "custom", message: `${label} inválido` });
         return z.NEVER;
       }
-      if (parsed < min) {
-        ctx.addIssue({ code: "custom", message: `${label} deve ser maior ou igual a ${min}` });
-        return z.NEVER;
-      }
-      return parsed;
+      const scaledValue = scaled(parsed, decimals);
+      return validateMinimum(scaledValue, min, label, ctx) ? scaledValue : z.NEVER;
     });
 
 /**
@@ -82,7 +99,7 @@ export const decimalInput = (label: string, { min = 0 }: { min?: number } = {}) 
  * chave. Com `.optional()` a ausência vira `undefined` e o transform
  * devolve `null`, como no resto do arquivo.
  */
-export const optionalDecimalInput = (label: string, { min = 0 }: { min?: number } = {}) =>
+export const optionalDecimalInput = (label: string, { min = 0, decimals }: DecimalOptions = {}) =>
   z
     .union([z.string(), z.number(), z.null()])
     .optional()
@@ -94,11 +111,8 @@ export const optionalDecimalInput = (label: string, { min = 0 }: { min?: number 
           ctx.addIssue({ code: "custom", message: `${label} inválido` });
           return z.NEVER;
         }
-        if (raw < min) {
-          ctx.addIssue({ code: "custom", message: `${label} deve ser maior ou igual a ${min}` });
-          return z.NEVER;
-        }
-        return raw;
+        const value = scaled(raw, decimals);
+        return validateMinimum(value, min, label, ctx) ? value : z.NEVER;
       }
 
       const value = raw.trim();
@@ -113,11 +127,8 @@ export const optionalDecimalInput = (label: string, { min = 0 }: { min?: number 
         ctx.addIssue({ code: "custom", message: `${label} inválido` });
         return z.NEVER;
       }
-      if (parsed < min) {
-        ctx.addIssue({ code: "custom", message: `${label} deve ser maior ou igual a ${min}` });
-        return z.NEVER;
-      }
-      return parsed;
+      const scaledValue = scaled(parsed, decimals);
+      return validateMinimum(scaledValue, min, label, ctx) ? scaledValue : z.NEVER;
     });
 
 /** Rótulos em português para os campos validados pela aplicação. */
@@ -131,7 +142,7 @@ const FIELD_LABELS: Record<string, string> = {
   deliveryDate: "Data de entrega",
   status: "Situação",
   op: "Ordem de Produção (OP)",
-  family: "Família",
+  family: "Tipo",
   parentItem: "Item pai",
   quantity: "Quantidade",
   unit: "Unidade",

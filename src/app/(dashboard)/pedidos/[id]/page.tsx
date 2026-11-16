@@ -7,8 +7,10 @@ import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getOrder } from "@/lib/services/orders.service";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
+import { listProductGroupOptions } from "@/lib/repositories/product-groups.repository";
 import type { OrderItemDetails } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
+import type { ProductGroupOption } from "@/lib/types/product-group";
 import { formatDate } from "@/lib/utils/dates";
 import { calculateTotalWeight, formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { Header } from "@/components/layout/Header";
@@ -94,16 +96,19 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
 
   let order: Awaited<ReturnType<typeof getOrder>>;
   let processCatalog: ProcessDefinition[] = [];
+  let productGroups: ProductGroupOption[] = [];
   try {
     const client = await createClient();
-    // 024: pedido e catálogo em paralelo (catálogo só é usado se o pedido
-    // existir, mas o custo é menor que o round-trip sequencial).
-    const [loadedOrder, loadedCatalog] = await Promise.all([
+    // 024: pedido, catálogo e famílias em paralelo (os dois últimos só são
+    // usados se o pedido existir, mas o custo é menor que o sequencial).
+    const [loadedOrder, loadedCatalog, loadedGroups] = await Promise.all([
       getOrder(client, id),
       getActiveProcesses(client),
+      listProductGroupOptions(client),
     ]);
     order = loadedOrder;
     processCatalog = loadedOrder ? loadedCatalog : [];
+    productGroups = loadedOrder ? loadedGroups : [];
   } catch (error) {
     return (
       <>
@@ -147,6 +152,12 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
   }
   for (const list of childrenByParent.values()) list.sort(byCode);
   const childCount = order.items.length - parents.length;
+
+  // Família definida na OF (não confundir com o Tipo de cada item).
+  const productGroup =
+    order.productGroupId === null
+      ? null
+      : (productGroups.find((group) => group.id === order.productGroupId) ?? null);
 
   const headerDescription = [
     order.customerName,
@@ -208,6 +219,28 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
           <div>
             <dt className="text-xs text-muted-foreground">Tipo</dt>
             <dd className="font-medium">{order.type}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Família do produto</dt>
+            <dd className="font-medium">
+              {productGroup ? (
+                <>
+                  {productGroup.groupType} — {productGroup.familyDescription}
+                </>
+              ) : (
+                <>
+                  <span className="text-muted-foreground">Não definida</span>
+                  {canEdit ? (
+                    <Link
+                      href={`/pedidos/${order.id}/editar`}
+                      className="ml-2 text-xs font-normal underline decoration-dotted underline-offset-2 hover:text-primary"
+                    >
+                      Definir
+                    </Link>
+                  ) : null}
+                </>
+              )}
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">Cliente</dt>
@@ -292,7 +325,7 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
                 <CardContent className="space-y-4">
                   <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2 lg:grid-cols-4">
                     <div>
-                      <dt className="text-xs text-muted-foreground">Família</dt>
+                      <dt className="text-xs text-muted-foreground">Tipo</dt>
                       <dd>{item.family || "—"}</dd>
                     </div>
                     <div>

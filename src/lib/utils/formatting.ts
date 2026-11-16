@@ -1,5 +1,31 @@
 /** Formatação de números, quantidades e pesos. */
 
+/** Casas decimais de PESO (kg) em todo o sistema. */
+export const WEIGHT_DECIMALS = 2;
+
+/**
+ * Arredonda um número para `decimals` casas (half-up).
+ *
+ * O epsilon corrige o erro binário do JavaScript em casos como
+ * 1.005 * 100 = 100.49999999999999 — sem ele, o valor ficaria em 1.00
+ * enquanto o Postgres (numeric) arredonda para 1.01.
+ */
+export function roundTo(value: number, decimals: number): number {
+  if (!Number.isFinite(value)) return value;
+  const factor = 10 ** decimals;
+  return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+/** Arredonda um peso (kg) para {@link WEIGHT_DECIMALS} casas. */
+export function roundWeight(value: number): number {
+  return roundTo(value, WEIGHT_DECIMALS);
+}
+
+/** `roundWeight` preservando null (campos opcionais de peso). */
+export function roundWeightOrNull(value: number | null): number | null {
+  return value === null ? null : roundWeight(value);
+}
+
 export function formatQuantity(value: number | string | null | undefined): string {
   const numeric = toNumber(value);
   if (numeric === null) return "—";
@@ -9,7 +35,10 @@ export function formatQuantity(value: number | string | null | undefined): strin
 export function formatWeight(value: number | string | null | undefined): string {
   const numeric = toNumber(value);
   if (numeric === null) return "—";
-  return numeric.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+  return roundWeight(numeric).toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: WEIGHT_DECIMALS,
+  });
 }
 
 export function formatNumber(value: number | string | null | undefined, digits = 2): string {
@@ -59,7 +88,12 @@ export function parseQuantity(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** Peso total (kg) de um item: quantidade × peso unitário. */
+/**
+ * Peso total (kg) de um item: quantidade × peso unitário.
+ *
+ * Arredonda o peso unitário ANTES da multiplicação, espelhando o trigger
+ * do banco (075): o total exibido/importado fecha com o valor gravado.
+ */
 export function calculateTotalWeight(
   quantity: number | string | null | undefined,
   unitWeight: number | string | null | undefined,
@@ -67,7 +101,7 @@ export function calculateTotalWeight(
   const qty = toNumber(quantity);
   const weight = toNumber(unitWeight);
   if (qty === null || weight === null) return null;
-  return qty * weight;
+  return roundWeight(qty * roundWeight(weight));
 }
 
 export function pluralize(count: number, singular: string, plural?: string): string {

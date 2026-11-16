@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { MATERIAL_UNITS } from "@/lib/constants/materials";
 import { decimalInput, nullableDate, nullableText, optionalDecimalInput } from "@/lib/validators/common";
+import { roundWeightOrNull } from "@/lib/utils/formatting";
 
 /**
  * Item expedido no romaneio: item RAIZ da OF + quantidade desta carga
@@ -32,6 +33,17 @@ export const romaneioMaterialSchema = z
     quantityReceived: optionalDecimalInput("Quantidade recebida"),
     quantityUsed: optionalDecimalInput("Quantidade utilizada"),
   })
+  // KG é peso: prevista/recebida/utilizada com 2 casas (migração 075).
+  .transform((material) =>
+    material.unit === "KG"
+      ? {
+          ...material,
+          quantityPlanned: roundWeightOrNull(material.quantityPlanned),
+          quantityReceived: roundWeightOrNull(material.quantityReceived),
+          quantityUsed: roundWeightOrNull(material.quantityUsed),
+        }
+      : material,
+  )
   .superRefine((material, ctx) => {
     if (
       material.quantityReceived !== null &&

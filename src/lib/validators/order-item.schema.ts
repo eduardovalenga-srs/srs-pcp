@@ -3,6 +3,7 @@ import { z } from "zod";
 import { decimalInput, nullableDate, nullableText, optionalDecimalInput } from "@/lib/validators/common";
 import { materialsSchema } from "@/lib/validators/material.schema";
 import { orderSchema } from "@/lib/validators/order.schema";
+import { WEIGHT_DECIMALS } from "@/lib/utils/formatting";
 import { normalizeOrderCode } from "@/lib/utils/order-code";
 
 export const orderItemSchema = z.object({
@@ -15,7 +16,8 @@ export const orderItemSchema = z.object({
     .min(1, "Informe a descrição do item")
     .max(1000, "Máximo de 1000 caracteres"),
   quantity: decimalInput("Quantidade", { min: 0.001 }),
-  unitWeightKg: optionalDecimalInput("Peso unitário", { min: 0 }),
+  // Peso em kg: 2 casas (migração 075) — quantidades seguem como digitadas.
+  unitWeightKg: optionalDecimalInput("Peso unitário", { min: 0, decimals: WEIGHT_DECIMALS }),
   deliveryDate: nullableDate,
   // Ordem de Produção vinculada ao item (013): vazia = em espera.
   // O status do item NÃO vem do cliente — é derivado no servidor.

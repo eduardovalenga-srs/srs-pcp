@@ -71,6 +71,7 @@ describe("AppSidebar (menu lateral, 043)", () => {
     expect(markup).toContain('href="/fabrica-1"');
     expect(markup).toContain('href="/fabrica-2"');
     expect(markup).toContain('href="/romaneio"');
+    expect(markup).toContain('href="/sequenciamento"');
     expect(markup).not.toContain('href="/dashboard"');
     expect(markup).toContain('href="/processos"');
     expect(markup).toContain('href="/grupos-produtos"');
@@ -137,6 +138,8 @@ describe("filtragem por papel (capabilities da sidebar)", () => {
     expect(markup).not.toContain('href="/romaneio"');
     expect(markup).not.toContain('href="/processos"');
     expect(markup).not.toContain('href="/grupos-produtos"');
+    // 070: o operador não vê o sequenciamento.
+    expect(markup).not.toContain('href="/sequenciamento"');
     // 043: Dashboard virou entrada de primeiro nível e o OPERADOR_F1 a vê.
     expect(markup).toContain('href="/dashboard"');
     // 043: RH passa a ser de ADMIN e operadores (F1).
@@ -152,6 +155,7 @@ describe("filtragem por papel (capabilities da sidebar)", () => {
     expect(markup).not.toContain('href="/romaneio"');
     expect(markup).not.toContain('href="/processos"');
     expect(markup).not.toContain('href="/grupos-produtos"');
+    expect(markup).not.toContain('href="/sequenciamento"');
     expect(markup).not.toContain('href="/dashboard"');
     expect(markup).not.toContain('href="/rh/funcionarios"');
   });
@@ -162,6 +166,7 @@ describe("filtragem por papel (capabilities da sidebar)", () => {
     expect(markup).toContain('href="/gestao-entregas"');
     expect(markup).toContain('href="/fabrica-1"');
     expect(markup).toContain('href="/romaneio"');
+    expect(markup).toContain('href="/sequenciamento"');
     expect(markup).not.toContain('href="/fabrica-2"');
     expect(markup).not.toContain('href="/dashboard"');
     expect(markup).not.toContain('href="/processos"');

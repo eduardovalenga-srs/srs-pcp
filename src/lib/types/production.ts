@@ -243,7 +243,7 @@ export interface ProductionStats {
   processes: ProcessStat[];
 }
 
-/** Processo com peso concluído no período selecionado do dashboard (067). */
+/** Processo com peso concluído no período selecionado do dashboard (074). */
 export interface CompletedWeightProcessStat {
   code: string;
   name: string;
@@ -252,18 +252,29 @@ export interface CompletedWeightProcessStat {
   weightKg: number;
   /** Peças concluídas no processo. */
   quantity: number;
-  /** Quantos itens tiveram peso neste período. */
+  /** Quantas células (processo × item) foram concluídas. */
+  cells: number;
+  /** Quantos itens tiveram produção neste período. */
   items: number;
 }
 
-/** Bucket da série de evolução do painel de peso concluído (067). */
+/** Célula da matriz Dia × processo: produção de um processo em um dia. */
+export interface CompletedWeightCell {
+  code: string;
+  weightKg: number;
+  quantity: number;
+  /** Células concluídas — permite distinguir "sem peso" de "sem produção". */
+  cells: number;
+}
+
+/** Bucket da série de evolução do painel de peso concluído (074). */
 export interface CompletedWeightBucket {
   /** Início do bucket (AAAA-MM-DD): o dia, a segunda da semana ou o 1º. */
   bucket: string;
   weightKg: number;
   quantity: number;
-  /** Peso por processo dentro do bucket (para barras empilhadas). */
-  processes: { code: string; weightKg: number }[];
+  /** Peso por processo dentro do bucket. */
+  processes: CompletedWeightCell[];
 }
 
 /** Totais de um período (peso/peças) — período atual ou anterior. */
@@ -272,20 +283,40 @@ export interface CompletedWeightTotals {
   quantity: number;
 }
 
+/** Um dia do período com a produção concluída de cada processo. */
+export interface CompletedWeightDay {
+  /** Dia no formato AAAA-MM-DD (calendário do fuso do negócio). */
+  date: string;
+  processes: CompletedWeightCell[];
+}
+
 /**
- * Peso (kg) concluído por processo no período (067 — aba Dia/Semana/Mês
+ * Peso (kg) concluído por processo no período (074 — aba Dia/Semana/Mês
  * do dashboard). `periodEnd` é INCLUSIVO; a série cobre 14 dias,
  * 12 semanas ou 12 meses terminando no período do `anchor`.
+ *
+ * `processCode` ecoa o filtro master aplicado: quando preenchido, todos
+ * os recortes (totais, comparação, série e matriz) são só daquele processo.
  */
 export interface CompletedWeightStats {
   granularity: WeightGranularity;
   anchor: string;
   periodStart: string;
   periodEnd: string;
+  processCode: string | null;
   processes: CompletedWeightProcessStat[];
   total: CompletedWeightTotals;
   previous: CompletedWeightTotals;
+  /** Matriz: um registro por dia do período, inclusive dias sem produção. */
+  days: CompletedWeightDay[];
   series: CompletedWeightBucket[];
+}
+
+/** Coluna do catálogo de processos exibida na matriz do dashboard. */
+export interface CompletedWeightColumn {
+  code: string;
+  name: string;
+  displayOrder: number;
 }
 
 /** Evento de histórico de produção. */

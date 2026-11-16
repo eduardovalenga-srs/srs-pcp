@@ -168,11 +168,21 @@ export interface OfPreview {
   requiresDecision: boolean;
 }
 
+/** Família escolhida na importação (070) — uma por arquivo. */
+export interface ImportProductGroup {
+  id: number;
+  groupType: string;
+  familyDescription: string;
+  familyAbbreviation: string;
+}
+
 export interface ImportPreview {
   fileName: string;
   sheetName: string;
   customerName: string;
   deliveryDate: string;
+  /** Família aplicada a todas as OFs do arquivo. */
+  productGroup: ImportProductGroup;
   orders: OfPreview[];
   totals: {
     orders: number;

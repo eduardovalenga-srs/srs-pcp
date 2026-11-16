@@ -8,7 +8,7 @@ import {
 import { PROCESS_STATUSES, type ProcessStatus } from "@/lib/constants/production";
 import type { ProductionRow } from "@/lib/types/production";
 import { todayISODate } from "@/lib/utils/dates";
-import { calculateTotalWeight } from "@/lib/utils/formatting";
+import { calculateTotalWeight, roundWeight } from "@/lib/utils/formatting";
 import {
   computeProcessSchedule,
   scheduleProcessesForItem,
@@ -173,7 +173,9 @@ export function productionRowsTotals(
     (totals, row) => {
       totals.records += 1;
       totals.qty += row.quantity;
-      totals.weight += calculateTotalWeight(row.quantity, row.unitWeightKg) ?? 0;
+      totals.weight = roundWeight(
+        totals.weight + (calculateTotalWeight(row.quantity, row.unitWeightKg) ?? 0),
+      );
       return totals;
     },
     { records: 0, qty: 0, weight: 0 },

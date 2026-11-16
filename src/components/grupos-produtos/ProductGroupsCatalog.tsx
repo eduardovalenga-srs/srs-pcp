@@ -1,10 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { saveProductGroupAction } from "@/lib/actions/product-groups.actions";
+import {
+  deleteProductGroupAction,
+  saveProductGroupAction,
+} from "@/lib/actions/product-groups.actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,12 +21,16 @@ import {
   type SaveProductGroupInput,
 } from "@/lib/validators/product-group.schema";
 import { PROCESS_FACTORIES } from "@/lib/validators/process.schema";
+import { WEIGHT_DECIMALS } from "@/lib/utils/formatting";
 
 const UNIT_LABELS: Record<ProductCapacityUnit, string> = {
   KG: "kg",
   M2: "m²",
   UNIDADES: "un",
 };
+
+/** Capacidade inicial dos processos ainda não preenchidos. */
+const DEFAULT_CAPACITY = "0";
 
 type CapacityDraft = {
   key: string;
@@ -40,6 +47,7 @@ type GroupDraft = {
   familyDescription: string;
   familyAbbreviation: string;
   capacities: CapacityDraft[];
+  editing: boolean;
   error: string;
 };
 
@@ -71,7 +79,7 @@ function capacitiesForGroup(
       factory: process.location as ProductFactory,
       processId: process.id,
       unit: "KG",
-      capacity: "",
+      capacity: DEFAULT_CAPACITY,
     });
   }
   return rows;
@@ -88,6 +96,7 @@ function groupDraftsFrom(
     familyDescription: group.familyDescription,
     familyAbbreviation: group.familyAbbreviation,
     capacities: capacitiesForGroup(`group-${group.id}`, processes, group.capacities),
+    editing: false,
     error: "",
   }));
 }
@@ -100,12 +109,25 @@ function emptyGroupDraft(key: string, processes: ProcessDefinition[]): GroupDraf
     familyDescription: "",
     familyAbbreviation: "",
     capacities: capacitiesForGroup(key, processes),
+    editing: true,
     error: "",
   };
 }
 
 function formatCapacity(value: number, unit: ProductCapacityUnit): string {
-  return `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 }).format(value)} ${UNIT_LABELS[unit]}`;
+  // KG/dia é peso: 2 casas (migração 075). m²/unidades mantêm a precisão.
+  const digits = unit === "KG" ? WEIGHT_DECIMALS : 3;
+  return `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: digits }).format(value)} ${UNIT_LABELS[unit]}`;
+}
+
+/**
+ * Aplica uma edição no rascunho do grupo. `error` é limpo primeiro e o
+ * patch vem depois — assim uma mensagem de validação/salvamento passada
+ * no patch é preservada (antes o `error: ""` final apagava o aviso e o
+ * clique em “Salvar” parecia não fazer nada).
+ */
+export function mergeGroupDraft<T extends { error: string }>(draft: T, patch: Partial<T>): T {
+  return { ...draft, error: "", ...patch };
 }
 
 export function ProductGroupsCatalog({
@@ -151,12 +173,58 @@ export function ProductGroupsCatalog({
 
   const updateGroup = (key: string, patch: Partial<GroupDraft>) => {
     setDrafts((current) =>
-      current.map((draft) => (draft.key === key ? { ...draft, ...patch, error: "" } : draft)),
+      current.map((draft) => (draft.key === key ? mergeGroupDraft(draft, patch) : draft)),
     );
   };
 
   const removeNewGroup = (key: string) => {
     setDrafts((current) => current.filter((draft) => draft.key !== key || draft.id !== null));
+  };
+
+  const startEdit = (key: string) => {
+    updateGroup(key, { editing: true });
+  };
+
+  const cancelEdit = (draft: GroupDraft) => {
+    const saved = groups.find((group) => group.id === draft.id);
+    if (!saved) {
+      updateGroup(draft.key, { editing: false, error: "" });
+      return;
+    }
+    const restored = groupDraftsFrom([saved], orderedProcesses)[0];
+    setDrafts((current) =>
+      current.map((row) => (row.key === draft.key ? { ...restored, key: draft.key } : row)),
+    );
+  };
+
+  const deleteGroup = async (draft: GroupDraft) => {
+    if (savingKey || draft.id === null) return;
+    const label = draft.groupType ?? `${draft.id}-${draft.familyAbbreviation}`;
+    const confirmed = window.confirm(
+      `Excluir o grupo ${label}? As OFs que usam esta família ficarão sem família no sequenciamento.`,
+    );
+    if (!confirmed) return;
+
+    setSavingKey(draft.key);
+    try {
+      const result = await deleteProductGroupAction(draft.id);
+      if (!result.success) {
+        updateGroup(draft.key, { error: result.message });
+        toast.error(result.message);
+        return;
+      }
+      setDrafts((current) => current.filter((row) => row.key !== draft.key));
+      toast.success(result.message);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Não foi possível excluir o grupo de produtos.";
+      updateGroup(draft.key, { error: message });
+      toast.error(message);
+    } finally {
+      setSavingKey(null);
+    }
   };
 
   const updateCapacity = (
@@ -193,7 +261,7 @@ export function ProductGroupsCatalog({
               ...row,
               capacities: [
                 ...row.capacities,
-                { key, factory, processId, unit, capacity: "" },
+                { key, factory, processId, unit, capacity: DEFAULT_CAPACITY },
               ],
             }
           : row,
@@ -237,12 +305,27 @@ export function ProductGroupsCatalog({
         capacity,
       })),
     };
+
+    // Mensagem amigável antes do zod: aponta os processos sem capacidade,
+    // que são o motivo mais comum de o salvamento não avançar.
+    const semCapacidade = draft.capacities.filter((capacity) => capacity.capacity.trim() === "");
+    if (semCapacidade.length > 0) {
+      const nomes = semCapacidade.map(
+        (capacity) =>
+          orderedProcesses.find((process) => process.id === capacity.processId)?.name ??
+          "processo sem nome",
+      );
+      const message = `Informe a capacidade dos processos: ${nomes.join(", ")}.`;
+      updateGroup(draft.key, { error: message });
+      toast.error(message);
+      return;
+    }
+
     const parsed = saveProductGroupSchema.safeParse(payload);
     if (!parsed.success) {
-      updateGroup(
-        draft.key,
-        { error: parsed.error.issues[0]?.message ?? "Confira os dados informados." },
-      );
+      const message = parsed.error.issues[0]?.message ?? "Confira os dados informados.";
+      updateGroup(draft.key, { error: message });
+      toast.error(message);
       return;
     }
 
@@ -251,6 +334,7 @@ export function ProductGroupsCatalog({
       const result = await saveProductGroupAction(parsed.data);
       if (!result.success) {
         updateGroup(draft.key, { error: result.message });
+        toast.error(result.message);
         return;
       }
       setDrafts((current) =>
@@ -260,22 +344,35 @@ export function ProductGroupsCatalog({
                 ...row,
                 id: result.id ?? row.id,
                 groupType: result.groupType ?? row.groupType,
+                editing: false,
                 error: "",
               }
             : row,
         ),
       );
       toast.success(result.message);
+    } catch (error) {
+      // Falha inesperada (rede/Server Action): nunca deixar o clique mudo.
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Não foi possível salvar o grupo de produtos.";
+      updateGroup(draft.key, { error: message });
+      toast.error(message);
     } finally {
       setSavingKey(null);
     }
   };
 
-  const renderCapacityCell = (draft: GroupDraft, process: ProcessDefinition) => {
+  const renderCapacityCell = (
+    draft: GroupDraft,
+    process: ProcessDefinition,
+    editable: boolean,
+  ) => {
     const cellRows = draft.capacities.filter(
       (capacity) => capacity.processId === process.id,
     );
-    if (!canManage) {
+    if (!editable) {
       return (
         <ul className="space-y-1">
           {cellRows.length > 0
@@ -389,7 +486,11 @@ export function ProductGroupsCatalog({
       ) : null}
 
       {canManage ? (
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            Preencha a capacidade de <strong>todos</strong> os processos. O sequenciamento usa a
+            capacidade em <strong>kg/dia</strong>.
+          </p>
           <Button type="button" size="sm" onClick={addGroup} disabled={unmappedProcesses.length > 0}>
             <Plus className="h-4 w-4" aria-hidden />
             Adicionar registro
@@ -454,86 +555,132 @@ export function ProductGroupsCatalog({
               </tr>
             </thead>
             <tbody>
-              {drafts.map((draft) => (
-                <tr key={draft.key} className="align-top hover:bg-muted/20">
-                  <td className="sticky left-0 z-10 border-b bg-card px-2 py-2">
-                    {canManage ? (
-                      <Input
-                        aria-label="Família"
-                        maxLength={120}
-                        className="h-8 w-28 px-1.5 text-xs"
-                        placeholder="Família"
-                        value={draft.familyDescription}
-                        disabled={savingKey === draft.key}
-                        onChange={(event) =>
-                          updateGroup(draft.key, { familyDescription: event.target.value })
-                        }
-                      />
-                    ) : (
-                      draft.familyDescription
-                    )}
-                  </td>
-                  <td className="sticky left-32 z-10 border-b bg-card px-1.5 py-2">
-                    {canManage ? (
-                      <Input
-                        aria-label="Abrv"
-                        maxLength={3}
-                        autoCapitalize="characters"
-                        className="h-8 w-14 px-1 text-xs uppercase"
-                        placeholder="ABR"
-                        value={draft.familyAbbreviation}
-                        disabled={savingKey === draft.key}
-                        onChange={(event) =>
-                          updateGroup(draft.key, { familyAbbreviation: event.target.value.toUpperCase() })
-                        }
-                      />
-                    ) : (
-                      draft.familyAbbreviation
-                    )}
-                  </td>
-                  {allFactoryProcesses.map((process) => (
-                    <td key={process.id} className="border-b border-l p-2">
-                      {renderCapacityCell(draft, process)}
+              {drafts.map((draft) => {
+                const editable = canManage && draft.editing;
+                return (
+                  <tr key={draft.key} className="align-top hover:bg-muted/20">
+                    <td className="sticky left-0 z-10 border-b bg-card px-2 py-2">
+                      {editable ? (
+                        <Input
+                          aria-label="Família"
+                          maxLength={120}
+                          className="h-8 w-28 px-1.5 text-xs"
+                          placeholder="Família"
+                          value={draft.familyDescription}
+                          disabled={savingKey === draft.key}
+                          onChange={(event) =>
+                            updateGroup(draft.key, { familyDescription: event.target.value })
+                          }
+                        />
+                      ) : (
+                        draft.familyDescription
+                      )}
                     </td>
-                  ))}
-                  {canManage ? (
-                    <td className="border-b border-l px-2 py-2 text-right">
-                      <div className="flex min-w-32 flex-col items-end gap-1">
-                        {draft.error ? (
-                          <p role="alert" className="max-w-48 text-left text-xs text-destructive">
-                            {draft.error}
-                          </p>
-                        ) : null}
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={savingKey !== null || unmappedProcesses.length > 0}
-                          onClick={() => void saveGroup(draft)}
-                        >
-                          {savingKey === draft.key ? (
-                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    <td className="sticky left-32 z-10 border-b bg-card px-1.5 py-2">
+                      {editable ? (
+                        <Input
+                          aria-label="Abrv"
+                          maxLength={3}
+                          autoCapitalize="characters"
+                          className="h-8 w-14 px-1 text-xs uppercase"
+                          placeholder="ABR"
+                          value={draft.familyAbbreviation}
+                          disabled={savingKey === draft.key}
+                          onChange={(event) =>
+                            updateGroup(draft.key, { familyAbbreviation: event.target.value.toUpperCase() })
+                          }
+                        />
+                      ) : (
+                        draft.familyAbbreviation
+                      )}
+                    </td>
+                    {allFactoryProcesses.map((process) => (
+                      <td key={process.id} className="border-b border-l p-2">
+                        {renderCapacityCell(draft, process, editable)}
+                      </td>
+                    ))}
+                    {canManage ? (
+                      <td className="border-b border-l px-2 py-2 text-right">
+                        <div className="flex min-w-32 flex-col items-end gap-1">
+                          {draft.error ? (
+                            <p role="alert" className="max-w-48 text-left text-xs text-destructive">
+                              {draft.error}
+                            </p>
+                          ) : null}
+                          {editable ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={savingKey !== null || unmappedProcesses.length > 0}
+                                onClick={() => void saveGroup(draft)}
+                              >
+                                {savingKey === draft.key ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                                ) : (
+                                  <Save className="h-4 w-4" aria-hidden />
+                                )}
+                                Salvar
+                              </Button>
+                              {draft.id === null ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={savingKey !== null}
+                                  onClick={() => removeNewGroup(draft.key)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                                  Remover linha
+                                </Button>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={savingKey !== null}
+                                  onClick={() => cancelEdit(draft)}
+                                >
+                                  Cancelar
+                                </Button>
+                              )}
+                            </>
                           ) : (
-                            <Save className="h-4 w-4" aria-hidden />
+                            <>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={savingKey !== null}
+                                onClick={() => startEdit(draft.key)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" aria-hidden />
+                                Editar
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive"
+                                disabled={savingKey !== null}
+                                onClick={() => void deleteGroup(draft)}
+                                aria-label={`Excluir o grupo ${draft.groupType ?? draft.familyAbbreviation}`}
+                              >
+                                {savingKey === draft.key ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                                ) : (
+                                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                                )}
+                                Excluir
+                              </Button>
+                            </>
                           )}
-                          Salvar
-                        </Button>
-                        {draft.id === null ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={savingKey !== null}
-                            onClick={() => removeNewGroup(draft.key)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                            Remover linha
-                          </Button>
-                        ) : null}
-                      </div>
-                    </td>
-                  ) : null}
-                </tr>
-              ))}
+                        </div>
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
               {allFactoryProcesses.length === 0 ? (
                 <tr>
                   <td

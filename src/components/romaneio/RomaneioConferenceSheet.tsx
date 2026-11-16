@@ -276,7 +276,7 @@ export function RomaneioConferenceSheet({ view, canEdit }: RomaneioConferenceShe
                   <th scope="col" className="w-8 py-1 pr-2 font-semibold">
                     ✔
                   </th>
-                  <th scope="col" className="py-1 pr-2 font-semibold">Família</th>
+                  <th scope="col" className="py-1 pr-2 font-semibold">Tipo</th>
                   <th scope="col" className="py-1 pr-2 font-semibold">Item pai</th>
                   <th scope="col" className="py-1 pr-2 font-semibold">Descrição</th>
                   <th scope="col" className="py-1 pr-2 text-right font-semibold">Qtd OF</th>

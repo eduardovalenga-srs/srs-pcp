@@ -18,7 +18,7 @@
 import type { OrderStatus } from "@/lib/constants/orders";
 import type { ProcessStatus } from "@/lib/constants/production";
 import type { RomaneioStatus } from "@/lib/constants/romaneio";
-import { parseQuantity } from "@/lib/utils/formatting";
+import { parseQuantity, roundWeight } from "@/lib/utils/formatting";
 
 /** Material de um item da OF (order_item_materials). */
 export interface RomaneioMaterialSource {
@@ -126,7 +126,11 @@ function forEachAllocatedMaterial(
 
     for (const material of item.materials) {
       if (material.quantity <= 0) continue;
-      visit(root, material, material.quantity * ratio);
+      // KG é peso: a quantidade alocada segue a mesma precisão do banco.
+      const quantity = material.unit.trim().toUpperCase() === "KG"
+        ? roundWeight(material.quantity * ratio)
+        : material.quantity * ratio;
+      visit(root, material, quantity);
     }
   }
 }
@@ -143,8 +147,8 @@ function forEachAllocatedMaterial(
  */
 export function weightKgOf(unit: string, quantity: number | null): number | null {
   const normalized = unit.trim().toUpperCase();
-  if (normalized === "KG") return quantity ?? 0;
-  if (normalized === "G") return (quantity ?? 0) / 1000;
+  if (normalized === "KG") return roundWeight(quantity ?? 0);
+  if (normalized === "G") return roundWeight((quantity ?? 0) / 1000);
   return null;
 }
 
@@ -194,7 +198,7 @@ export function allocateRomaneioItemWeightsKg(
   forEachAllocatedMaterial(input, (root, material, quantity) => {
     const kg = weightKgOf(material.unit, quantity);
     if (kg === null) return;
-    totals.set(root, (totals.get(root) ?? 0) + kg);
+    totals.set(root, roundWeight((totals.get(root) ?? 0) + kg));
   });
   return totals;
 }
@@ -216,7 +220,7 @@ export function sumUsedWeightKg(
     found = true;
     total += kg;
   }
-  return found ? total : null;
+  return found ? roundWeight(total) : null;
 }
 
 /**
@@ -231,9 +235,12 @@ export function loadWeightKg(
   const fromMaterials = sumUsedWeightKg(lines);
   if (fromMaterials !== null) return fromMaterials;
   if (!items.some((item) => item.unitWeightKg !== null)) return null;
-  return items.reduce(
-    (sum, item) => sum + (item.unitWeightKg === null ? 0 : item.unitWeightKg * item.quantity),
-    0,
+  return roundWeight(
+    items.reduce(
+      (sum, item) =>
+        sum + (item.unitWeightKg === null ? 0 : roundWeight(item.unitWeightKg) * item.quantity),
+      0,
+    ),
   );
 }
 
@@ -276,7 +283,9 @@ export function resolveRomaneioWeights(input: {
     } else {
       byItem.set(
         item.orderItemId,
-        item.unitWeightKg === null ? null : item.unitWeightKg * item.quantity,
+        item.unitWeightKg === null
+          ? null
+          : roundWeight(roundWeight(item.unitWeightKg) * item.quantity),
       );
     }
   }

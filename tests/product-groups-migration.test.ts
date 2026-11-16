@@ -143,4 +143,47 @@ describe("migration 068 — grupos de produto", () => {
       ),
     ).rejects.toThrow(/permissão|row-level security/i);
   });
+
+  it("073: ADMIN exclui o grupo, capacidades e itens, desvinculando as OFs", async () => {
+    await asSuperUser(db);
+    const { rows: order } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type, status, product_group_id)
+       values ('OF-GRP-DEL', 'OF', 'PLANEJADO', 1) returning id`,
+    );
+
+    // GESTOR não exclui.
+    const gestorId = await createUser(db, "product-groups-delete-gestor@example.com", "GESTOR");
+    await asUser(db, "authenticated", gestorId);
+    await expect(db.query("select public.delete_product_group($1)", [1])).rejects.toThrow(
+      /permissão/i,
+    );
+
+    // ADMIN exclui; filhos saem por cascade e a OF fica sem família.
+    await asUser(db, "authenticated", adminId);
+    await db.query("select public.delete_product_group($1)", [1]);
+
+    const { rows: groups } = await db.query<{ count: number }>(
+      "select count(*)::int as count from public.product_groups",
+    );
+    expect(groups[0]?.count).toBe(0);
+
+    const { rows: capacities } = await db.query<{ count: number }>(
+      "select count(*)::int as count from public.product_group_process_capacities where product_group_id = 1",
+    );
+    expect(capacities[0]?.count).toBe(0);
+
+    const { rows: items } = await db.query<{ count: number }>(
+      "select count(*)::int as count from public.product_group_items where product_group_id = 1",
+    );
+    expect(items[0]?.count).toBe(0);
+
+    const { rows: linked } = await db.query<{ product_group_id: number | null }>(
+      "select product_group_id from public.orders where id = $1",
+      [order[0]?.id],
+    );
+    expect(linked[0]?.product_group_id).toBeNull();
+
+    await asSuperUser(db);
+    await db.query("delete from public.orders where id = $1", [order[0]?.id]);
+  });
 });

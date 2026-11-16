@@ -341,7 +341,7 @@ describe("totalizadores de peso no detalhe (sem listagem por item)", () => {
 
     // Itens: MESMAS colunas do detalhe, sem as de processo, + o ✔ da ficha.
     const itemsTable = tableAround(markup, 'aria-label="Marcar como conferido: Porta 80x200"');
-    expect(itemsTable).toContain(">Família<");
+    expect(itemsTable).toContain(">Tipo<");
     expect(itemsTable).toContain(">Item pai<");
     expect(itemsTable).toContain(">Descrição<");
     expect(itemsTable).toContain(">Qtd OF<");
@@ -604,5 +604,28 @@ describe("romaneioConferenceSchema — payload da ficha (regressão do salvament
     expect(parsed.error.issues[0]?.message).toBe(
       "A quantidade utilizada não pode exceder a recebida",
     );
+  });
+
+  it("arredonda materiais KG a 2 casas sem alterar outras unidades", () => {
+    const parsed = romaneioConferenceSchema.safeParse({
+      romaneioId: "rom-1",
+      notes: null,
+      checkedItemIds: ["item-1"],
+      materials: [
+        {
+          description: "Chapa aço 3mm",
+          unit: "KG",
+          quantityReceived: "1,005",
+          quantityUsed: "1,004",
+        },
+        { description: "Perfil", unit: "M", quantityReceived: "1,234", quantityUsed: "1,123" },
+      ],
+      sign: false,
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.materials[0]?.quantityReceived).toBe(1.01);
+    expect(parsed.data.materials[0]?.quantityUsed).toBe(1);
+    expect(parsed.data.materials[1]?.quantityReceived).toBe(1.234);
   });
 });

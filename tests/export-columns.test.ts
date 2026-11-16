@@ -533,7 +533,7 @@ describe("romaneioDocumentSheet — documento do detalhe", () => {
     // MESMAS colunas da tela: F1/MP/KIT ficam de fora, EXP entra no conjunto.
     expect(headers).toEqual([
       "Item pai",
-      "Família",
+      "Tipo",
       "Descrição",
       "SOLDA",
       "EXP",

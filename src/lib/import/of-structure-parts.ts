@@ -8,7 +8,7 @@ import {
   materialQuantityAndUnit,
 } from "@/lib/import/of-structure";
 import type { BuiltOf, FileChild, FileParent, ParsedSheet, StructureIssue } from "@/lib/types/import";
-import { calculateTotalWeight, formatWeight, toNumber } from "@/lib/utils/formatting";
+import { calculateTotalWeight, formatWeight, roundWeight, toNumber } from "@/lib/utils/formatting";
 import { orderCodeFromFileName } from "@/lib/utils/order-code";
 
 /**
@@ -70,13 +70,14 @@ const CONSUMED_COLUMNS = [
 ] as const;
 
 /**
- * Tolerância da divergência de peso da linha-mãe: 0,001 kg OU 0,5% do
+ * Tolerância da divergência de peso da linha-mãe: 0,01 kg OU 0,5% do
  * valor da lista — a massa do arquivo sai com 1 casa decimal (erros
  * observados no arquivo real ≤ 0,1%), então só avisa quando a lista
  * parece desatualizada.
  */
 function isWeightDivergent(spreadsheet: number, derived: number): boolean {
-  if (Math.abs(spreadsheet - derived) < 0.001) return false;
+  // 075: pesos com 2 casas — diferença de 1 centésimo é arredondamento.
+  if (Math.abs(Math.round(spreadsheet * 100) - Math.round(derived * 100)) <= 1) return false;
   return Math.abs(spreadsheet - derived) / Math.max(Math.abs(spreadsheet), 1e-9) > 0.005;
 }
 
@@ -245,7 +246,7 @@ export function buildPartsOfStructure(
         description: perfil || peca,
         family: familyFromDescription(perfil),
         quantity: quantity.value ?? 0,
-        unitWeightKg: unitWeight.value,
+        unitWeightKg: unitWeight.value === null ? null : roundWeight(unitWeight.value),
         totalWeightKg,
         deliveryDate: form.deliveryDate,
         materials: [],
@@ -356,9 +357,8 @@ export function buildPartsOfStructure(
 
     // Peso unitário = massa de UM conjunto (Σ filho unit × qtd); o total
     // é qtd × unit (023) e a MASSA da lista só vira aviso de divergência.
-    const setMass = parent.children.reduce(
-      (sum, child) => sum + (child.unitWeightKg ?? 0) * child.quantity,
-      0,
+    const setMass = roundWeight(
+      parent.children.reduce((sum, child) => sum + (child.unitWeightKg ?? 0) * child.quantity, 0),
     );
     if (parent.children.length > 0 && setMass > 0) {
       const totalWeightKg = calculateTotalWeight(parent.quantity, setMass);
@@ -401,6 +401,8 @@ export function buildPartsOfStructure(
         // UN = qtd de peças da linha).
         for (const material of child.materials) {
           material.quantity *= parent.quantity;
+          // KG é peso: mantém 2 casas mesmo depois do escalonamento.
+          if (material.unit === "KG") material.quantity = roundWeight(material.quantity);
         }
       }
     }

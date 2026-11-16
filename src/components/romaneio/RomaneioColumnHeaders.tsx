@@ -189,7 +189,7 @@ export function RomaneioWeightFilter({ filters }: { filters: RomaneioFilters }) 
       min={filters.weightFrom}
       max={filters.weightTo}
       idPrefix="romaneio-coluna-peso"
-      step="0.001"
+      step="0.01"
       onApply={(min, max) => apply({ weightFrom: min, weightTo: max })}
     />
   );

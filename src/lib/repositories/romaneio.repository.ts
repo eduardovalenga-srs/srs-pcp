@@ -11,6 +11,7 @@ import type {
 } from "@/lib/types/romaneio";
 import type { RomaneioMaterialValues } from "@/lib/validators/romaneio.schema";
 import { escapeFilterTerm } from "@/lib/utils/filters";
+import { roundWeightOrNull } from "@/lib/utils/formatting";
 import { assertOk } from "@/lib/utils/supabase-result";
 
 function toNumber(value: number | string | null | undefined): number | null {
@@ -131,7 +132,7 @@ function mapCandidate(row: RawRomaneioCandidate): RomaneioCandidate {
     deliveryDate: row.delivery_date,
     status: row.status as OrderStatus,
     rootQuantity: toNumber(row.root_quantity) ?? 0,
-    rootWeightKg: toNumber(row.root_weight_kg),
+    rootWeightKg: roundWeightOrNull(toNumber(row.root_weight_kg)),
     shippedQuantity: toNumber(row.shipped_quantity) ?? 0,
     hasOpenRomaneio: row.has_open,
     openRomaneioId: row.open_romaneio_id,
@@ -237,7 +238,7 @@ function mapRomaneioSummary(row: RawRomaneiosPageRow): RomaneioSummary {
     status: row.status as RomaneioStatus,
     shipmentDate: row.shipment_date,
     carrier: row.carrier,
-    weightTotal: toNumber(row.weight_total),
+    weightTotal: roundWeightOrNull(toNumber(row.weight_total)),
     nfNumber: row.nf_number,
     returnNfNumber: row.return_nf_number,
     pendingReturn: row.pending_return,

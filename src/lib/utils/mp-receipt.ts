@@ -1,5 +1,6 @@
 import type { ProcessStatus } from "@/lib/constants/production";
 import type { MpCellReceipt, MpReceiptState } from "@/lib/types/mp-receipt";
+import { roundWeight } from "@/lib/utils/formatting";
 
 /**
  * REGRA DE SITUAÇÃO do recebimento (056/059) — a MESMA da migração
@@ -15,14 +16,18 @@ import type { MpCellReceipt, MpReceiptState } from "@/lib/types/mp-receipt";
  * preenchimento sequencial na ordem de produção.
  */
 export function mpReceiptStateOf(plannedKg: number | null, receivedKg: number): MpReceiptState {
-  if (receivedKg <= 0) return "NONE";
-  if (plannedKg === null || plannedKg <= 0) return "TOTAL";
-  return receivedKg >= plannedKg ? "TOTAL" : "PARCIAL";
+  const received = roundWeight(receivedKg);
+  const planned = plannedKg === null ? null : roundWeight(plannedKg);
+  if (received <= 0) return "NONE";
+  if (planned === null || planned <= 0) return "TOTAL";
+  return received >= planned ? "TOTAL" : "PARCIAL";
 }
 
 /** Espelho de um item a partir do planejado/recebido. */
 export function mpCellReceipt(plannedKg: number | null, receivedKg: number): MpCellReceipt {
-  return { state: mpReceiptStateOf(plannedKg, receivedKg), receivedKg, plannedKg };
+  const received = roundWeight(receivedKg);
+  const planned = plannedKg === null ? null : roundWeight(plannedKg);
+  return { state: mpReceiptStateOf(planned, received), receivedKg: received, plannedKg: planned };
 }
 
 /**
@@ -47,8 +52,8 @@ export function mpReceiptFromCell(
     | null
     | undefined,
 ): MpCellReceipt {
-  const receivedKg = cell?.quantityCompleted ?? 0;
-  const plannedKg = cell?.quantityPlanned ?? null;
+  const receivedKg = roundWeight(cell?.quantityCompleted ?? 0);
+  const plannedKg = cell?.quantityPlanned == null ? null : roundWeight(cell.quantityPlanned);
   const state: MpReceiptState =
     cell?.status === "CONCLUIDO" ? "TOTAL" : receivedKg > 0 ? "PARCIAL" : "NONE";
   return { state, receivedKg, plannedKg };
@@ -75,10 +80,10 @@ export function aggregateMpReceipts(
   const plannedValues = receipts.map((receipt) => receipt.plannedKg);
   return {
     state: aggregateMpReceiptState(receipts.map((receipt) => receipt.state)),
-    receivedKg: receipts.reduce((total, receipt) => total + receipt.receivedKg, 0),
+    receivedKg: roundWeight(receipts.reduce((total, receipt) => total + receipt.receivedKg, 0)),
     // Σ só quando todos têm peso (senão o "—" some junto com o total).
     plannedKg: plannedValues.every((value) => value !== null)
-      ? plannedValues.reduce<number>((total, value) => total + (value ?? 0), 0)
+      ? roundWeight(plannedValues.reduce<number>((total, value) => total + (value ?? 0), 0))
       : null,
   };
 }

@@ -119,7 +119,7 @@ export async function getOrderDetails(client: SupabaseServer, orderId: string): 
     client
       .from("orders")
       .select(
-        `id, code, type, customer_name, description, order_date, delivery_date, status,
+        `id, code, type, customer_name, description, order_date, delivery_date, status, product_group_id,
        order_items (
          id, order_id, parent_order_item_id, family, parent_item, description, quantity, unit_weight_kg, total_weight_kg, delivery_date, status, op,
          production_processes (
@@ -180,6 +180,8 @@ export async function getOrderDetails(client: SupabaseServer, orderId: string): 
     order_date: string | null;
     delivery_date: string | null;
     status: OrderStatus;
+    /** 070: família escolhida para a OF (null = ainda não definida). */
+    product_group_id: number | null;
     order_items: RawItem[];
   };
 
@@ -265,6 +267,7 @@ export async function getOrderDetails(client: SupabaseServer, orderId: string): 
     orderDate: raw.order_date,
     deliveryDate: raw.delivery_date,
     status: raw.status,
+    productGroupId: raw.product_group_id === null ? null : Number(raw.product_group_id),
     items,
   };
 }
@@ -466,6 +469,30 @@ export async function updateOrderDeliveryDate(
   assertOk(error, "Não foi possível atualizar a entrega do pedido");
   if (!data || data.length === 0) {
     throw new Error("Pedido não encontrado ou sem permissão para editar a entrega.");
+  }
+}
+
+/**
+ * Define/limpa a família do produto da OF. É o mesmo vínculo da
+ * importação (`orders.product_group_id`) e o que o sequenciamento usa;
+ * os campos `family` dos itens (Tipo) NÃO são alterados.
+ *
+ * O `.select()` detecta 0 linhas afetadas (pedido inexistente ou RLS).
+ */
+export async function updateOrderProductGroup(
+  client: SupabaseServer,
+  orderId: string,
+  productGroupId: number | null,
+): Promise<void> {
+  const { data, error } = await client
+    .from("orders")
+    .update({ product_group_id: productGroupId })
+    .eq("id", orderId)
+    .select("id");
+
+  assertOk(error, "Não foi possível atualizar a família do produto");
+  if (!data || data.length === 0) {
+    throw new Error("Pedido não encontrado ou sem permissão para editar a família.");
   }
 }
 

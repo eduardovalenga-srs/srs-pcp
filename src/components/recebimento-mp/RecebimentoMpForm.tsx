@@ -15,7 +15,7 @@ import type {
 } from "@/lib/types/mp-receipt";
 import { formatDate, todayISODate } from "@/lib/utils/dates";
 import { errorMessage } from "@/lib/utils/supabase-result";
-import { formatWeight } from "@/lib/utils/formatting";
+import { formatWeight, roundWeight } from "@/lib/utils/formatting";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,7 +62,7 @@ export function orderComboboxOptions(ofs: MpReceiptCustomerOption["ofs"]): Combo
 /** Lê um texto de input ("2,5" / "2.5" / "") como kg. */
 function parseKg(text: string | undefined): number {
   const quantity = Number.parseFloat((text ?? "").replace(",", "."));
-  return Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
+  return Number.isFinite(quantity) && quantity > 0 ? roundWeight(quantity) : 0;
 }
 
 /**
@@ -460,7 +460,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
                         id={`mp-kg-${material.materialKey}`}
                         type="number"
                         min={0}
-                        step="any"
+                        step="0.01"
                         inputMode="decimal"
                         value={mpQuantityValue(quantities, material.materialKey)}
                         onChange={(event) =>

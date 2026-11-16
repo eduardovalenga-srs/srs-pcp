@@ -10,7 +10,7 @@
    - Todos concluídos -> `CONCLUIDO`
    - OP em branco -> `PLANEJADO`
    - OP preenchida -> `EM_PRODUCAO`
-2. **Pesos Derivados:** O peso total (`total_weight_kg`) é quantidade × peso unitário, calculado automaticamente via TRIGGER no Postgres (Migração 023). Não passe isso via código Node.
+2. **Pesos Derivados (075):** Todo peso em kg — peso unitário/total, saldos, recebimento de MP, materiais em KG, romaneio em KG e capacidade em kg/dia — usa no máximo 2 casas, com arredondamento normal (half-up). A migração 075 corrige o histórico e instala triggers; o total (`total_weight_kg`) é quantidade × peso unitário já arredondado, calculado automaticamente no Postgres. Não passe esse total via código Node. Quantidades de peças e medidas em M, M2, G e outras unidades mantêm sua precisão própria.
 3. **Cadeia de Processos:** Definida dinamicamente pela tabela `processes`. Todo item possui registros em `production_processes`.
 4. **Fábrica 1 vs Fábrica 2:** 
    - A rota `/fabrica-1` agrupa itens filhos por código dentro da mesma OF (RPC `get_child_item_groups`).

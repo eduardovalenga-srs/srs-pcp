@@ -10,6 +10,7 @@ import {
 } from "@/lib/constants/import";
 import { ORDER_STATUS_LABELS, type OrderStatus } from "@/lib/constants/orders";
 import type { ImportPreview, OfDecisionMap, OfDifference, OfPreview, RowStatus } from "@/lib/types/import";
+import { formatWeight } from "@/lib/utils/formatting";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 
 /**
@@ -230,7 +231,8 @@ function OfCard({ entry, decision, onDecisionChange, disabled }: OfCardProps) {
                   </Badge>
                   <span className="font-medium">{parent.description}</span>
                   <span className="text-muted-foreground tabular-nums">
-                    qtd. {parent.quantity} · {parent.unitWeightKg ?? "—"} kg · total {parent.totalWeightKg ?? "—"} kg
+                    qtd. {parent.quantity} · {formatWeight(parent.unitWeightKg)} kg · total{" "}
+                    {formatWeight(parent.totalWeightKg)} kg
                   </span>
                   {parent.family ? <span className="text-muted-foreground">TP {parent.family}</span> : null}
                 </div>
@@ -249,7 +251,7 @@ function OfCard({ entry, decision, onDecisionChange, disabled }: OfCardProps) {
                         <span className="font-medium tabular-nums">{child.code}</span>
                         <span className="text-muted-foreground">{child.description}</span>
                         <span className="ml-auto tabular-nums text-muted-foreground">
-                          qtd. {child.quantity} · {child.unitWeightKg ?? "—"} kg
+                          qtd. {child.quantity} · {formatWeight(child.unitWeightKg)} kg
                         </span>
                         {child.materials[0] ? (
                           <span className="w-full truncate text-muted-foreground">

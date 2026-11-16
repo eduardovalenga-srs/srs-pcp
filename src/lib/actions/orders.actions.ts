@@ -7,7 +7,10 @@ import { requireCapability } from "@/lib/auth/guards";
 import { can } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { replaceItemMaterials } from "@/lib/repositories/materials.repository";
-import { updateOrderDeliveryDate } from "@/lib/repositories/orders.repository";
+import {
+  updateOrderDeliveryDate,
+  updateOrderProductGroup,
+} from "@/lib/repositories/orders.repository";
 import {
   updateItemDeliveryDate,
   updateItemsSeq,
@@ -28,6 +31,22 @@ const nullableSeq = z
   .int("Use um número inteiro para a sequência.")
   .min(1, "A sequência começa em 1.")
   .nullable();
+
+/**
+ * Família da OF: id de `product_groups` ou null para
+ * deixar a OF sem família (o Tipo técnico dos itens continua intacto).
+ */
+const productGroupIdSchema = z
+  .union([z.number(), z.string(), z.null()])
+  .transform((raw, ctx) => {
+    if (raw === null || (typeof raw === "string" && raw.trim() === "")) return null;
+    const parsed = typeof raw === "number" ? raw : Number(raw.trim());
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      ctx.addIssue({ code: "custom", message: "Selecione uma família de produto válida." });
+      return z.NEVER;
+    }
+    return parsed;
+  });
 
 /** Escopo de itens do lote (mesmo teto de 500 da edição em lote de processos). */
 const seqItemIdsSchema = z
@@ -223,6 +242,55 @@ export async function updateOrderDeliveryDateAction(
   } catch (error) {
     console.error("[updateOrderDeliveryDateAction]", error);
     return { success: false, message: errorMessage(error), deliveryDate: null };
+  }
+}
+
+/**
+ * Família da OF: grava a família do produto (ADMIN/GESTOR).
+ *
+ * A família vale para TODA a OF — é o vínculo usado pelo sequenciamento e
+ * pela importação. Não toca no campo `family` dos itens (Tipo).
+ */
+export async function updateOrderProductGroupAction(
+  orderId: unknown,
+  productGroupId: unknown,
+): Promise<{ success: boolean; message: string; productGroupId: number | null }> {
+  try {
+    await requireCapability("orders.edit");
+
+    const parsedId = z.string().trim().min(1).safeParse(orderId);
+    if (!parsedId.success) {
+      return { success: false, message: "Pedido inválido.", productGroupId: null };
+    }
+
+    const parsedGroup = productGroupIdSchema.safeParse(productGroupId);
+    if (!parsedGroup.success) {
+      return {
+        success: false,
+        message: firstZodMessage(parsedGroup.error) ?? "Selecione uma família de produto válida.",
+        productGroupId: null,
+      };
+    }
+
+    const client = await createClient();
+    await updateOrderProductGroup(client, parsedId.data, parsedGroup.data);
+
+    revalidatePath("/pedidos");
+    revalidatePath("/gestao-entregas");
+    revalidatePath("/sequenciamento");
+    revalidatePath("/(dashboard)/pedidos/[id]", "page");
+
+    return {
+      success: true,
+      message:
+        parsedGroup.data === null
+          ? "Família do produto removida da OF."
+          : "Família do produto atualizada.",
+      productGroupId: parsedGroup.data,
+    };
+  } catch (error) {
+    console.error("[updateOrderProductGroupAction]", error);
+    return { success: false, message: errorMessage(error), productGroupId: null };
   }
 }
 

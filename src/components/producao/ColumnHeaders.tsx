@@ -225,7 +225,7 @@ interface NumericColumnFilterProps {
   context: string;
   /** Prefixo dos ids dos campos (cada tela/coluna tem os seus). */
   idPrefix: string;
-  /** Passo dos campos (padrão "1"; pesos usam "0.001"). */
+  /** Passo dos campos (padrão "1"; pesos usam "0.01" — 2 casas). */
   step?: string;
 }
 

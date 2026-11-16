@@ -13,6 +13,7 @@ import type { ProcessStatus } from "@/lib/constants/production";
 import { listConfirmedQuantityByItemIds } from "@/lib/repositories/romaneio.repository";
 import { buildChildItemGroup } from "@/lib/utils/child-item-groups";
 import { escapeFilterTerm } from "@/lib/utils/filters";
+import { roundWeight } from "@/lib/utils/formatting";
 import { mpReceiptFromCell } from "@/lib/utils/mp-receipt";
 import { pendingQuantity, pendingRootQuantity, pendingRootWeight, pendingWeight } from "@/lib/utils/shipping";
 import { assertOk } from "@/lib/utils/supabase-result";
@@ -473,7 +474,7 @@ export async function listChildItemGroups(
       kitOverdue = {
         records: toNumber(groupsPayload.kitOverdue.records ?? null) ?? 0,
         qty: toNumber(groupsPayload.kitOverdue.qty ?? null) ?? 0,
-        weight: toNumber(groupsPayload.kitOverdue.weight ?? null) ?? 0,
+        weight: roundWeight(toNumber(groupsPayload.kitOverdue.weight ?? null) ?? 0),
       };
     }
   } else {
@@ -506,7 +507,7 @@ export async function listChildItemGroups(
     // No caminho normal, kitOverdue é null: o card pede seu resumo sob demanda.
     total: toNumber(groupsPayload.total ?? null) ?? 0,
     qtyTotal: toNumber(groupsPayload.qtyTotal ?? null) ?? 0,
-    weightTotal: toNumber(groupsPayload.weightTotal ?? null) ?? 0,
+    weightTotal: roundWeight(toNumber(groupsPayload.weightTotal ?? null) ?? 0),
     kitOverdue,
   };
   if (memberIds.length === 0) {
@@ -774,6 +775,6 @@ export async function getChildItemsKitOverdueTotals(
   return {
     records: toNumber(totals.records ?? null) ?? 0,
     qty: toNumber(totals.qty ?? null) ?? 0,
-    weight: toNumber(totals.weight ?? null) ?? 0,
+    weight: roundWeight(toNumber(totals.weight ?? null) ?? 0),
   };
 }

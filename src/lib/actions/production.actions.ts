@@ -27,6 +27,7 @@ export interface ProcessActionResult {
 export async function getCompletedWeightStatsAction(input: {
   granularity: string;
   anchor: string;
+  processCode?: string | null;
 }): Promise<{ success: true; data: CompletedWeightStats } | { success: false; message: string }> {
   try {
     await requireCapability("dashboard.view");
@@ -34,8 +35,13 @@ export async function getCompletedWeightStatsAction(input: {
       return { success: false, message: "Período inválido." };
     }
     const anchor = isValidISODate(input.anchor) ? input.anchor : todayISODate();
+    const rawCode = input.processCode?.trim() ?? "";
+    if (rawCode.length > 60 || /[\u0000-\u001f]/.test(rawCode)) {
+      return { success: false, message: "Processo inválido." };
+    }
+    const processCode = rawCode === "" || rawCode === "ALL" ? null : rawCode;
     const client = await createClient();
-    const data = await getDashboardCompletedWeight(client, input.granularity, anchor);
+    const data = await getDashboardCompletedWeight(client, input.granularity, anchor, processCode);
     return { success: true, data };
   } catch (error) {
     console.error("[getCompletedWeightStatsAction]", error);

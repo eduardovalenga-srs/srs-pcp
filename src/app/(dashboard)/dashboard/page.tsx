@@ -100,6 +100,13 @@ export default async function DashboardPage() {
       />
 
       <div className="space-y-4">
+        <CompletedWeightPanel
+          initialData={completedWeight}
+          today={today}
+          processes={stats.processes}
+          initialError={completedWeightError}
+        />
+
         <section aria-label="Indicadores gerais" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
           <KpiCard
             label="Pedidos"
@@ -163,12 +170,6 @@ export default async function DashboardPage() {
           <h2 className="text-sm font-semibold">Carga de trabalho por processo</h2>
           <ProcessLoadTable processes={stats.processes} />
         </section>
-
-        <CompletedWeightPanel
-          initialData={completedWeight}
-          today={today}
-          initialError={completedWeightError}
-        />
 
         <div className="grid gap-3 lg:grid-cols-2">
           <section aria-label="Clientes que mais pedem" className="rounded border bg-card p-3">

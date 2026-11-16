@@ -58,13 +58,16 @@ function readText(formData: FormData, key: string): string {
 
 /**
  * Revalida o formulário da etapa no servidor (nada vem pronto do
- * cliente): aba, cliente e data de entrega.
+ * cliente): aba, cliente, data de entrega e família do produto (070).
  */
-function readFormInput(formData: FormData): { sheetName: string; customerName: string; deliveryDate: string } | { error: string } {
+function readFormInput(
+  formData: FormData,
+): { sheetName: string; customerName: string; deliveryDate: string; productGroupId: number } | { error: string } {
   const parsed = importFormSchema.safeParse({
     sheetName: readText(formData, "sheetName").trim(),
     customerName: readText(formData, "customerName").trim(),
     deliveryDate: readText(formData, "deliveryDate").trim(),
+    productGroupId: readText(formData, "productGroupId").trim(),
   });
 
   if (!parsed.success) {

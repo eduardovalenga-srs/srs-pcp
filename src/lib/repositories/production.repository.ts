@@ -15,6 +15,7 @@ import type {
   ProcessCell,
   ProcessDefinition,
 } from "@/lib/types/production";
+import { roundWeight, roundWeightOrNull } from "@/lib/utils/formatting";
 import { assertOk } from "@/lib/utils/supabase-result";
 
 function toNumber(value: number | string | null): number | null {
@@ -99,7 +100,8 @@ export async function getProductionRows(
 
   const rawRows = data ?? [];
   const total = rawRows.length > 0 ? Number(rawRows[0].total_count ?? 0) : 0;
-  const weightTotal = rawRows.length > 0 ? Number(rawRows[0].weight_total ?? 0) : 0;
+  const weightTotal =
+    rawRows.length > 0 ? roundWeight(Number(rawRows[0].weight_total ?? 0)) : 0;
   const qtyTotal = rawRows.length > 0 ? Number(rawRows[0].qty_total ?? 0) : 0;
   // 041: cards "Atrasados"/"Expedição" vêm do MESMO registro da primeira
   // linha (janela sobre o conjunto filtrado inteiro). Sem a migration o
@@ -108,14 +110,14 @@ export async function getProductionRows(
     ? {
         records: Number(rawRows[0].overdue_count ?? 0),
         qty: Number(rawRows[0].overdue_qty ?? 0),
-        weight: Number(rawRows[0].overdue_weight ?? 0),
+        weight: roundWeight(Number(rawRows[0].overdue_weight ?? 0)),
       }
     : { records: 0, qty: 0, weight: 0 };
   const expedition = rawRows.length > 0
     ? {
         records: Number(rawRows[0].expedition_count ?? 0),
         qty: Number(rawRows[0].expedition_qty ?? 0),
-        weight: Number(rawRows[0].expedition_weight ?? 0),
+        weight: roundWeight(Number(rawRows[0].expedition_weight ?? 0)),
       }
     : { records: 0, qty: 0, weight: 0 };
   const rows = rawRows.map((row) => mapProductionRow(row));
@@ -145,7 +147,7 @@ function mapProductionOrderRow(raw: ProductionOrderRowRecord): ProductionOrderRo
     orderStatus: raw.order_status,
     deliveryDate: raw.delivery_date,
     quantity: toNumber(raw.quantity) ?? 0,
-    weightTotal: toNumber(raw.weight_kg),
+    weightTotal: roundWeightOrNull(toNumber(raw.weight_kg)),
     overdue: raw.overdue,
     // 036: menor seq entre os itens raiz da OF (edição no nível OF propaga).
     seq: toNumber(raw.seq),
@@ -195,7 +197,8 @@ export async function getProductionOrderRows(
 
   const rawRows = data ?? [];
   const total = rawRows.length > 0 ? Number(rawRows[0].total_count ?? 0) : 0;
-  const weightTotal = rawRows.length > 0 ? Number(rawRows[0].weight_total ?? 0) : 0;
+  const weightTotal =
+    rawRows.length > 0 ? roundWeight(Number(rawRows[0].weight_total ?? 0)) : 0;
   const qtyTotal = rawRows.length > 0 ? Number(rawRows[0].qty_total ?? 0) : 0;
   // 041: cards "Atrasados"/"Expedição" — contam ITENS das OFs que passam
   // nos filtros (vêm agregados no registro da primeira linha). Sem a
@@ -204,14 +207,14 @@ export async function getProductionOrderRows(
     ? {
         records: Number(rawRows[0].overdue_count ?? 0),
         qty: Number(rawRows[0].overdue_qty ?? 0),
-        weight: Number(rawRows[0].overdue_weight ?? 0),
+        weight: roundWeight(Number(rawRows[0].overdue_weight ?? 0)),
       }
     : { records: 0, qty: 0, weight: 0 };
   const expedition = rawRows.length > 0
     ? {
         records: Number(rawRows[0].expedition_count ?? 0),
         qty: Number(rawRows[0].expedition_qty ?? 0),
-        weight: Number(rawRows[0].expedition_weight ?? 0),
+        weight: roundWeight(Number(rawRows[0].expedition_weight ?? 0)),
       }
     : { records: 0, qty: 0, weight: 0 };
   const rows = rawRows.map((row) => mapProductionOrderRow(row));
@@ -312,16 +315,18 @@ export async function getProductionStats(client: SupabaseServer, today: string):
   return data as unknown as ProductionStats;
 }
 
-/** Peso concluído por processo e série temporal do painel do dashboard (067). */
+/** Peso concluído por processo, matriz diária e série do dashboard (074). */
 export async function getCompletedWeightStats(
   client: SupabaseServer,
   granularity: WeightGranularity,
   anchor: string,
+  processCode: string | null,
 ): Promise<CompletedWeightStats> {
   const { data, error } = await client.rpc("get_completed_weight_stats", {
     p_granularity: granularity,
     p_anchor: anchor,
     p_timezone: process.env.BUSINESS_TIMEZONE ?? "America/Sao_Paulo",
+    p_process_code: processCode,
   });
   assertOk(error, "Não foi possível carregar o peso concluído");
   return data as unknown as CompletedWeightStats;

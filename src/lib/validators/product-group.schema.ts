@@ -1,17 +1,23 @@
 import { z } from "zod";
 
 import { decimalInput } from "@/lib/validators/common";
+import { roundWeight } from "@/lib/utils/formatting";
 import { PROCESS_FACTORIES } from "@/lib/validators/process.schema";
 
 export const PRODUCT_CAPACITY_UNITS = ["KG", "M2", "UNIDADES"] as const;
 export type ProductCapacityUnit = (typeof PRODUCT_CAPACITY_UNITS)[number];
 
-const productGroupCapacitySchema = z.object({
-  factory: z.enum(PROCESS_FACTORIES),
-  processId: z.string().uuid("Processo inválido"),
-  unit: z.enum(PRODUCT_CAPACITY_UNITS),
-  capacity: decimalInput("Capacidade"),
-});
+/** Capacidade em KG/dia é peso: 2 casas (migração 075). */
+const productGroupCapacitySchema = z
+  .object({
+    factory: z.enum(PROCESS_FACTORIES),
+    processId: z.string().uuid("Processo inválido"),
+    unit: z.enum(PRODUCT_CAPACITY_UNITS),
+    capacity: decimalInput("Capacidade"),
+  })
+  .transform((capacity) =>
+    capacity.unit === "KG" ? { ...capacity, capacity: roundWeight(capacity.capacity) } : capacity,
+  );
 
 export const saveProductGroupSchema = z
   .object({

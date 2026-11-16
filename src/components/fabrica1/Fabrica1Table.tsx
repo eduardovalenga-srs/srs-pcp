@@ -525,7 +525,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
                 maxField="weightUnitMax"
                 column="Peso un."
                 context="peso unitário"
-                step="0.001"
+                step="0.01"
               />
             }
           />
@@ -546,7 +546,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
                 maxField="weightMax"
                 column="Peso total"
                 context="peso total do grupo"
-                step="0.001"
+                step="0.01"
               />
             }
           />

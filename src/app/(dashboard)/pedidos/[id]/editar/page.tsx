@@ -7,6 +7,8 @@ import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
+import { listProductGroupOptions } from "@/lib/repositories/product-groups.repository";
+import type { ProductGroupOption } from "@/lib/types/product-group";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
@@ -31,10 +33,17 @@ export default async function EditarPedidoPage({ params }: PageProps<"/pedidos/[
   }
 
   let processes: OrderProcessOption[];
+  let productGroups: ProductGroupOption[];
   try {
     const client = await createClient();
-    const catalog = await getActiveProcesses(client);
+    // Famílias carregadas junto do catálogo — a edição define a
+    // família de toda a OF (inclusive nas OFs antigas).
+    const [catalog, groups] = await Promise.all([
+      getActiveProcesses(client),
+      listProductGroupOptions(client),
+    ]);
     processes = catalog.map((process) => ({ code: process.code, name: process.name }));
+    productGroups = groups;
   } catch (error) {
     return (
       <>
@@ -72,7 +81,11 @@ export default async function EditarPedidoPage({ params }: PageProps<"/pedidos/[
         }
       />
 
-      <OrderForm processes={processes} initialOrder={result.order} />
+      <OrderForm
+        processes={processes}
+        productGroups={productGroups}
+        initialOrder={result.order}
+      />
     </>
   );
 }

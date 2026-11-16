@@ -425,7 +425,7 @@ export interface NumericRangeFilterProps {
   onApply: (min: number | null, max: number | null) => void;
   /** Prefixo dos ids dos campos (cada tela tem os seus). */
   idPrefix: string;
-  /** Passo dos campos (padrão "1"; pesos usam "0.001"). */
+  /** Passo dos campos (padrão "1"; pesos usam "0.01" — 2 casas). */
   step?: string;
 }
 

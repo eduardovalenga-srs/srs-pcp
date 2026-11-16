@@ -21,3 +21,11 @@ export interface ProductGroupDefinition {
   groupType: string;
   capacities: ProductGroupCapacityDefinition[];
 }
+
+/** Grupo de produto sem as capacidades — seleção de família da OF. */
+export interface ProductGroupOption {
+  id: number;
+  familyDescription: string;
+  familyAbbreviation: string;
+  groupType: string;
+}

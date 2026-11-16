@@ -67,7 +67,7 @@ describe("filtros por coluna da Fábrica 2 (038)", () => {
       maxField: "weightMax",
       column: "Peso un.",
       context: "peso unitário",
-      step: "0.001",
+      step: "0.01",
     } as const;
     const inativo = html(createElement(Fabrica2NumericColumnFilter, { ...props, filters: noFilters }));
     expect(inativo).toContain('aria-label="Filtrar por peso unitário"');

@@ -179,21 +179,26 @@ describe("assertSheetStructure", () => {
 });
 
 describe("importFormSchema", () => {
-  it("valida aba + cliente + data no formato ISO", () => {
+  it("valida aba + cliente + data no formato ISO + família", () => {
     const parsed = importFormSchema.safeParse({
       sheetName: "Fábrica",
       customerName: "  ACME  ",
       deliveryDate: "2026-12-15",
+      productGroupId: "12",
     });
     expect(parsed.success).toBe(true);
-    if (parsed.success) expect(parsed.data.customerName).toBe("ACME");
+    if (parsed.success) {
+      expect(parsed.data.customerName).toBe("ACME");
+      expect(parsed.data.productGroupId).toBe(12);
+    }
   });
 
-  it("exige cliente e data de entrega válida", () => {
+  it("exige cliente, data de entrega válida e família", () => {
     const semCliente = importFormSchema.safeParse({
       sheetName: "Fábrica",
       customerName: "   ",
       deliveryDate: "2026-12-15",
+      productGroupId: "12",
     });
     expect(semCliente.success).toBe(false);
 
@@ -201,8 +206,17 @@ describe("importFormSchema", () => {
       sheetName: "Fábrica",
       customerName: "ACME",
       deliveryDate: "15/12/2026",
+      productGroupId: "12",
     });
     expect(dataErrada.success).toBe(false);
+
+    const semFamilia = importFormSchema.safeParse({
+      sheetName: "Fábrica",
+      customerName: "ACME",
+      deliveryDate: "2026-12-15",
+      productGroupId: "",
+    });
+    expect(semFamilia.success).toBe(false);
   });
 });
 
@@ -753,6 +767,12 @@ function makePreview(orders: OfPreview[]): ImportPreview {
     sheetName: "Fábrica",
     customerName: FORM.customerName,
     deliveryDate: FORM.deliveryDate,
+    productGroup: {
+      id: 12,
+      groupType: "12-EST",
+      familyDescription: "Estruturas metálicas",
+      familyAbbreviation: "EST",
+    },
     orders,
     totals: {
       orders: orders.length,
@@ -824,6 +844,7 @@ describe("buildOfImportPlan", () => {
     const plan = buildOfImportPlan(preview, {});
     expect(plan.operations).toHaveLength(1);
     expect(plan.operations[0]).toMatchObject({ action: "CREATE" });
+    expect(plan.operations[0]?.order.productGroupId).toBe(12);
     expect(plan.operations[0]?.parents).toHaveLength(1);
     expect(plan.summary).toEqual({ create: 1, update: 0, keep: 0, skip: 0, errors: 0 });
   });

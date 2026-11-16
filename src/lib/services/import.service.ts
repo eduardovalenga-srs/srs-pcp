@@ -12,6 +12,7 @@ import type {
   OfPreview,
 } from "@/lib/types/import";
 import { findOrderStructures } from "@/lib/repositories/orders.repository";
+import { getProductGroupById } from "@/lib/repositories/product-groups.repository";
 import {
   applyOfPlan,
   completeBatch,
@@ -175,6 +176,8 @@ export interface PreviewInput {
   sheetName: string;
   customerName: string;
   deliveryDate: string;
+  /** 070: família (grupo de produto) escolhida para todas as OFs do arquivo. */
+  productGroupId: number;
 }
 
 /**
@@ -182,6 +185,11 @@ export interface PreviewInput {
  * existe no banco (diferenças campo a campo por OF).
  */
 export async function buildPreview(client: SupabaseServer, input: PreviewInput): Promise<ImportPreview> {
+  const productGroup = await getProductGroupById(client, input.productGroupId);
+  if (!productGroup) {
+    throw new ImportInputError("Selecione uma família de produto cadastrada antes de importar.");
+  }
+
   let orders: BuiltOf[];
   let ignoredColumns: string[];
   try {
@@ -285,6 +293,7 @@ export async function buildPreview(client: SupabaseServer, input: PreviewInput):
     sheetName: input.sheetName,
     customerName: input.customerName,
     deliveryDate: input.deliveryDate,
+    productGroup,
     orders: previews,
     totals,
     ignoredColumns,

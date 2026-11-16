@@ -8,7 +8,7 @@ import {
   materialQuantityAndUnit,
 } from "@/lib/import/of-structure";
 import type { BuiltOf, FileChild, ParsedSheet, StructureIssue } from "@/lib/types/import";
-import { calculateTotalWeight } from "@/lib/utils/formatting";
+import { calculateTotalWeight, roundWeight } from "@/lib/utils/formatting";
 import { orderCodeFromFileName } from "@/lib/utils/order-code";
 
 /**
@@ -192,7 +192,9 @@ export function buildProjectOfStructure(
     const totalWeight = cellNumber(row, col.MASSATOTALDOPROJETOKG);
     // Peso unitário = massa total ÷ quantidade do projeto.
     const unitWeightKg =
-      totalWeight.value !== null && quantity.value ? totalWeight.value / quantity.value : null;
+      totalWeight.value !== null && quantity.value
+        ? roundWeight(totalWeight.value / quantity.value)
+        : null;
     const child: FileChild = {
       code: peca,
       // Sem PEÇA, a descrição cai para o próprio código (regra do layout).

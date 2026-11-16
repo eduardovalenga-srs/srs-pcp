@@ -27,6 +27,20 @@ describe("saveProductGroupSchema", () => {
     expect(parsed.data.id).toBeUndefined();
   });
 
+  it("arredonda capacidade KG para 2 casas e preserva outras unidades", () => {
+    const parsed = saveProductGroupSchema.safeParse({
+      ...base,
+      capacities: [
+        { ...capacity, capacity: "12,345" },
+        { ...capacity, unit: "M2", capacity: "3,456" },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.capacities[0]?.capacity).toBe(12.35);
+    expect(parsed.data.capacities[1]?.capacity).toBe(3.456);
+  });
+
   it("limita a abreviação a três caracteres", () => {
     const parsed = saveProductGroupSchema.safeParse({ ...base, familyAbbreviation: "ESTR" });
     expect(parsed.success).toBe(false);

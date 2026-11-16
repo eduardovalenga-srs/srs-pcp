@@ -2,21 +2,38 @@ import { z } from "zod";
 
 import { MATERIAL_UNITS, MAX_MATERIALS_PER_ITEM } from "@/lib/constants/materials";
 import { decimalInput, nullableText } from "@/lib/validators/common";
+import { roundWeight } from "@/lib/utils/formatting";
 
 /**
  * Matéria-prima de um sub-item: insumo consumido na produção
  * (descrição + quantidade + unidade). Não tem processos próprios.
+ *
+ * KG é peso: a quantidade é arredondada para 2 casas (migração 075). As
+ * demais unidades (m, m², un, g…) mantêm a precisão digitada.
  */
-export const materialSchema = z.object({
-  description: z
-    .string()
-    .trim()
-    .min(1, "Informe o material")
-    .max(200, "Máximo de 200 caracteres"),
-  quantity: decimalInput("Quantidade", { min: 0.001 }),
-  unit: z.enum(MATERIAL_UNITS),
-  notes: nullableText(300),
-});
+export const materialSchema = z
+  .object({
+    description: z
+      .string()
+      .trim()
+      .min(1, "Informe o material")
+      .max(200, "Máximo de 200 caracteres"),
+    quantity: decimalInput("Quantidade", { min: 0.001 }),
+    unit: z.enum(MATERIAL_UNITS),
+    notes: nullableText(300),
+  })
+  .transform((material) =>
+    material.unit === "KG" ? { ...material, quantity: roundWeight(material.quantity) } : material,
+  )
+  .superRefine((material, ctx) => {
+    if (material.unit === "KG" && material.quantity < 0.001) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["quantity"],
+        message: "Quantidade deve ser maior ou igual a 0.001",
+      });
+    }
+  });
 
 /** Lista de materiais de um sub-item (máx. 50 — mesma regra da RPC 011). */
 export const materialsSchema = z

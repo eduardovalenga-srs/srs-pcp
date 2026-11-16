@@ -38,6 +38,8 @@ export type OrderRow = {
   order_date: string | null;
   delivery_date: string | null;
   status: OrderStatusValue;
+  /** 070: família (grupo de produto) escolhida na importação — separada de order_items.family. */
+  product_group_id: number | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -126,6 +128,44 @@ export type ProductGroupItemProcessCapacityRow = {
   capacity: number | string;
   created_at: string;
   updated_at: string;
+};
+
+/** 070: posição e observação de uma OF na fila de um processo. */
+export type OrderProcessScheduleRow = {
+  id: string;
+  order_id: string;
+  process_id: string;
+  position: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** 070: data de início (âncora) persistida por processo. */
+export type ProcessScheduleSettingsRow = {
+  process_id: string;
+  anchor_date: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Linha retornada pela RPC get_process_scheduling (070). */
+export type ProcessSchedulingRowRecord = {
+  order_id: string;
+  order_code: string;
+  order_type: string;
+  customer_name: string | null;
+  delivery_date: string | null;
+  order_status: OrderStatusValue;
+  product_group_id: number | null;
+  family_description: string | null;
+  family_abbreviation: string | null;
+  group_type: string | null;
+  quantity: number | string;
+  weight_kg: number | string | null;
+  capacity_kg: number | string | null;
+  position: number | string | null;
+  notes: string | null;
 };
 
 export type ProductionProcessRow = {
@@ -511,6 +551,7 @@ export type Database = {
           order_date?: string | null;
           delivery_date?: string | null;
           status?: OrderStatusValue;
+          product_group_id?: number | null;
           created_by?: string | null;
           updated_by?: string | null;
         };
@@ -522,6 +563,7 @@ export type Database = {
           order_date: string | null;
           delivery_date: string | null;
           status: OrderStatusValue;
+          product_group_id: number | null;
           updated_by: string | null;
         }>;
         Relationships: [
@@ -727,6 +769,55 @@ export type Database = {
             foreignKeyName: "product_group_item_process_capacities_process_id_fkey";
             columns: ["process_id"];
             isOneToOne: false;
+            referencedRelation: "processes";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      order_process_schedules: {
+        Row: OrderProcessScheduleRow;
+        Insert: {
+          id?: string;
+          order_id: string;
+          process_id: string;
+          position: number;
+          notes?: string | null;
+        };
+        Update: Partial<{
+          position: number;
+          notes: string | null;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "order_process_schedules_order_id_fkey";
+            columns: ["order_id"];
+            isOneToOne: false;
+            referencedRelation: "orders";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "order_process_schedules_process_id_fkey";
+            columns: ["process_id"];
+            isOneToOne: false;
+            referencedRelation: "processes";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      process_schedule_settings: {
+        Row: ProcessScheduleSettingsRow;
+        Insert: {
+          process_id: string;
+          anchor_date: string;
+        };
+        Update: Partial<{
+          anchor_date: string;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "process_schedule_settings_process_id_fkey";
+            columns: ["process_id"];
+            isOneToOne: true;
             referencedRelation: "processes";
             referencedColumns: ["id"];
           },
@@ -1098,6 +1189,7 @@ export type Database = {
           p_granularity?: string;
           p_anchor?: string | null;
           p_timezone?: string;
+          p_process_code?: string | null;
         };
         Returns: Json;
       };
@@ -1231,6 +1323,28 @@ export type Database = {
           p_items: Json;
         };
         Returns: { id: number; group_type: string }[];
+      };
+      delete_product_group: {
+        // remove o grupo; capacidades/itens saem por cascade (073)
+        Args: { p_group_id: number };
+        Returns: undefined;
+      };
+      get_process_scheduling: {
+        // fila de um processo com peso, capacidade e posição salva (070)
+        Args: {
+          p_process_id: string;
+          p_family_group_id?: number | null;
+        };
+        Returns: ProcessSchedulingRowRecord[];
+      };
+      save_process_schedule: {
+        // grava a ordem e a data de início do processo (070)
+        Args: {
+          p_process_id: string;
+          p_anchor_date: string;
+          p_rows: Json;
+        };
+        Returns: undefined;
       };
       backfill_process: {
         // null = todos os processos ativos (invariante item × processo)

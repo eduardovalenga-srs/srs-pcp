@@ -16,11 +16,17 @@ afterAll(async () => {
   await close();
 });
 
-describe("get_completed_weight_stats (067)", () => {
+type Stats = Record<string, unknown> | string;
+
+function parseStats(value: Stats | undefined) {
+  return typeof value === "string" ? JSON.parse(value) : value;
+}
+
+describe("get_completed_weight_stats (074)", () => {
   it("soma quantidade concluída × peso unitário respeitando escopo pai/filho", async () => {
     await asSuperUser(db);
     const { rows: orderRows } = await db.query<{ id: string }>(
-      `insert into public.orders (code, type) values ('OF-WEIGHT-067', 'OF') returning id`,
+      `insert into public.orders (code, type) values ('OF-WEIGHT-074', 'OF') returning id`,
     );
     const orderId = orderRows[0]?.id as string;
     const { rows: rootRows } = await db.query<{ id: string }>(
@@ -57,32 +63,172 @@ describe("get_completed_weight_stats (067)", () => {
       );
     }
 
-    const { rows } = await db.query<{ stats: Record<string, unknown> | string }>(
-      `select public.get_completed_weight_stats('month', '2026-11-13', 'America/Sao_Paulo') as stats`,
+    const { rows } = await db.query<{ stats: Stats }>(
+      `select public.get_completed_weight_stats('month', '2026-11-13', 'America/Sao_Paulo', null) as stats`,
     );
-    const stats =
-      typeof rows[0]?.stats === "string" ? JSON.parse(rows[0].stats) : rows[0]?.stats;
-    const processes = stats?.processes as Array<{ code: string; weightKg: number; quantity: number }>;
+    const stats = parseStats(rows[0]?.stats);
+    const processes = stats?.processes as Array<{
+      code: string;
+      weightKg: number;
+      quantity: number;
+      cells: number;
+      items: number;
+    }>;
     expect(processes).toEqual([
-      { code: "MP", name: "MP", displayOrder: 5, weightKg: 20, quantity: 2, items: 1 },
-      { code: "PRE_MTG", name: "PRÉ-MTG", displayOrder: 80, weightKg: 30, quantity: 3, items: 1 },
-      { code: "LASER", name: "LASER", displayOrder: 10, weightKg: 8, quantity: 4, items: 1 },
-      { code: "KIT", name: "KIT", displayOrder: 70, weightKg: 10, quantity: 5, items: 1 },
+      { code: "MP", name: "MP", displayOrder: 5, weightKg: 20, quantity: 2, cells: 1, items: 1 },
+      { code: "PRE_MTG", name: "PRÉ-MTG", displayOrder: 80, weightKg: 30, quantity: 3, cells: 1, items: 1 },
+      { code: "LASER", name: "LASER", displayOrder: 10, weightKg: 8, quantity: 4, cells: 1, items: 1 },
+      { code: "KIT", name: "KIT", displayOrder: 70, weightKg: 10, quantity: 5, cells: 1, items: 1 },
     ].sort((a, b) => a.displayOrder - b.displayOrder));
     expect(stats?.total).toEqual({ weightKg: 68, quantity: 14 });
+    expect(stats?.processCode).toBeNull();
+    expect(stats?.periodStart).toBe("2026-11-01");
+    expect(stats?.periodEnd).toBe("2026-11-30");
+
     const monthSeries = stats?.series as Array<{ bucket: string; weightKg: number }>;
     expect(monthSeries).toHaveLength(12);
     expect(monthSeries.find((bucket) => bucket.bucket === "2026-11-01")?.weightKg).toBe(68);
-    expect(stats?.periodStart).toBe("2026-11-01");
-    expect(stats?.periodEnd).toBe("2026-11-30");
+
+    // Matriz: um registro por dia do mês, mesmo sem produção.
+    const days = stats?.days as Array<{ date: string; processes: Array<{ code: string; weightKg: number }> }>;
+    expect(days).toHaveLength(30);
+    expect(days.find((day) => day.date === "2026-11-01")).toMatchObject({ processes: [] });
+    const day13 = days.find((day) => day.date === "2026-11-13");
+    expect(day13?.processes.map((cell) => cell.code).sort()).toEqual(["KIT", "LASER", "MP", "PRE_MTG"]);
+
+    // Filtro master: recorta totais, série e matriz para um processo.
+    const { rows: filteredRows } = await db.query<{ stats: Stats }>(
+      `select public.get_completed_weight_stats('month', '2026-11-13', 'America/Sao_Paulo', 'LASER') as stats`,
+    );
+    const filtered = parseStats(filteredRows[0]?.stats);
+    expect(filtered?.processCode).toBe("LASER");
+    expect((filtered?.processes as Array<{ code: string }>).map((process) => process.code)).toEqual(["LASER"]);
+    expect(filtered?.total).toEqual({ weightKg: 8, quantity: 4 });
+    expect(
+      (filtered?.days as Array<{ date: string; processes: Array<{ code: string }> }>).find(
+        (day) => day.date === "2026-11-13",
+      )?.processes,
+    ).toEqual([{ code: "LASER", weightKg: 8, quantity: 4, cells: 1 }]);
+    expect(
+      (filtered?.series as Array<{ bucket: string; weightKg: number }>).find(
+        (bucket) => bucket.bucket === "2026-11-01",
+      )?.weightKg,
+    ).toBe(8);
 
     await db.query(`delete from public.orders where id = $1`, [orderId]);
   });
 
-  it("agrupa semana/dia no fuso informado e devolve buckets sem atividade", async () => {
+  it("usa a quantidade do item quando o lote marca CONCLUIDO sem quantidades", async () => {
     await asSuperUser(db);
     const { rows: orderRows } = await db.query<{ id: string }>(
-      `insert into public.orders (code, type) values ('OF-WEIGHT-067-DATE', 'OF') returning id`,
+      `insert into public.orders (code, type) values ('OF-WEIGHT-074-NOQTY', 'OF') returning id`,
+    );
+    const orderId = orderRows[0]?.id as string;
+    const { rows: itemRows } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, description, quantity, unit_weight_kg)
+       values ($1, 'Item sem quantidade no processo', 6, 2.5) returning id`,
+      [orderId],
+    );
+    const itemId = itemRows[0]?.id as string;
+    // Edição em lote da gestão de OF: só o status muda.
+    await db.query(
+      `insert into public.production_processes
+         (order_item_id, process_id, status, quantity_planned, quantity_completed, completed_at)
+       select $1, p.id, 'CONCLUIDO', null, null, '2026-11-20 12:00:00-03'
+         from public.processes p where p.code = 'MP'`,
+      [itemId],
+    );
+
+    const { rows } = await db.query<{ stats: Stats }>(
+      `select public.get_completed_weight_stats('month', '2026-11-20', 'America/Sao_Paulo', null) as stats`,
+    );
+    const stats = parseStats(rows[0]?.stats);
+    // Antes do fallback o kg era 0 e o HAVING removia o processo da resposta.
+    expect(stats?.total).toEqual({ weightKg: 15, quantity: 6 });
+    expect(stats?.processes).toEqual([
+      { code: "MP", name: "MP", displayOrder: 5, weightKg: 15, quantity: 6, cells: 1, items: 1 },
+    ]);
+    expect(
+      (stats?.days as Array<{ date: string; processes: Array<{ code: string }> }>).find(
+        (day) => day.date === "2026-11-20",
+      )?.processes,
+    ).toEqual([{ code: "MP", weightKg: 15, quantity: 6, cells: 1 }]);
+
+    await db.query(`delete from public.orders where id = $1`, [orderId]);
+  });
+
+  it("mantém item concluído mesmo sem peso cadastrado (célula ✓ na UI)", async () => {
+    await asSuperUser(db);
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-WEIGHT-074-NOWEIGHT', 'OF') returning id`,
+    );
+    const orderId = orderRows[0]?.id as string;
+    const { rows: itemRows } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, description, quantity, unit_weight_kg)
+       values ($1, 'Item sem peso', 3, null) returning id`,
+      [orderId],
+    );
+    const itemId = itemRows[0]?.id as string;
+    await db.query(
+      `insert into public.production_processes
+         (order_item_id, process_id, status, quantity_planned, quantity_completed, completed_at)
+       select $1, p.id, 'CONCLUIDO', 3, 3, '2026-11-21 12:00:00-03'
+         from public.processes p where p.code = 'PRE_MTG'`,
+      [itemId],
+    );
+
+    const { rows } = await db.query<{ stats: Stats }>(
+      `select public.get_completed_weight_stats('day', '2026-11-21', 'America/Sao_Paulo', null) as stats`,
+    );
+    const stats = parseStats(rows[0]?.stats);
+    expect(stats?.total).toEqual({ weightKg: 0, quantity: 3 });
+    expect(stats?.processes).toEqual([
+      { code: "PRE_MTG", name: "PRÉ-MTG", displayOrder: 80, weightKg: 0, quantity: 3, cells: 1, items: 1 },
+    ]);
+    expect(stats?.days).toEqual([
+      { date: "2026-11-21", processes: [{ code: "PRE_MTG", weightKg: 0, quantity: 3, cells: 1 }] },
+    ]);
+
+    await db.query(`delete from public.orders where id = $1`, [orderId]);
+  });
+
+  it("usa updated_at como data efetiva quando completed_at está nulo", async () => {
+    await asSuperUser(db);
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-WEIGHT-074-NULLDATE', 'OF') returning id`,
+    );
+    const orderId = orderRows[0]?.id as string;
+    const { rows: itemRows } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, description, quantity, unit_weight_kg)
+       values ($1, 'Item de histórico', 1, 4) returning id`,
+      [orderId],
+    );
+    const itemId = itemRows[0]?.id as string;
+    await db.query(
+      `insert into public.production_processes
+         (order_item_id, process_id, status, quantity_planned, quantity_completed,
+          completed_at, updated_at)
+       select $1, p.id, 'CONCLUIDO', 1, 1, null, '2026-11-10 12:00:00+00'
+         from public.processes p where p.code = 'MP'`,
+      [itemId],
+    );
+
+    const { rows } = await db.query<{ stats: Stats }>(
+      `select public.get_completed_weight_stats('day', '2026-11-10', 'America/Sao_Paulo', null) as stats`,
+    );
+    const stats = parseStats(rows[0]?.stats);
+    expect(stats?.total).toEqual({ weightKg: 4, quantity: 1 });
+    expect(stats?.days).toEqual([
+      { date: "2026-11-10", processes: [{ code: "MP", weightKg: 4, quantity: 1, cells: 1 }] },
+    ]);
+
+    await db.query(`delete from public.orders where id = $1`, [orderId]);
+  });
+
+  it("agrupa semana/dia no fuso informado e devolve dias sem atividade", async () => {
+    await asSuperUser(db);
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-WEIGHT-074-DATE', 'OF') returning id`,
     );
     const orderId = orderRows[0]?.id as string;
     const { rows: itemRows } = await db.query<{ id: string }>(
@@ -99,24 +245,34 @@ describe("get_completed_weight_stats (067)", () => {
       [itemId],
     );
 
-    const { rows: dayRows } = await db.query<{ stats: Record<string, unknown> | string }>(
-      `select public.get_completed_weight_stats('day', '2026-11-08', 'America/Sao_Paulo') as stats`,
+    const { rows: dayRows } = await db.query<{ stats: Stats }>(
+      `select public.get_completed_weight_stats('day', '2026-11-08', 'America/Sao_Paulo', null) as stats`,
     );
-    const day = typeof dayRows[0]?.stats === "string" ? JSON.parse(dayRows[0].stats) : dayRows[0]?.stats;
+    const day = parseStats(dayRows[0]?.stats);
     expect(day?.periodStart).toBe("2026-11-08");
     expect(day?.total).toEqual({ weightKg: 15, quantity: 2 });
     expect((day?.series as unknown[])).toHaveLength(14);
+    expect(day?.days).toEqual([
+      { date: "2026-11-08", processes: [{ code: "MP", weightKg: 15, quantity: 2, cells: 1 }] },
+    ]);
 
-    const { rows: weekRows } = await db.query<{ stats: Record<string, unknown> | string }>(
-      `select public.get_completed_weight_stats('week', '2026-11-08', 'America/Sao_Paulo') as stats`,
+    const { rows: weekRows } = await db.query<{ stats: Stats }>(
+      `select public.get_completed_weight_stats('week', '2026-11-08', 'America/Sao_Paulo', null) as stats`,
     );
-    const week = typeof weekRows[0]?.stats === "string" ? JSON.parse(weekRows[0].stats) : weekRows[0]?.stats;
+    const week = parseStats(weekRows[0]?.stats);
     expect(week?.periodStart).toBe("2026-11-02");
     expect(week?.periodEnd).toBe("2026-11-08");
     expect(week?.total).toEqual({ weightKg: 15, quantity: 2 });
     const weekSeries = week?.series as Array<{ bucket: string; weightKg: number }>;
     expect(weekSeries).toHaveLength(12);
     expect(weekSeries.find((bucket) => bucket.bucket === "2026-11-02")?.weightKg).toBe(15);
+
+    const weekDays = week?.days as Array<{ date: string; processes: Array<{ code: string }> }>;
+    expect(weekDays).toHaveLength(7);
+    expect(weekDays.find((entry) => entry.date === "2026-11-02")).toMatchObject({ processes: [] });
+    expect(weekDays.find((entry) => entry.date === "2026-11-08")?.processes).toEqual([
+      { code: "MP", weightKg: 15, quantity: 2, cells: 1 },
+    ]);
 
     await db.query(`delete from public.orders where id = $1`, [orderId]);
   });

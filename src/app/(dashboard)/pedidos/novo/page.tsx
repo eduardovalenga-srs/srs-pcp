@@ -6,6 +6,8 @@ import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
+import { listProductGroupOptions } from "@/lib/repositories/product-groups.repository";
+import type { ProductGroupOption } from "@/lib/types/product-group";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
@@ -28,10 +30,15 @@ export default async function NovoPedidoPage() {
   }
 
   let processes: OrderProcessOption[];
+  let productGroups: ProductGroupOption[];
   try {
     const client = await createClient();
-    const catalog = await getActiveProcesses(client);
+    const [catalog, groups] = await Promise.all([
+      getActiveProcesses(client),
+      listProductGroupOptions(client),
+    ]);
     processes = catalog.map((process) => ({ code: process.code, name: process.name }));
+    productGroups = groups;
   } catch (error) {
     return (
       <>
@@ -65,7 +72,7 @@ export default async function NovoPedidoPage() {
           message="Cadastre ao menos um processo no catálogo antes de criar pedidos."
         />
       ) : (
-        <OrderForm processes={processes} />
+        <OrderForm processes={processes} productGroups={productGroups} />
       )}
     </>
   );

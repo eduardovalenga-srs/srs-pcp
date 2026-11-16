@@ -3,6 +3,7 @@ import {
   ClipboardList,
   Factory,
   LayoutDashboard,
+  ListOrdered,
   PackageCheck,
   Truck,
   UserRound,
@@ -92,6 +93,13 @@ export const NAV_ENTRIES: NavEntry[] = [
         label: "Recebimento MP",
         icon: PackageCheck,
         capability: "menu.recebimento_mp",
+      },
+      {
+        type: "item",
+        href: "/sequenciamento",
+        label: "Sequenciamento",
+        icon: ListOrdered,
+        capability: "menu.sequenciamento",
       },
       {
         type: "group",

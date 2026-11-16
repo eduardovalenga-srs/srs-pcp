@@ -5,7 +5,7 @@ import type {
   ParsedSheet,
   StructureIssue,
 } from "@/lib/types/import";
-import { calculateTotalWeight, formatWeight, toNumber } from "@/lib/utils/formatting";
+import { calculateTotalWeight, formatWeight, roundWeight, toNumber } from "@/lib/utils/formatting";
 import { normalizeOrderCode } from "@/lib/utils/order-code";
 
 /**
@@ -112,8 +112,9 @@ function pushTotalWeightDivergence(
   derived: number | null,
 ): void {
   if (spreadsheet.value === null || derived === null) return;
-  // Tolerância de 0,001 kg: arredondamento de 2 casas na planilha não é divergência.
-  if (Math.abs(spreadsheet.value - derived) < 0.001) return;
+  // Tolerância de 0,01 kg (2 casas): o peso unitário é arredondado antes da
+  // multiplicação (075), então o total pode variar 1 centésimo — não é divergência.
+  if (Math.abs(Math.round(spreadsheet.value * 100) - Math.round(derived * 100)) <= 1) return;
 
   order.issues.push(
     issue({
@@ -157,7 +158,7 @@ export function materialQuantityAndUnit(
   weightKg: number | null,
   fallbackQuantity: number,
 ): { quantity: number; unit: "KG" | "UN" } {
-  if (weightKg !== null && weightKg > 0) return { quantity: weightKg, unit: "KG" };
+  if (weightKg !== null && weightKg > 0) return { quantity: roundWeight(weightKg), unit: "KG" };
   return { quantity: fallbackQuantity, unit: "UN" };
 }
 
@@ -296,7 +297,7 @@ export function buildOfStructure(
         description,
         family: familyFromDescription(description),
         quantity: quantity.value ?? 0,
-        unitWeightKg: unitWeight.value,
+        unitWeightKg: unitWeight.value === null ? null : roundWeight(unitWeight.value),
         totalWeightKg,
         deliveryDate: form.deliveryDate,
         materials: [],
@@ -368,7 +369,7 @@ export function buildOfStructure(
         description,
         family: familyFromDescription(description),
         quantity: quantity.value ?? 0,
-        unitWeightKg: unitWeight.value,
+        unitWeightKg: unitWeight.value === null ? null : roundWeight(unitWeight.value),
         totalWeightKg,
         deliveryDate: form.deliveryDate,
         materials: [],
@@ -491,6 +492,8 @@ export function buildOfStructure(
           // UN = qtd de peças da linha).
           for (const material of child.materials) {
             material.quantity *= parent.quantity;
+            // KG é peso: mantém 2 casas mesmo depois do escalonamento.
+            if (material.unit === "KG") material.quantity = roundWeight(material.quantity);
           }
         }
       }

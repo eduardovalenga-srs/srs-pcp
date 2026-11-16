@@ -19,16 +19,31 @@ import {
   WEIGHT_GRANULARITIES,
   type WeightGranularity,
 } from "@/lib/constants/production";
-import type { CompletedWeightStats } from "@/lib/types/production";
-import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
+import type {
+  CompletedWeightCell,
+  CompletedWeightColumn,
+  CompletedWeightStats,
+} from "@/lib/types/production";
+import { formatWeight } from "@/lib/utils/formatting";
 import { parseISODateToLocal, toISODate } from "@/lib/utils/dates";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const ALL_PROCESSES = "__all__";
 
 interface CompletedWeightPanelProps {
   initialData: CompletedWeightStats | null;
   today: string;
+  /** Catálogo ativo — as colunas da matriz, como na gestão de OF. */
+  processes: CompletedWeightColumn[];
   initialError?: string;
 }
 
@@ -70,21 +85,47 @@ function chartLabel(bucket: string, granularity: WeightGranularity): string {
   return displayDate(bucket, { day: "2-digit", month: "2-digit" });
 }
 
-export function CompletedWeightPanel({ initialData, today, initialError }: CompletedWeightPanelProps) {
+function cellByCode(day: { processes: CompletedWeightCell[] }): Map<string, CompletedWeightCell> {
+  return new Map(day.processes.map((cell) => [cell.code, cell]));
+}
+
+/** Texto da célula: kg, "✓" quando concluído sem peso, "—" sem produção. */
+function cellText(cell: CompletedWeightCell | undefined): string {
+  if (!cell) return "—";
+  if (cell.weightKg > 0) return formatWeight(cell.weightKg);
+  return cell.cells > 0 ? "✓" : "—";
+}
+
+export function CompletedWeightPanel({
+  initialData,
+  today,
+  processes,
+  initialError,
+}: CompletedWeightPanelProps) {
   const [data, setData] = useState(initialData);
   const [granularity, setGranularity] = useState<WeightGranularity>(initialData?.granularity ?? "month");
   const [anchor, setAnchor] = useState(initialData?.anchor ?? today);
+  const [selectedProcess, setSelectedProcess] = useState(initialData?.processCode ?? ALL_PROCESSES);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError ?? "");
 
-  async function load(nextGranularity: WeightGranularity, nextAnchor: string) {
+  async function load(
+    nextGranularity: WeightGranularity,
+    nextAnchor: string,
+    nextProcess: string = selectedProcess,
+  ) {
     setLoading(true);
     setError("");
-    const result = await getCompletedWeightStatsAction({ granularity: nextGranularity, anchor: nextAnchor });
+    const result = await getCompletedWeightStatsAction({
+      granularity: nextGranularity,
+      anchor: nextAnchor,
+      processCode: nextProcess === ALL_PROCESSES ? null : nextProcess,
+    });
     if (result.success) {
       setData(result.data);
       setGranularity(nextGranularity);
       setAnchor(nextAnchor);
+      setSelectedProcess(result.data.processCode ?? ALL_PROCESSES);
     } else {
       setError(result.message);
     }
@@ -97,6 +138,11 @@ export function CompletedWeightPanel({ initialData, today, initialError }: Compl
     }
   }
 
+  function selectProcess(value: string) {
+    setSelectedProcess(value);
+    void load(granularity, anchor, value);
+  }
+
   function navigate(direction: -1 | 1) {
     if (!data) return;
     void load(granularity, shiftISODate(data.periodStart, granularity, direction));
@@ -106,11 +152,23 @@ export function CompletedWeightPanel({ initialData, today, initialError }: Compl
     void load(granularity, bucket);
   }
 
+  // Colunas: catálogo da gestão de OF + processos que só aparecem nos dados.
+  const catalog = [...processes];
+  for (const process of data?.processes ?? []) {
+    if (!catalog.some((column) => column.code === process.code)) {
+      catalog.push({ code: process.code, name: process.name, displayOrder: process.displayOrder });
+    }
+  }
+  catalog.sort((a, b) => a.displayOrder - b.displayOrder);
+  const columns =
+    selectedProcess === ALL_PROCESSES ? catalog : catalog.filter((column) => column.code === selectedProcess);
+
   const change =
     data && data.previous.weightKg > 0
       ? ((data.total.weightKg - data.previous.weightKg) / data.previous.weightKg) * 100
       : null;
   const periodIsCurrent = Boolean(data && data.periodStart <= today && data.periodEnd >= today);
+  const weightByProcess = new Map((data?.processes ?? []).map((process) => [process.code, process.weightKg]));
 
   return (
     <section aria-label="Peso concluído por processo" className="space-y-2">
@@ -121,7 +179,7 @@ export function CompletedWeightPanel({ initialData, today, initialError }: Compl
             Peso concluído por processo
           </h2>
           <p className="text-xs text-muted-foreground">
-            kg calculados pela quantidade concluída × peso unitário do item.
+            kg = quantidade concluída × peso unitário do item, por dia e processo.
           </p>
         </div>
         <Tabs value={granularity} onValueChange={selectGranularity}>
@@ -138,73 +196,190 @@ export function CompletedWeightPanel({ initialData, today, initialError }: Compl
       <div className="rounded border bg-card p-3">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1">
-            <Button type="button" variant="ghost" size="icon-sm" aria-label="Período anterior" onClick={() => navigate(-1)} disabled={loading || !data}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Período anterior"
+              onClick={() => navigate(-1)}
+              disabled={loading || !data}
+            >
               <ArrowLeft className="h-4 w-4" aria-hidden />
             </Button>
             <span className="min-w-40 text-center text-sm font-medium capitalize">
               {data ? periodLabel(data) : "Sem dados"}
             </span>
-            <Button type="button" variant="ghost" size="icon-sm" aria-label="Próximo período" onClick={() => navigate(1)} disabled={loading || !data}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Próximo período"
+              onClick={() => navigate(1)}
+              disabled={loading || !data}
+            >
               <ArrowRight className="h-4 w-4" aria-hidden />
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void load(granularity, today)}
+              disabled={loading || periodIsCurrent}
+            >
+              Atual
+            </Button>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void load(granularity, today)}
-            disabled={loading || periodIsCurrent}
-          >
-            Atual
-          </Button>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={selectedProcess} onValueChange={selectProcess} disabled={loading}>
+              <SelectTrigger className="h-8 w-48" aria-label="Filtrar por processo">
+                <SelectValue placeholder="Todos os processos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_PROCESSES}>Todos os processos</SelectItem>
+                {catalog.map((process) => (
+                  <SelectItem key={process.code} value={process.code}>
+                    {process.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {data ? (
+              <span className="text-xs text-muted-foreground">
+                Total: <strong className="text-foreground">{formatWeight(data.total.weightKg)} kg</strong>
+              </span>
+            ) : null}
+          </div>
         </div>
 
         {error ? (
-          <p role="alert" className="rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p
+            role="alert"
+            className="mb-3 rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+          >
             {error}
           </p>
         ) : null}
 
         {data ? (
           <>
-            <div className="mb-3 grid grid-cols-2 gap-2">
-              <div className="rounded border bg-background px-3 py-2">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Kg somados entre processos</p>
-                <p className="mt-0.5 text-xl font-semibold tabular-nums">{formatWeight(data.total.weightKg)} kg</p>
-              </div>
-              <div className="rounded border bg-background px-3 py-2">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Peças processadas</p>
-                <p className="mt-0.5 text-xl font-semibold tabular-nums">{formatQuantity(data.total.quantity)}</p>
-                <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                  {change === null ? (
-                    data.total.weightKg > 0 ? "Sem base no período anterior" : "Sem variação"
+            <div
+              className="max-h-[26rem] overflow-auto rounded border transition-opacity"
+              aria-busy={loading}
+              style={{ opacity: loading ? 0.6 : 1 }}
+            >
+              <table className="w-full min-w-[40rem] border-collapse text-[11px]">
+                <caption className="sr-only">
+                  Produção concluída (kg) por dia e processo. ✓ indica processo concluído sem peso cadastrado.
+                </caption>
+                <thead className="sticky top-0 z-20 bg-muted">
+                  <tr>
+                    <th
+                      scope="col"
+                      className="sticky left-0 z-30 border-b bg-muted px-2 py-1.5 text-left font-semibold"
+                    >
+                      Dia
+                    </th>
+                    {columns.map((column) => (
+                      <th
+                        key={column.code}
+                        scope="col"
+                        title={column.name}
+                        className="border-b px-2 py-1.5 text-right font-semibold whitespace-nowrap"
+                      >
+                        {column.name}
+                      </th>
+                    ))}
+                    <th scope="col" className="border-b px-2 py-1.5 text-right font-semibold">
+                      Total
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.days.length === 0 ? (
+                    <tr>
+                      <td colSpan={columns.length + 2} className="px-3 py-4 text-center text-muted-foreground">
+                        Nenhum dia no período.
+                      </td>
+                    </tr>
                   ) : (
-                    <>
-                      {change >= 0 ? (
-                        <ArrowUp className="h-3 w-3 text-status-done" aria-hidden />
-                      ) : (
-                        <ArrowDown className="h-3 w-3 text-status-late" aria-hidden />
-                      )}
-                      {Math.abs(change).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% vs. período anterior
-                    </>
+                    data.days.map((day) => {
+                      const cells = cellByCode(day);
+                      const dayTotal = day.processes.reduce((sum, cell) => sum + cell.weightKg, 0);
+                      return (
+                        <tr key={day.date} className="border-b last:border-0 hover:bg-muted/30">
+                          <th
+                            scope="row"
+                            className="sticky left-0 z-10 border-r bg-card px-2 py-1 text-left font-medium whitespace-nowrap"
+                          >
+                            {displayDate(day.date, {
+                              weekday: "short",
+                              day: "2-digit",
+                              month: "2-digit",
+                            })}
+                          </th>
+                          {columns.map((column) => {
+                            const cell = cells.get(column.code);
+                            return (
+                              <td
+                                key={column.code}
+                                className="px-2 py-1 text-right tabular-nums"
+                                title={
+                                  cell
+                                    ? `${column.name}: ${formatWeight(cell.weightKg)} kg em ${cell.quantity} peça(s)`
+                                    : `${column.name}: sem produção concluída`
+                                }
+                              >
+                                <span className={cell && cell.weightKg > 0 ? "text-status-done" : "text-muted-foreground"}>
+                                  {cellText(cell)}
+                                </span>
+                              </td>
+                            );
+                          })}
+                          <td className="px-2 py-1 text-right font-medium tabular-nums">{formatWeight(dayTotal)}</td>
+                        </tr>
+                      );
+                    })
                   )}
-                </p>
-              </div>
+                </tbody>
+                <tfoot className="sticky bottom-0 z-20 bg-muted">
+                  <tr>
+                    <th
+                      scope="row"
+                      className="sticky left-0 z-30 border-t bg-muted px-2 py-1.5 text-left font-semibold"
+                    >
+                      Total
+                    </th>
+                    {columns.map((column) => (
+                      <td key={column.code} className="border-t px-2 py-1.5 text-right font-semibold tabular-nums">
+                        {formatWeight(weightByProcess.get(column.code) ?? 0)}
+                      </td>
+                    ))}
+                    <td className="border-t px-2 py-1.5 text-right font-semibold tabular-nums">
+                      {formatWeight(data.total.weightKg)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
 
             {loading ? (
-              <div className="flex h-56 items-center justify-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
-                Atualizando gráficos…
-              </div>
-            ) : data.total.weightKg === 0 && data.series.every((item) => item.weightKg === 0) ? (
-              <EmptyState title="Nenhum peso concluído neste período" description="Marque processos como concluídos para acompanhar a evolução." />
+              <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                Atualizando…
+              </p>
+            ) : null}
+
+            {data.total.weightKg === 0 && data.series.every((item) => item.weightKg === 0) ? (
+              <p className="mt-3 text-center text-sm text-muted-foreground">
+                Sem peso concluído neste período.
+              </p>
             ) : (
-              <div className="grid gap-4 xl:grid-cols-2">
+              <div className="mt-4 grid gap-3 xl:grid-cols-2">
                 <div className="min-w-0 rounded border p-2">
                   <h3 className="mb-1 text-xs font-semibold">Evolução do peso concluído</h3>
                   <p className="mb-2 text-[11px] text-muted-foreground">Selecione uma barra para abrir o período.</p>
-                  <div className="h-56">
+                  <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={data.series} margin={{ top: 4, right: 8, left: -18, bottom: 2 }}>
                         <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
@@ -259,12 +434,19 @@ export function CompletedWeightPanel({ initialData, today, initialError }: Compl
 
                 <div className="min-w-0 rounded border p-2">
                   <h3 className="mb-1 text-xs font-semibold">Peso por processo</h3>
+                  <p className="mb-2 text-[11px] text-muted-foreground">
+                    {change === null
+                      ? "Sem base no período anterior para comparar."
+                      : `${change >= 0 ? "+" : ""}${change.toLocaleString("pt-BR", {
+                          maximumFractionDigits: 1,
+                        })}% vs. período anterior.`}
+                  </p>
                   {data.processes.length === 0 ? (
-                    <div className="flex h-56 items-center justify-center text-sm text-muted-foreground">
+                    <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
                       Sem processos com peso neste período.
                     </div>
                   ) : (
-                    <div className="h-56">
+                    <div className="h-48">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                           data={data.processes}
@@ -287,32 +469,24 @@ export function CompletedWeightPanel({ initialData, today, initialError }: Compl
                             tickLine={false}
                           />
                           <Tooltip formatter={(value) => [`${formatWeight(Number(value))} kg`, "Concluído"]} />
-                          <Bar dataKey="weightKg" name="Peso concluído" fill="var(--status-done)" radius={[0, 3, 3, 0]} />
+                          <Bar
+                            dataKey="weightKg"
+                            name="Peso concluído"
+                            fill="var(--status-done)"
+                            radius={[0, 3, 3, 0]}
+                          />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
                   )}
-                  <div className="mt-2 overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <caption className="sr-only">Peso e quantidade concluídos por processo no período</caption>
-                      <thead>
-                        <tr className="border-b text-left text-muted-foreground">
-                          <th scope="col" className="py-1 font-medium">Processo</th>
-                          <th scope="col" className="py-1 text-right font-medium">kg</th>
-                          <th scope="col" className="py-1 text-right font-medium">Peças</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.processes.map((process) => (
-                          <tr key={process.code} className="border-b last:border-0">
-                            <th scope="row" className="py-1 text-left font-medium">{process.name}</th>
-                            <td className="py-1 text-right tabular-nums">{formatWeight(process.weightKg)}</td>
-                            <td className="py-1 text-right tabular-nums">{formatQuantity(process.quantity)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                    {change === null ? null : change >= 0 ? (
+                      <ArrowUp className="h-3 w-3 text-status-done" aria-hidden />
+                    ) : (
+                      <ArrowDown className="h-3 w-3 text-status-late" aria-hidden />
+                    )}
+                    Total do período: {formatWeight(data.total.weightKg)} kg
+                  </p>
                 </div>
               </div>
             )}

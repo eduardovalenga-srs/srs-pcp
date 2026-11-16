@@ -19,10 +19,11 @@ import type { ExistingOfStructure } from "@/lib/types/import";
 // O código de servidor usa `server-only` (que lança fora do RSC).
 vi.mock("server-only", () => ({}));
 
-const { sessionMock, findOrderStructuresMock, applyOfPlanMock, createBatchMock, insertBatchErrorsMock, completeBatchMock } =
+const { sessionMock, findOrderStructuresMock, getProductGroupByIdMock, applyOfPlanMock, createBatchMock, insertBatchErrorsMock, completeBatchMock } =
   vi.hoisted(() => ({
     sessionMock: { user: null as { id: string; role: string; name: string } | null },
     findOrderStructuresMock: vi.fn(),
+    getProductGroupByIdMock: vi.fn(),
     applyOfPlanMock: vi.fn(),
     createBatchMock: vi.fn(),
     insertBatchErrorsMock: vi.fn(),
@@ -39,6 +40,10 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/repositories/orders.repository", () => ({
   findOrderStructures: findOrderStructuresMock,
+}));
+
+vi.mock("@/lib/repositories/product-groups.repository", () => ({
+  getProductGroupById: getProductGroupByIdMock,
 }));
 
 vi.mock("@/lib/repositories/import.repository", () => ({
@@ -74,7 +79,12 @@ const TECH_HEADERS = [
 /** Cabeçalho da lista de peças e conjuntos de cliente (038). */
 const PARTS_HEADERS = ["CONJUNTO", "PEÇA", "QTDE", "PERFIL", "MATERIAL", "COMPR.(mm)", "MASSA(Kg)"];
 
-const FORM = { sheetName: "Fábrica", customerName: "ACME", deliveryDate: "2026-12-15" };
+const FORM = {
+  sheetName: "Fábrica",
+  customerName: "ACME",
+  deliveryDate: "2026-12-15",
+  productGroupId: "12",
+};
 
 const PDF_FIXTURE_PATH = path.join(process.cwd(), "tests", "fixtures", "of-2615-aa-4.pdf");
 
@@ -123,6 +133,12 @@ function existingStructure(): ExistingOfStructure {
 beforeEach(() => {
   sessionMock.user = { id: "user-1", role: "GESTOR", name: "Gestor" };
   findOrderStructuresMock.mockReset().mockResolvedValue(new Map());
+  getProductGroupByIdMock.mockReset().mockResolvedValue({
+    id: 12,
+    groupType: "12-EST",
+    familyDescription: "Estruturas metálicas",
+    familyAbbreviation: "EST",
+  });
   applyOfPlanMock.mockReset().mockResolvedValue({
     ordersCreated: 1,
     ordersUpdated: 0,
@@ -305,6 +321,7 @@ describe("POST /api/importacao — etapa preview", () => {
       sheetName: "Planilha1",
       customerName: "VIA RONDON",
       deliveryDate: "2026-11-05",
+      productGroupId: "12",
     });
     expect(response.status).toBe(200);
     const body = await response.json();
@@ -336,6 +353,7 @@ describe("POST /api/importacao — etapa preview", () => {
       sheetName: "Fábrica",
       customerName: "",
       deliveryDate: FORM.deliveryDate,
+      productGroupId: "12",
     });
     expect(semCliente.status).toBe(400);
     expect((await semCliente.json()).error).toMatch(/Informe o nome do cliente/);
@@ -348,6 +366,15 @@ describe("POST /api/importacao — etapa preview", () => {
     });
     expect(dataErrada.status).toBe(400);
     expect((await dataErrada.json()).error).toMatch(/data de entrega válida/);
+
+    const semFamilia = await postForm({
+      file: factoryFile(),
+      step: "preview",
+      ...FORM,
+      productGroupId: "",
+    });
+    expect(semFamilia.status).toBe(400);
+    expect((await semFamilia.json()).error).toMatch(/família do produto/);
   });
 });
 

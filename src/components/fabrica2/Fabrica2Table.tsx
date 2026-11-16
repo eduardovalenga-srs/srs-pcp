@@ -408,7 +408,7 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
                 maxField="weightMax"
                 column="Peso un."
                 context="peso unitário"
-                step="0.001"
+                step="0.01"
               />
             }
           />

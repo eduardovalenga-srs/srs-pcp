@@ -78,6 +78,12 @@ export interface OrderItemDetails {
 
 /** Pedido completo (detalhes + itens). */
 export interface OrderDetails extends Omit<OrderSummary, "itemCount"> {
+  /**
+   * 070: família (grupo de produto) definida no nível da OF — a mesma
+   * coluna gravada pela importação. Vale para todos os itens da OF; o
+   * `family` técnico de cada item continua sendo o "Tipo" do item.
+   */
+  productGroupId: number | null;
   items: OrderItemDetails[];
 }
 

@@ -59,11 +59,9 @@ describe("previewRomaneioMaterials — recálculo ao vivo das quantidades dos it
   });
 
   it("aceita vírgula decimal como o formulário digitado", () => {
-    // 1,5 ÷ 20 = 0,075 → Chapa 0,375 KG.
+    // 1,5 ÷ 20 = 0,075 → Chapa 0,375 KG → 0,38 (075: 2 casas em KG).
     const lines = preview({ quantities: { "root-a": "1,5" } });
-    expect(lines.find((line) => line.description === "Chapa aço 3mm")?.quantityPlanned).toBeCloseTo(
-      0.375,
-    );
+    expect(lines.find((line) => line.description === "Chapa aço 3mm")?.quantityPlanned).toBe(0.38);
   });
 
   it("linha nova nasce com recebida/utilizada = previsto (regra do merge)", () => {

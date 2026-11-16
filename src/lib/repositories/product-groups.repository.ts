@@ -1,7 +1,9 @@
 import type { SupabaseServer } from "@/lib/supabase/types";
+import type { ImportProductGroup } from "@/lib/types/import";
 import type {
   ProductGroupCapacityDefinition,
   ProductGroupDefinition,
+  ProductGroupOption,
   ProductFactory,
 } from "@/lib/types/product-group";
 import type { ProductCapacityUnit } from "@/lib/validators/product-group.schema";
@@ -67,6 +69,50 @@ export async function getAllProductGroups(client: SupabaseServer): Promise<Produ
   }));
 }
 
+/**
+ * Famílias cadastradas para seleção em formulários (sem capacidades).
+ * Usada na edição da OF e em qualquer tela que só precisa exibir o rótulo.
+ */
+export async function listProductGroupOptions(
+  client: SupabaseServer,
+): Promise<ProductGroupOption[]> {
+  const { data, error } = await client
+    .from("product_groups")
+    .select("id, family_description, family_abbreviation")
+    .order("family_description", { ascending: true });
+
+  assertOk(error, "Não foi possível carregar as famílias de produto");
+
+  return (data ?? []).map((group) => ({
+    id: group.id,
+    familyDescription: group.family_description,
+    familyAbbreviation: group.family_abbreviation,
+    groupType: `${group.id}-${group.family_abbreviation}`,
+  }));
+}
+
+/** Grupo usado pela importação (validação no servidor + rótulo da prévia). */
+export async function getProductGroupById(
+  client: SupabaseServer,
+  id: number,
+): Promise<ImportProductGroup | null> {
+  const { data, error } = await client
+    .from("product_groups")
+    .select("id, family_description, family_abbreviation")
+    .eq("id", id)
+    .maybeSingle();
+
+  assertOk(error, "Não foi possível verificar a família selecionada");
+  if (!data) return null;
+
+  return {
+    id: data.id,
+    familyDescription: data.family_description,
+    familyAbbreviation: data.family_abbreviation,
+    groupType: `${data.id}-${data.family_abbreviation}`,
+  };
+}
+
 export async function saveProductGroup(
   client: SupabaseServer,
   input: {
@@ -92,4 +138,10 @@ export async function saveProductGroup(
   const saved = data?.[0];
   if (!saved) throw new Error("O banco não retornou o grupo salvo.");
   return { id: saved.id, groupType: saved.group_type };
+}
+
+/** Exclui o grupo; capacidades/itens saem por cascade e as OFs ficam sem família. */
+export async function deleteProductGroup(client: SupabaseServer, id: number): Promise<void> {
+  const { error } = await client.rpc("delete_product_group", { p_group_id: id });
+  assertOk(error, "Não foi possível excluir o grupo de produtos");
 }

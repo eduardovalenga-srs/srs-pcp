@@ -68,9 +68,10 @@ export function assertSheetStructure(
 }
 
 /**
- * Dados do formulário da importação: aba + cliente + data de entrega.
- * Cliente e entrega são digitados pelo operador e valem para TODOS os
- * registros do arquivo (a planilha não traz essas informações).
+ * Dados do formulário da importação: aba + cliente + data de entrega +
+ * família do produto (070). Cliente, entrega e família são informados
+ * pelo operador e valem para TODOS os registros do arquivo (a planilha
+ * não traz essas informações).
  */
 export const importFormSchema = z.object({
   sheetName: z.string().min(1, "Selecione uma planilha"),
@@ -84,6 +85,13 @@ export const importFormSchema = z.object({
     .refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) && isValidISODate(value), {
       message: "Informe uma data de entrega válida.",
     }),
+  productGroupId: z
+    .string()
+    .trim()
+    .min(1, "Selecione a família do produto.")
+    .regex(/^\d+$/, "Selecione uma família válida.")
+    .transform((value) => Number(value))
+    .pipe(z.number().int().positive("Selecione a família do produto.")),
 });
 
 export type ImportFormInput = z.infer<typeof importFormSchema>;

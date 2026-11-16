@@ -229,13 +229,14 @@ export async function getDashboardData(client: SupabaseServer): Promise<Producti
   return getProductionStats(client, todayISODate());
 }
 
-/** Peso marcado como concluído por processo, com série do período para o dashboard. */
+/** Peso marcado como concluído por processo, com matriz e série do período. */
 export async function getDashboardCompletedWeight(
   client: SupabaseServer,
   granularity: WeightGranularity,
   anchor: string,
+  processCode: string | null = null,
 ): Promise<CompletedWeightStats> {
-  return getCompletedWeightStatsFromRepository(client, granularity, anchor);
+  return getCompletedWeightStatsFromRepository(client, granularity, anchor, processCode);
 }
 
 /** Histórico de alterações de um item. */

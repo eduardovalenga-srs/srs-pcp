@@ -317,7 +317,7 @@ export function romaneioDocumentSheet(view: RomaneioView): ExportSheet {
   rows.push(["ITENS DA CARGA"]);
   rows.push([
     "Item pai",
-    "Família",
+    "Tipo",
     "Descrição",
     ...processColumns.map((process) => process.code),
     "Qtd OF",

@@ -53,6 +53,17 @@ describe("buildWorkbook", () => {
     expect(cell.z).toBe("#,##0.###");
   });
 
+  it("aplica duas casas somente a pesos, preservando a escala das quantidades", () => {
+    const workbook = roundTrip({
+      headers: ["Peso (kg)", "Qtd."],
+      rows: [[12.345, 1.234]],
+      dateColumns: [],
+    });
+    const sheet = workbook.Sheets["Lista"];
+    expect((sheet["A2"] as XLSX.CellObject).z).toBe("#,##0.##");
+    expect((sheet["B2"] as XLSX.CellObject).z).toBe("#,##0.###");
+  });
+
   it("vazio vira texto — (mesmo marcador da tela), sem formato numérico", () => {
     const workbook = roundTrip(SHEET);
     const cell = workbook.Sheets["Lista"]["B3"] as XLSX.CellObject;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
@@ -8,11 +8,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { saveOrderAction } from "@/lib/actions/orders.actions";
+import { saveOrderAction, updateOrderProductGroupAction } from "@/lib/actions/orders.actions";
 import type { MaterialInput } from "@/lib/validators/material.schema";
 import { ORDER_TYPES } from "@/lib/constants/orders";
 import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { OrderDetails } from "@/lib/types/order";
+import type { ProductGroupOption } from "@/lib/types/product-group";
 import { normalizeOrderCode } from "@/lib/utils/order-code";
 import {
   orderWithItemsSchema,
@@ -42,8 +43,13 @@ export interface OrderProcessOption {
 
 interface OrderFormProps {
   processes: OrderProcessOption[];
+  /** Famílias cadastradas — escolha única, aplicada a toda a OF (070). */
+  productGroups: ProductGroupOption[];
   initialOrder?: OrderDetails | null;
 }
+
+/** Valor do Select quando a OF ainda não tem família definida. */
+const NO_PRODUCT_GROUP = "none";
 
 type OrderItemInput = OrderWithItemsInput["items"][number];
 
@@ -168,8 +174,15 @@ function FieldError({ id, message }: { id: string; message?: string }) {
  * Formulário de pedido (criação e edição).
  * A validação vem 100% do zod (orderWithItemsSchema) — sem regras de negócio aqui.
  */
-export function OrderForm({ processes, initialOrder }: OrderFormProps) {
+export function OrderForm({ processes, productGroups, initialOrder }: OrderFormProps) {
   const router = useRouter();
+
+  // A família vive em `orders.product_group_id`, fora do schema dos
+  // itens — por isso é um estado próprio e é gravada por uma action
+  // dedicada depois do salvamento do pedido.
+  const [productGroupId, setProductGroupId] = useState(
+    initialOrder?.productGroupId ? String(initialOrder.productGroupId) : NO_PRODUCT_GROUP,
+  );
 
   const activeCodes = useMemo(() => new Set(processes.map((process) => process.code)), [processes]);
   const defaultValues = useMemo(
@@ -208,7 +221,27 @@ export function OrderForm({ processes, initialOrder }: OrderFormProps) {
       toast.error(result.message);
       return;
     }
-    toast.success(result.message);
+
+    const nextProductGroupId =
+      productGroupId === NO_PRODUCT_GROUP ? null : Number(productGroupId);
+    const currentProductGroupId = initialOrder?.productGroupId ?? null;
+
+    if (nextProductGroupId !== currentProductGroupId) {
+      if (!result.orderId) {
+        toast.error(`${result.message} A família do produto não foi atualizada.`);
+        return;
+      }
+
+      const familyResult = await updateOrderProductGroupAction(result.orderId, nextProductGroupId);
+      if (!familyResult.success) {
+        toast.error(`${result.message} ${familyResult.message}`);
+        return;
+      }
+      toast.success(`${result.message} ${familyResult.message}`);
+    } else {
+      toast.success(result.message);
+    }
+
     // Pós-criação vai direto para a tela de detalhes (hub da OF).
     router.push(result.orderId ? `/pedidos/${result.orderId}` : "/pedidos");
     router.refresh();
@@ -278,6 +311,48 @@ export function OrderForm({ processes, initialOrder }: OrderFormProps) {
           </div>
 
           <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor="pedido-familia">Família do produto</Label>
+            <Select
+              value={productGroupId}
+              onValueChange={setProductGroupId}
+              disabled={productGroups.length === 0}
+            >
+              <SelectTrigger id="pedido-familia" aria-describedby="pedido-familia-ajuda">
+                <SelectValue
+                  placeholder={
+                    productGroups.length === 0
+                      ? "Nenhuma família cadastrada"
+                      : "Selecione a família da OF"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PRODUCT_GROUP}>Não definida</SelectItem>
+                {productGroups.map((group) => (
+                  <SelectItem key={group.id} value={String(group.id)}>
+                    {group.groupType} — {group.familyDescription}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p id="pedido-familia-ajuda" className="text-xs text-muted-foreground">
+              Vale para todos os itens desta OF e é a família usada pelo sequenciamento. O
+              campo <span className="font-medium text-foreground">Tipo</span> de cada item continua
+              sendo as iniciais da descrição.
+              {productGroups.length === 0 ? (
+                <>
+                  {" "}
+                  Cadastre famílias em{" "}
+                  <Link href="/grupos-produtos" className="underline underline-offset-2">
+                    Grupos de produtos
+                  </Link>
+                  .
+                </>
+              ) : null}
+            </p>
+          </div>
+
+          <div className="space-y-1 sm:col-span-2">
             <Label htmlFor="pedido-descricao">Descrição</Label>
             <Textarea
               id="pedido-descricao"
@@ -321,7 +396,7 @@ export function OrderForm({ processes, initialOrder }: OrderFormProps) {
           <div>
             <h2 className="text-sm font-semibold">Itens do pedido</h2>
             <p className="text-xs text-muted-foreground">
-              Família, quantidades, entrega, OP e processos de cada item.
+              Tipo, quantidades, entrega, OP e processos de cada item.
             </p>
           </div>
           <Button type="button" variant="outline" size="sm" onClick={() => append(emptyItem(activeCodes))}>
@@ -362,16 +437,16 @@ export function OrderForm({ processes, initialOrder }: OrderFormProps) {
                 <CardContent className="space-y-4 pt-3">
                   <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     <div className="space-y-1">
-                      <Label htmlFor={`item-${index}-familia`}>Família</Label>
+                      <Label htmlFor={`item-${index}-tipo`}>Tipo</Label>
                       <Input
-                        id={`item-${index}-familia`}
-                        placeholder="Ex: Portas"
+                        id={`item-${index}-tipo`}
+                        placeholder="Ex: GC"
                         {...register(`items.${index}.family`)}
                         aria-invalid={!!itemErrors?.family}
-                        aria-describedby={`item-${index}-familia-erro`}
+                        aria-describedby={`item-${index}-tipo-erro`}
                       />
                       <FieldError
-                        id={`item-${index}-familia-erro`}
+                        id={`item-${index}-tipo-erro`}
                         message={itemErrors?.family?.message}
                       />
                     </div>

@@ -167,7 +167,7 @@ interface Fabrica1NumericFilterProps {
   column: string;
   /** Contexto do título/aria, ex.: "quantidade do grupo". */
   context: string;
-  /** Passo dos campos (padrão "1"; pesos usam "0.001"). */
+  /** Passo dos campos (padrão "1"; pesos usam "0.01" — 2 casas). */
   step?: string;
 }
 

@@ -230,9 +230,10 @@ describe("buildProjectOfStructure", () => {
     expect(other.code).toBe("GT2MD5");
     expect(other.quantity).toBe(1);
     expect(other.children.map((entry) => entry.code)).toEqual(["2-5GC68"]);
-    // Espelha o arquivo real (qtd 2, massa 85.87): unit ≈ 42.935.
-    expect(other.children[0]?.unitWeightKg).toBeCloseTo(85.87 / 2, 10);
-    expect(other.children[0]?.totalWeightKg).toBeCloseTo(85.87, 10);
+    // Espelha o arquivo real (qtd 2, massa 85.87): unit 42.935 → 42.94
+    // (075: peso unitário em 2 casas) e total = 2 × 42.94 = 85.88.
+    expect(other.children[0]?.unitWeightKg).toBeCloseTo(42.94, 10);
+    expect(other.children[0]?.totalWeightKg).toBeCloseTo(85.88, 10);
   });
 
   it("avisa peça repetida no mesmo grupo e mantém a primeira", () => {
@@ -510,10 +511,13 @@ describe("arquivo real TUCUMANN (tests/fixtures/tucumann-gc-geral.xlsx)", () => 
       expect(child.materials).toHaveLength(1);
       const material = child.materials[0]!;
       // Com MASSA TOTAL a MP nasce em KG com o peso do item (mesma
-      // regra do PDF); sem massa continua a quantidade de peças em UN.
+      // regra do PDF); o valor vindo do arquivo pode diferir do total
+      // calculado em até 0,01 após arredondar o peso unitário (075).
       if (child.totalWeightKg !== null && child.totalWeightKg > 0) {
         expect(material.unit).toBe("KG");
-        expect(material.quantity).toBeCloseTo(child.totalWeightKg, 6);
+        expect(Math.round(Math.abs(material.quantity - child.totalWeightKg) * 100)).toBeLessThanOrEqual(
+          1,
+        );
       } else {
         expect(material.unit).toBe("UN");
         expect(material.quantity).toBe(child.quantity);
@@ -530,8 +534,8 @@ describe("arquivo real TUCUMANN (tests/fixtures/tucumann-gc-geral.xlsx)", () => 
     const group = order.parents.find((parent) => parent.code === "GT2MD5")!;
     const gc68 = group.children.find((child) => child.code === "2-5GC68")!;
     expect(gc68.quantity).toBe(2);
-    expect(gc68.unitWeightKg).toBeCloseTo(85.87 / 2, 6);
-    expect(gc68.totalWeightKg).toBeCloseTo(85.87, 6);
+    expect(gc68.unitWeightKg).toBeCloseTo(42.94, 6);
+    expect(gc68.totalWeightKg).toBeCloseTo(85.88, 6);
     expect(gc68.materials[0]?.description).toBe("TB.RED.DN32_DIN");
 
     const gc61 = group.children.find((child) => child.code === "2-5GC61")!;

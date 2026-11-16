@@ -9,7 +9,7 @@ import type {
 } from "@/lib/types/order";
 import type { MpCellReceipt } from "@/lib/types/mp-receipt";
 import type { ProcessDefinition } from "@/lib/types/production";
-import { calculateTotalWeight } from "@/lib/utils/formatting";
+import { calculateTotalWeight, roundWeight } from "@/lib/utils/formatting";
 import { aggregateMpReceipts } from "@/lib/utils/mp-receipt";
 import { computeProcessSchedule, scheduleProcessesForItem, type ProcessWindow } from "@/lib/utils/process-schedule";
 import { isProcessStartOverdue } from "@/lib/utils/production";
@@ -144,9 +144,13 @@ export function buildChildItemGroup(input: {
     [...parentStatuses.entries()].map(([code, statuses]) => [code, aggregateGroupStatus(statuses)]),
   );
 
-  const unitWeights = [...new Set(members.map((member) => member.unitWeightKg).filter(
-    (value): value is number => value !== null,
-  ))];
+  const unitWeights = [
+    ...new Set(
+      members
+        .map((member) => (member.unitWeightKg === null ? null : roundWeight(member.unitWeightKg)))
+        .filter((value): value is number => value !== null),
+    ),
+  ];
   const memberWeights = members.map((member) =>
     calculateTotalWeight(member.quantity, member.unitWeightKg),
   );
@@ -171,7 +175,7 @@ export function buildChildItemGroup(input: {
     // mantém a célula útil — sem peso em nenhum membro continua "—").
     unitWeightKg: unitWeights.length > 0 ? Math.max(...unitWeights) : null,
     weightTotal: memberWeights.some((value) => value !== null)
-      ? memberWeights.reduce<number>((total, value) => total + (value ?? 0), 0)
+      ? roundWeight(memberWeights.reduce<number>((total, value) => total + (value ?? 0), 0))
       : null,
     deliveryDate: minDate(members.map((member) => member.deliveryDate)),
     // 036: seq do grupo = MENOR seq dos membros (null = nenhuma linha

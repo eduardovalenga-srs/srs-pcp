@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { requireCapability } from "@/lib/auth/guards";
 import { getAllProcesses } from "@/lib/repositories/production.repository";
-import { saveProductGroup } from "@/lib/repositories/product-groups.repository";
+import { deleteProductGroup, saveProductGroup } from "@/lib/repositories/product-groups.repository";
 import { createClient } from "@/lib/supabase/server";
 import { firstZodMessage } from "@/lib/validators/common";
 import {
@@ -85,5 +85,22 @@ export async function saveProductGroupAction(
       return { success: false, message: "As descrições dos itens não podem se repetir no mesmo grupo." };
     }
     return { success: false, message };
+  }
+}
+
+export async function deleteProductGroupAction(id: number): Promise<ProductGroupActionResult> {
+  try {
+    await requireCapability("processes.manage");
+    if (!Number.isInteger(id) || id <= 0) {
+      return { success: false, message: "Grupo de produtos inválido." };
+    }
+
+    const client = await createClient();
+    await deleteProductGroup(client, id);
+    revalidatePath("/grupos-produtos");
+    return { success: true, message: "Grupo de produtos excluído com sucesso." };
+  } catch (error) {
+    console.error("[deleteProductGroupAction]", error);
+    return { success: false, message: errorMessage(error) };
   }
 }

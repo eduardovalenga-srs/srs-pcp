@@ -94,7 +94,7 @@ export function RomaneioItemsEditor({
           </caption>
           <thead>
             <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-              <th scope="col" className="px-3 py-2 font-semibold">Família</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Tipo</th>
               <th scope="col" className="px-3 py-2 font-semibold">Item pai</th>
               <th scope="col" className="px-3 py-2 font-semibold">Descrição</th>
               {/* 049: uma coluna por processo da Fábrica 2 — só o símbolo. */}
@@ -196,7 +196,7 @@ export function RomaneioItemsEditor({
               <p className="text-sm font-medium">{item.description || "—"}</p>
 
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {[item.family, item.parentItem].filter(Boolean).join(" · ") || "Sem família"}
+                {[item.family, item.parentItem].filter(Boolean).join(" · ") || "Sem tipo"}
               </p>
 
               {/* 049: processos do item — mesma linha compacta de símbolos

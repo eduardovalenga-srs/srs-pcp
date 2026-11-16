@@ -18,8 +18,10 @@ const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreads
 
 /** Formato de data exibido nas telas (dd/MM/yyyy). */
 const DATE_FORMAT = "DD/MM/YYYY";
-/** Formato numérico — separador de milhar e até 3 decimais (pt-BR na tela). */
+/** Formato numérico padrão — não altera precisão de quantidade/medidas. */
 const NUMBER_FORMAT = "#,##0.###";
+/** Pesos em kg: no máximo 2 casas. */
+const WEIGHT_FORMAT = "#,##0.##";
 
 /** Largura mínima/máxima das colunas (caracteres) — calibrada nos rótulos. */
 const MIN_COLUMN_WIDTH = 8;
@@ -28,6 +30,19 @@ const MAX_COLUMN_WIDTH = 60;
 /** A coluna tem datas (recebe o formato dd/MM/yyyy em vez do numérico). */
 function isDateColumn(sheet: ExportSheet, column: number): boolean {
   return sheet.dateColumns.includes(column);
+}
+
+function isWeightColumn(sheet: ExportSheet, column: number): boolean {
+  return /peso|kg\/dia/i.test(String(sheet.headers[column] ?? ""));
+}
+
+/** Unidade variável em documentos: Recebida só é peso quando a UM é KG. */
+function isKgQuantityCell(sheet: ExportSheet, row: number, column: number): boolean {
+  const unitColumn = column - 1;
+  if (unitColumn < 0 || sheet.rows[row]?.[unitColumn] !== "KG") return false;
+  return sheet.rows
+    .slice(0, row)
+    .some((header) => header[unitColumn] === "Unidade" && header[column] === "Recebida");
 }
 
 /**
@@ -49,13 +64,19 @@ export function buildWorkbook(sheet: ExportSheet): Uint8Array<ArrayBuffer> {
   const worksheet = XLSX.utils.aoa_to_sheet([sheet.headers, ...sheet.rows]);
   const lastRow = sheet.rows.length;
 
-  // Formatos por célula: datas dd/MM/yyyy (o default do SheetJS é m/d/yy)
-  // e números com a mesma leitura da tela (1.234,5) — só onde há valor.
+  // Formatos por célula: datas dd/MM/yyyy, pesos em kg com até 2 casas e
+  // os demais números com a precisão padrão (quantidades/M/m² inalteradas).
   for (let column = 0; column < sheet.headers.length; column += 1) {
-    const format = isDateColumn(sheet, column) ? DATE_FORMAT : NUMBER_FORMAT;
     for (let index = 1; index <= lastRow; index += 1) {
       const cell = worksheet[XLSX.utils.encode_cell({ r: index, c: column })];
-      if (cell && cell.t === "n") cell.z = format;
+      if (!cell || cell.t !== "n") continue;
+      if (isDateColumn(sheet, column)) {
+        cell.z = DATE_FORMAT;
+      } else {
+        cell.z = isWeightColumn(sheet, column) || isKgQuantityCell(sheet, index - 1, column)
+          ? WEIGHT_FORMAT
+          : NUMBER_FORMAT;
+      }
     }
   }
 

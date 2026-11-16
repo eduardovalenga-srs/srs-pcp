@@ -29,6 +29,8 @@ export interface OfPlanOperation {
     customerName: string;
     description: string;
     deliveryDate: string;
+    /** 070: família escolhida na importação — aplicada a todas as OFs. */
+    productGroupId: number;
   };
   /** Estrutura enviada em CREATE/UPDATE (vazio nas demais ações). */
   parents: BuiltOf["parents"];
@@ -308,6 +310,7 @@ export function buildOfImportPlan(preview: ImportPreview, decisions: OfDecisionM
         customerName: entry.order.customerName,
         description: entry.order.description,
         deliveryDate: entry.order.deliveryDate,
+        productGroupId: preview.productGroup.id,
       },
       parents: action === "CREATE" || action === "UPDATE" ? entry.order.parents : [],
     });

@@ -28,6 +28,8 @@ const ALL_CAPABILITIES: Capability[] = [
   "menu.fabrica2",
   "menu.settings",
   "menu.romaneio",
+  // 070: sequenciamento de produção por processo.
+  "menu.sequenciamento",
   // 043: módulo RH (sidebar agrupada).
   "menu.rh",
   "rh.view",
@@ -82,6 +84,8 @@ describe("matriz de permissões (item 40)", () => {
       "romaneio.view",
       "romaneio.edit",
       "menu.romaneio",
+      // 070: sequenciamento é de ADMIN/GESTOR (gravação pelo production.edit).
+      "menu.sequenciamento",
     ];
     const denied: Capability[] = [
       "processes.manage",
@@ -125,6 +129,8 @@ describe("matriz de permissões (item 40)", () => {
       "menu.fabrica2",
       "romaneio.edit",
       "menu.romaneio",
+      // 070: o operador não tem o menu de sequenciamento.
+      "menu.sequenciamento",
       // 043: RH agora é de ADMIN e operadores (grupo + item).
       "rh.manage",
     ];
@@ -156,6 +162,7 @@ describe("matriz de permissões (item 40)", () => {
       "menu.fabrica1",
       "menu.romaneio",
       "menu.processes",
+      "menu.sequenciamento",
       "menu.rh",
       "rh.view",
       "rh.manage",
@@ -173,6 +180,8 @@ describe("matriz de permissões (item 40)", () => {
       "menu.fabrica1",
       "romaneio.view",
       "menu.romaneio",
+      // 070: consulta do sequenciamento (sem gravação).
+      "menu.sequenciamento",
     ];
     const denied: Capability[] = [
       "production.edit",

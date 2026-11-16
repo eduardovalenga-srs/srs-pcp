@@ -298,6 +298,14 @@ describe("orderWithItemsSchema", () => {
     expect(data.items[0].unitWeightKg).toBe(12.5);
   });
 
+  it("arredonda peso unitário para 2 casas, sem arredondar a quantidade", () => {
+    const data = expectOk<OrderWithItemsOutput>(
+      orderWithItemsSchema.safeParse(payload({ quantity: "80,123", unitWeightKg: "1,005" })),
+    );
+    expect(data.items[0].quantity).toBe(80.123);
+    expect(data.items[0].unitWeightKg).toBe(1.01);
+  });
+
   it("recusa item sem quantidade com mensagem em pt-BR", () => {
     const error = expectError(orderWithItemsSchema.safeParse(payload({ quantity: "" })));
 

@@ -62,6 +62,8 @@ describe("migrations", () => {
       "product_group_process_capacities",
       "product_group_items",
       "product_group_item_process_capacities",
+      "order_process_schedules",
+      "process_schedule_settings",
     ]) {
       expect(await tableExists(table), `tabela ${table}`).toBe(true);
     }
@@ -2298,6 +2300,150 @@ describe("RLS", () => {
     );
     expect(updatedF1.affectedRows).toBe(1);
     await asSuperUser(db);
+  });
+});
+
+describe("075_weight_two_decimals", () => {
+  it("arredonda cálculos proporcionais nas RPCs vigentes", async () => {
+    const { rows } = await db.query<{ proname: string; prosrc: string }>(
+      `select p.proname, p.prosrc
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.proname in (
+            'get_romaneios_page',
+            'get_production_rows',
+            'get_child_item_groups',
+            'get_completed_weight_stats'
+          )`,
+    );
+    const source = Object.fromEntries(rows.map((row) => [row.proname, row.prosrc]));
+    expect(source.get_romaneios_page).toContain("round(coalesce(sum(case");
+    expect(source.get_production_rows).toContain("round(greatest(oi.total_weight_kg");
+    expect(source.get_child_item_groups).toContain(
+      "round(oi.total_weight_kg * pb.qty / pb.planned, 2)",
+    );
+    expect(source.get_completed_weight_stats).toContain("), 2) as weight_kg");
+  });
+
+  it("arredonda pesos novos, corrige o histórico e elimina saldo MP de 0,001 kg", async () => {
+    await asSuperUser(db);
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-075-WEIGHT', 'OF') returning id`,
+    );
+    const orderId = orderRows[0]?.id as string;
+    const { rows: itemRows } = await db.query<{ id: string; unit_weight_kg: string; total_weight_kg: string }>(
+      `insert into public.order_items (order_id, description, quantity, unit_weight_kg)
+       values ($1, 'Item peso', 2, 1.005)
+       returning id, unit_weight_kg, total_weight_kg`,
+      [orderId],
+    );
+    const itemId = itemRows[0]?.id as string;
+    expect(Number(itemRows[0]?.unit_weight_kg)).toBe(1.01);
+    expect(Number(itemRows[0]?.total_weight_kg)).toBe(2.02);
+
+    const { rows: materialRows } = await db.query<{ id: string; quantity: string }>(
+      `insert into public.order_item_materials (order_item_id, description, quantity, unit)
+       values ($1, 'Chapa 075', 20.001, 'KG')
+       returning id, quantity`,
+      [itemId],
+    );
+    expect(Number(materialRows[0]?.quantity)).toBe(20);
+
+    const { rows: receiptRows } = await db.query<{ id: string }>(
+      `insert into public.mp_receipts (order_id, entry_number, entry_date)
+       values ($1, 'NF-075', current_date) returning id`,
+      [orderId],
+    );
+    const { rows: receiptMaterialRows } = await db.query<{ id: string; quantity_kg: string }>(
+      `insert into public.mp_receipt_materials (
+         mp_receipt_id, material_key, material_description, material_unit, quantity_kg
+       ) values ($1, 'CHAPA 075::KG', 'Chapa 075', 'KG', 20.001)
+       returning id, quantity_kg`,
+      [receiptRows[0]?.id],
+    );
+    expect(Number(receiptMaterialRows[0]?.quantity_kg)).toBe(20);
+
+    const { rows: balanceRows } = await db.query<{ need_kg: string; received_kg: string; balance_kg: string }>(
+      `select need_kg, received_kg, balance_kg
+         from public.mp_order_materials($1)
+        where material_key = 'CHAPA 075::KG'`,
+      [orderId],
+    );
+    expect(balanceRows[0]).toEqual({ need_kg: "20", received_kg: "20", balance_kg: "0" });
+
+    const { rows: selectorRows } = await db.query<{ pending: string }>(
+      `select count(*)::text as pending
+         from public.get_mp_receipt_customers() c
+        where c.ofs @> '[{"code":"OF-075-WEIGHT"}]'::jsonb`,
+    );
+    expect(selectorRows[0]?.pending).toBe("0");
+
+    // O histórico anterior à 075 pode conter 3 casas; o backfill arredonda
+    // unitário e recalcula o total com o unitário já normalizado.
+    await db.exec(`alter table public.order_items disable trigger order_items_total_weight`);
+    await db.exec(`alter table public.order_item_materials disable trigger order_item_materials_weight_scale`);
+    await db.exec(`alter table public.mp_receipt_materials disable trigger mp_receipt_materials_weight_scale`);
+    await db.query(
+      `update public.order_items
+          set unit_weight_kg = 1.005, total_weight_kg = 2.01
+        where id = $1`,
+      [itemId],
+    );
+    await db.query(
+      `update public.order_item_materials set quantity = 20.001 where id = $1`,
+      [materialRows[0]?.id],
+    );
+    await db.query(
+      `update public.mp_receipt_materials set quantity_kg = 20.001 where id = $1`,
+      [receiptMaterialRows[0]?.id],
+    );
+    await db.exec(`alter table public.order_items enable trigger order_items_total_weight`);
+    await db.exec(`alter table public.order_item_materials enable trigger order_item_materials_weight_scale`);
+    await db.exec(`alter table public.mp_receipt_materials enable trigger mp_receipt_materials_weight_scale`);
+    const migration = readFileSync(
+      path.join(process.cwd(), "supabase", "migrations", "075_weight_two_decimals.sql"),
+      "utf8",
+    );
+    await db.exec(migration);
+
+    const { rows: historyRows } = await db.query<{ unit_weight_kg: string; total_weight_kg: string }>(
+      `select unit_weight_kg, total_weight_kg from public.order_items where id = $1`,
+      [itemId],
+    );
+    expect(Number(historyRows[0]?.unit_weight_kg)).toBe(1.01);
+    expect(Number(historyRows[0]?.total_weight_kg)).toBe(2.02);
+    const { rows: backfilledMaterials } = await db.query<{ quantity: string }>(
+      `select quantity from public.order_item_materials where id = $1`,
+      [materialRows[0]?.id],
+    );
+    const { rows: backfilledReceipt } = await db.query<{ quantity_kg: string }>(
+      `select quantity_kg from public.mp_receipt_materials where id = $1`,
+      [receiptMaterialRows[0]?.id],
+    );
+    expect(Number(backfilledMaterials[0]?.quantity)).toBe(20);
+    expect(Number(backfilledReceipt[0]?.quantity_kg)).toBe(20);
+    await db.query(`delete from public.orders where id = $1`, [orderId]);
+  });
+
+  it("mantém quantidades não ponderais e unidades de material diferentes de KG intactas", async () => {
+    await asSuperUser(db);
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-075-UNITS', 'OF') returning id`,
+    );
+    const { rows: itemRows } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, description, quantity)
+       values ($1, 'Item unidades', 1) returning id`,
+      [orderRows[0]?.id],
+    );
+    const { rows: materialRows } = await db.query<{ quantity: string }>(
+      `insert into public.order_item_materials (order_item_id, description, quantity, unit)
+       values ($1, 'Perfil', 1.234, 'M')
+       returning quantity`,
+      [itemRows[0]?.id],
+    );
+    expect(Number(materialRows[0]?.quantity)).toBe(1.234);
+    await db.query(`delete from public.orders where id = $1`, [orderRows[0]?.id]);
   });
 });
 

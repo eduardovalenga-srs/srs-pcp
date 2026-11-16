@@ -174,14 +174,17 @@ describe("formatação de datas e números", () => {
     expect(formatQuantity(10)).toBe("10");
     expect(formatQuantity(10.5)).toBe("10,5");
     expect(formatQuantity(null)).toBe("—");
-    expect(formatWeight(12.345)).toBe("12,345");
+    // 075: pesos em kg com no máximo 2 casas (arredondamento half-up).
+    expect(formatWeight(12.345)).toBe("12,35");
+    expect(formatWeight(12.344)).toBe("12,34");
   });
 });
 
 describe("peso total do item (Fábrica 1: quantidade × peso unitário)", () => {
   it("é a multiplicação simples da quantidade pelo peso unitário", () => {
     expect(calculateTotalWeight(4, 12.5)).toBe(50);
-    expect(calculateTotalWeight(3, 0.333)).toBeCloseTo(0.999, 3);
+    // Peso unitário arredondado antes da multiplicação: 0,333 → 0,33.
+    expect(calculateTotalWeight(3, 0.333)).toBe(0.99);
   });
 
   it("sem peso unitário não há total (nada de inventar número)", () => {

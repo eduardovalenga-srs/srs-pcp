@@ -34,6 +34,16 @@ describe("material.schema", () => {
     if (result.success) expect((result.data as { quantity: number }).quantity).toBe(8);
   });
 
+  it("arredonda KG em 2 casas, mas preserva a precisão das outras unidades", () => {
+    const kg = materialSchema.safeParse(material({ quantity: "1,005", unit: "KG" }));
+    const meters = materialSchema.safeParse(material({ quantity: "1,234", unit: "M" }));
+    expect(kg.success && kg.data.quantity).toBe(1.01);
+    expect(meters.success && meters.data.quantity).toBe(1.234);
+    expect(materialSchema.safeParse(material({ quantity: "0,001", unit: "KG" })).success).toBe(
+      false,
+    );
+  });
+
   it("recusa descrição vazia com mensagem própria em pt-BR", () => {
     expect(messageOf(materialSchema.safeParse(material({ description: "   " })))).toMatch(
       /Informe o material/,

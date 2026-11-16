@@ -3,7 +3,7 @@ import type { StructureFormInput } from "@/lib/import/of-structure";
 import { familyFromDescription } from "@/lib/import/of-structure";
 import type { PdfRow } from "@/lib/import/pdf-text";
 import type { BuiltOf, FileChild, FileMaterial, FileParent, StructureIssue } from "@/lib/types/import";
-import { calculateTotalWeight, formatWeight, toNumber } from "@/lib/utils/formatting";
+import { calculateTotalWeight, formatWeight, roundWeight, toNumber } from "@/lib/utils/formatting";
 import { normalizeOrderCode } from "@/lib/utils/order-code";
 
 export { PDF_COMPOSITION_SHEET_NAME };
@@ -288,7 +288,9 @@ export function buildOfFromPdfRows(rows: PdfRow[], form: StructureFormInput): { 
       const parentCode = parentMatch[1];
       const parentDescription = parentMatch[2].trim();
       const quantity = toNumber(parentMatch[3]) ?? 0;
-      const unitWeightKg = parentMatch[4] !== undefined ? toNumber(parentMatch[4]) : null;
+      const parsedUnitWeight =
+        parentMatch[4] !== undefined ? toNumber(parentMatch[4]) : null;
+      const unitWeightKg = parsedUnitWeight === null ? null : roundWeight(parsedUnitWeight);
 
       current = startBlock(parentCode);
       // Só preenche na primeira ocorrência do código (blocos repetidos
@@ -327,7 +329,8 @@ export function buildOfFromPdfRows(rows: PdfRow[], form: StructureFormInput): { 
       seen.add(childCode);
 
       const quantity = toNumber(childMatch[2]) ?? 0;
-      const unitWeightKg = childMatch[3] !== undefined ? toNumber(childMatch[3]) : null;
+      const parsedUnitWeight = childMatch[3] !== undefined ? toNumber(childMatch[3]) : null;
+      const unitWeightKg = parsedUnitWeight === null ? null : roundWeight(parsedUnitWeight);
       const child: FileChild = {
         code: childCode,
         // Decisão de mapeamento: sem descrição no PDF, o código vira descrição.
@@ -363,7 +366,7 @@ export function buildOfFromPdfRows(rows: PdfRow[], form: StructureFormInput): { 
       current.materials.push({
         material: {
           description: materialDescription,
-          quantity: peso ?? 0,
+          quantity: peso === null ? 0 : roundWeight(peso),
           unit: "KG",
           notes,
         },
