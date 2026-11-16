@@ -1507,6 +1507,24 @@ export type Database = {
           freeItems: number;
         };
       };
+      update_mp_receipt: {
+        // atualiza o cabeçalho e as linhas da nota de entrada em uma transação (076)
+        Args: {
+          p_receipt_id: string;
+          p_entry_number: string;
+          p_entry_date: string | null;
+          p_notes: string | null;
+          p_materials: Json;
+          p_free_items?: Json;
+        };
+        Returns: {
+          id: string;
+          orderId: string;
+          entryNumber: string;
+          entryDate: string;
+          freeItems: number;
+        };
+      };
       delete_mp_receipt: {
         // exclusão para correção — recalcula o espelho dos itens afetados (056/059)
         Args: { p_receipt_id: string };

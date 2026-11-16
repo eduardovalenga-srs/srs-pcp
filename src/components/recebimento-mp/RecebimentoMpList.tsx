@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye, Loader2, Trash2 } from "lucide-react";
+import { Eye, Loader2, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { deleteMpReceiptAction } from "@/lib/actions/mp-receipt.actions";
@@ -12,6 +12,7 @@ import { formatBusinessDate } from "@/lib/utils/dates";
 import { formatWeight } from "@/lib/utils/formatting";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { DeliveryPeriodPopover, TextColumnFilter } from "@/components/shared/column-filters";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,6 +26,62 @@ import {
 interface RecebimentoMpListProps {
   entries: MpReceiptListEntry[];
   canEdit: boolean;
+}
+
+export interface MpReceiptListFilters {
+  orderCode: string;
+  customerName: string;
+  entryNumber: string;
+  userName: string;
+  materials: string;
+  entryDateFrom: string | null;
+  entryDateTo: string | null;
+}
+
+const EMPTY_FILTERS: MpReceiptListFilters = {
+  orderCode: "",
+  customerName: "",
+  entryNumber: "",
+  userName: "",
+  materials: "",
+  entryDateFrom: null,
+  entryDateTo: null,
+};
+
+function normalizeSearch(value: string | null | undefined): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLocaleLowerCase("pt-BR");
+}
+
+/** Aplica os filtros das colunas à lista já carregada no servidor. */
+export function filterMpReceiptEntries(
+  entries: readonly MpReceiptListEntry[],
+  filters: MpReceiptListFilters,
+): MpReceiptListEntry[] {
+  const matches = (value: string | null | undefined, query: string) =>
+    !query || normalizeSearch(value).includes(normalizeSearch(query));
+
+  return entries.filter((entry) => {
+    if (!matches(entry.orderCode, filters.orderCode)) return false;
+    if (!matches(entry.customerName, filters.customerName)) return false;
+    if (!matches(entry.entryNumber || String(entry.number), filters.entryNumber)) return false;
+    if (!matches(entry.userName, filters.userName)) return false;
+
+    const materialsText = entry.materials
+      .map((material) => `${material.description} ${formatWeight(material.quantityKg)} kg`)
+      .join(" ");
+    if (!matches(materialsText, filters.materials)) return false;
+
+    if (filters.entryDateFrom && (!entry.entryDate || entry.entryDate < filters.entryDateFrom)) {
+      return false;
+    }
+    if (filters.entryDateTo && (!entry.entryDate || entry.entryDate > filters.entryDateTo)) {
+      return false;
+    }
+    return true;
+  });
 }
 
 function ReceiptActions({
@@ -68,46 +125,60 @@ function ReceiptActions({
         </Link>
       </Button>
       {canEdit ? (
-        <Dialog open={deleteOpen} onOpenChange={(open) => !deleting && setDeleteOpen(open)}>
+        <>
           <Button
             type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Excluir nota de entrada ${entryNumber}`}
-            title={`Excluir nota de entrada ${entryNumber}`}
-            onClick={() => setDeleteOpen(true)}
+            variant="outline"
+            size="sm"
+            aria-label={`Editar nota de entrada ${entryNumber}`}
+            asChild
           >
-            <Trash2 className="h-4 w-4" aria-hidden />
+            <Link href={`/recebimento-mp/${entry.id}/editar`}>
+              <Pencil className="h-4 w-4" aria-hidden />
+              Editar
+            </Link>
           </Button>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Excluir nota de entrada nº {entryNumber}?</DialogTitle>
-              <DialogDescription>
-                O recebimento será removido e o saldo de matéria-prima da OF será recalculado. Esta
-                ação não pode ser desfeita.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setDeleteOpen(false)}
-                disabled={deleting}
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() => void confirmDelete()}
-                disabled={deleting}
-              >
-                {deleting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-                {deleting ? "Excluindo…" : "Excluir"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+          <Dialog open={deleteOpen} onOpenChange={(open) => !deleting && setDeleteOpen(open)}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Excluir nota de entrada ${entryNumber}`}
+              title={`Excluir nota de entrada ${entryNumber}`}
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden />
+            </Button>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Excluir nota de entrada nº {entryNumber}?</DialogTitle>
+                <DialogDescription>
+                  O recebimento será removido e o saldo de matéria-prima da OF será recalculado. Esta
+                  ação não pode ser desfeita.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setDeleteOpen(false)}
+                  disabled={deleting}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => void confirmDelete()}
+                  disabled={deleting}
+                >
+                  {deleting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                  {deleting ? "Excluindo…" : "Excluir"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </>
       ) : null}
     </div>
   );
@@ -115,9 +186,29 @@ function ReceiptActions({
 
 /** Lista geral de notas de entrada registradas para matéria-prima. */
 export function RecebimentoMpList({ entries, canEdit }: RecebimentoMpListProps) {
+  const [filters, setFilters] = useState<MpReceiptListFilters>(EMPTY_FILTERS);
+  const filteredEntries = useMemo(() => filterMpReceiptEntries(entries, filters), [entries, filters]);
+  const textFilter = (
+    field: Exclude<keyof MpReceiptListFilters, "entryDateFrom" | "entryDateTo">,
+    column: string,
+    context: string,
+  ) => (
+    <TextColumnFilter
+      value={filters[field]}
+      column={column}
+      context={context}
+      onApply={(value) => setFilters((current) => ({ ...current, [field]: value }))}
+    />
+  );
+
   return (
     <section aria-label="Registros de recebimento" className="space-y-3">
-      <h2 className="text-sm font-semibold">Recebimentos cadastrados</h2>
+      <h2 className="text-sm font-semibold">
+        Recebimentos cadastrados
+        {filteredEntries.length !== entries.length
+          ? ` (${filteredEntries.length} de ${entries.length})`
+          : ""}
+      </h2>
 
       {entries.length === 0 ? (
         <EmptyState
@@ -130,22 +221,49 @@ export function RecebimentoMpList({ entries, canEdit }: RecebimentoMpListProps) 
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground">
                 <th scope="col" className="px-3 py-2 font-medium">
-                  OF
+                  <div className="flex items-center gap-1">
+                    OF {textFilter("orderCode", "OF", "OF")}
+                  </div>
                 </th>
                 <th scope="col" className="px-3 py-2 font-medium">
-                  Cliente
+                  <div className="flex items-center gap-1">
+                    Cliente {textFilter("customerName", "Cliente", "cliente")}
+                  </div>
                 </th>
                 <th scope="col" className="px-3 py-2 font-medium">
-                  Nº
+                  <div className="flex items-center gap-1">
+                    Nº {textFilter("entryNumber", "Nº", "número da nota")}
+                  </div>
                 </th>
                 <th scope="col" className="px-3 py-2 font-medium">
-                  Data
+                  <div className="flex items-center gap-1">
+                    Data
+                    <DeliveryPeriodPopover
+                      context="data da nota"
+                      idPrefix="mp-recebimento-data"
+                      from={filters.entryDateFrom}
+                      to={filters.entryDateTo}
+                      active={filters.entryDateFrom !== null || filters.entryDateTo !== null}
+                      onApply={(from, to) =>
+                        setFilters((current) => ({
+                          ...current,
+                          entryDateFrom: from,
+                          entryDateTo: to,
+                        }))
+                      }
+                    />
+                  </div>
                 </th>
                 <th scope="col" className="px-3 py-2 font-medium">
-                  Usuário
+                  <div className="flex items-center gap-1">
+                    Usuário {textFilter("userName", "Usuário", "usuário")}
+                  </div>
                 </th>
                 <th scope="col" className="px-3 py-2 font-medium">
-                  Matérias-primas (kg)
+                  <div className="flex items-center gap-1">
+                    Matérias-primas (kg)
+                    {textFilter("materials", "Matéria-prima ou kg", "matérias-primas")}
+                  </div>
                 </th>
                 <th scope="col" className="px-3 py-2 text-right font-medium">
                   Ações
@@ -153,7 +271,7 @@ export function RecebimentoMpList({ entries, canEdit }: RecebimentoMpListProps) 
               </tr>
             </thead>
             <tbody>
-              {entries.map((entry) => (
+              {filteredEntries.map((entry) => (
                 <tr key={entry.id} className="border-b last:border-b-0 align-top">
                   <td className="px-3 py-2 tabular-nums">{entry.orderCode ?? "—"}</td>
                   <td className="px-3 py-2">{entry.customerName || "—"}</td>
@@ -182,6 +300,13 @@ export function RecebimentoMpList({ entries, canEdit }: RecebimentoMpListProps) 
                   </td>
                 </tr>
               ))}
+              {filteredEntries.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
+                    Nenhum recebimento corresponde aos filtros.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>

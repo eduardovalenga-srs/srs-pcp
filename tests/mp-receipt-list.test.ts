@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { RecebimentoMpList } from "@/components/recebimento-mp/RecebimentoMpList";
+import {
+  filterMpReceiptEntries,
+  RecebimentoMpList,
+} from "@/components/recebimento-mp/RecebimentoMpList";
 import type { MpReceiptListEntry } from "@/lib/types/mp-receipt";
 
 vi.mock("next/navigation", () => ({
@@ -75,8 +78,16 @@ describe("lista geral de recebimentos de MP", () => {
     // Sem número de nota informado, usa o número interno do recebimento.
     expect(markup).toContain(">11</td>");
     expect(markup).toContain(`/recebimento-mp/${entries[0]?.id}`);
+    expect(markup).toContain(`/recebimento-mp/${entries[0]?.id}/editar`);
     expect(markup).toContain("Consultar");
+    expect(markup).toContain("Editar");
     expect(markup).toContain("Excluir nota de entrada NF-123");
+    expect(markup).toContain("Filtrar por OF");
+    expect(markup).toContain("Filtrar por cliente");
+    expect(markup).toContain("Filtrar por número da nota");
+    expect(markup).toContain("Filtrar por data da nota");
+    expect(markup).toContain("Filtrar por usuário");
+    expect(markup).toContain("Filtrar por matérias-primas");
   });
 
   it("mostra uma mensagem quando ainda não há recebimentos", () => {
@@ -91,5 +102,48 @@ describe("lista geral de recebimentos de MP", () => {
 
     expect(markup).toContain("Consultar");
     expect(markup).not.toContain("Excluir nota de entrada");
+    expect(markup).not.toContain("Editar nota de entrada");
+  });
+
+  it("filtra cada dado da lista, incluindo materiais/peso e período da nota", () => {
+    expect(filterMpReceiptEntries(entries, { ...emptyFilters, orderCode: "of-100" })).toEqual([
+      entries[0],
+    ]);
+    expect(filterMpReceiptEntries(entries, { ...emptyFilters, customerName: "cliente a" })).toEqual([
+      entries[0],
+    ]);
+    expect(filterMpReceiptEntries(entries, { ...emptyFilters, entryNumber: "123" })).toEqual([
+      entries[0],
+    ]);
+    expect(filterMpReceiptEntries(entries, { ...emptyFilters, userName: "maria" })).toEqual([
+      entries[0],
+    ]);
+    expect(filterMpReceiptEntries(entries, { ...emptyFilters, materials: "chapa 4" })).toEqual([
+      entries[0],
+    ]);
+    expect(
+      filterMpReceiptEntries(entries, {
+        ...emptyFilters,
+        entryDateFrom: "2026-11-13",
+        entryDateTo: null,
+      }),
+    ).toEqual([]);
+    expect(
+      filterMpReceiptEntries(entries, {
+        ...emptyFilters,
+        entryDateFrom: null,
+        entryDateTo: "2026-11-12",
+      }),
+    ).toEqual([entries[0]]);
   });
 });
+
+const emptyFilters = {
+  orderCode: "",
+  customerName: "",
+  entryNumber: "",
+  userName: "",
+  materials: "",
+  entryDateFrom: null,
+  entryDateTo: null,
+};

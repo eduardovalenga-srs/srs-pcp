@@ -8,6 +8,7 @@ import {
   customerComboboxOptions,
   initialMpQuantities,
   markedMpMaterials,
+  mpReceiptBalanceToFill,
   mpQuantityValue,
   orderComboboxOptions,
 } from "@/components/recebimento-mp/RecebimentoMpForm";
@@ -20,6 +21,7 @@ import {
 import type { MpFreeItemDraft } from "@/components/recebimento-mp/MpFreeItemsEditor";
 import type {
   MpReceiptCustomerOption,
+  MpReceiptDetail,
   MpReceiptMaterial,
 } from "@/lib/types/mp-receipt";
 
@@ -31,6 +33,7 @@ vi.mock("@/lib/actions/mp-receipt.actions", () => ({
   deleteMpReceiptAction: vi.fn(),
   loadMpReceiptOrderAction: vi.fn(),
   saveMpReceiptAction: vi.fn(),
+  updateMpReceiptAction: vi.fn(),
 }));
 
 function html(node: ReactElement): string {
@@ -130,6 +133,17 @@ describe("recebimento de MP — o campo nasce ZERADO", () => {
     expect(materials[0]?.balanceKg).toBe(20);
     expect(mpQuantityValue(initialMpQuantities(), KEY)).toBe("0");
     expect(markedMpMaterials(materials, initialMpQuantities())).toEqual([]);
+  });
+});
+
+describe("recebimento de MP — preencher saldo", () => {
+  it("usa o saldo atual na nova nota e recompõe o saldo da nota que está sendo editada", () => {
+    expect(mpReceiptBalanceToFill(material({ balanceKg: 12.345 }))).toBe(12.35);
+    expect(mpReceiptBalanceToFill(material({ balanceKg: 12 }), 3)).toBe(15);
+  });
+
+  it("não preenche peso negativo quando já existe excesso recebido", () => {
+    expect(mpReceiptBalanceToFill(material({ balanceKg: -2 }))).toBe(0);
   });
 });
 
@@ -260,5 +274,49 @@ describe("recebimento de MP — renderização", () => {
     expect(markup).toContain("Recebimento de matéria-prima");
     expect(markup).toContain("mp-recebimento-cliente");
     expect(markup).toContain("mp-recebimento-of");
+  });
+
+  it("preenche a nota existente e mostra o botão de salvar alterações", () => {
+    const entry: MpReceiptDetail = {
+      id: "receipt-edit",
+      number: 9,
+      orderId: "of-1",
+      orderCode: "OF 100",
+      customerName: "Cliente A",
+      entryNumber: "NF-45",
+      entryDate: "2026-11-10",
+      notes: "Conferido",
+      createdAt: "2026-11-10T12:00:00Z",
+      userName: "Maria",
+      materials: [
+        {
+          materialKey: CHAPA.materialKey,
+          description: CHAPA.description,
+          unit: CHAPA.unit,
+          quantityKg: 3.5,
+        },
+      ],
+      freeItems: [{ description: "Perfil", unit: "UN", quantity: 4 }],
+    };
+    const markup = html(
+      createElement(RecebimentoMpForm, {
+        customers: [],
+        canEdit: true,
+        initialEntry: entry,
+        initialMaterials: [CHAPA],
+      }),
+    );
+
+    expect(markup).toContain("Cliente A");
+    expect(markup).toContain("OF 100");
+    expect(markup).toContain('value="NF-45"');
+    expect(markup).toContain('value="2026-11-10"');
+    expect(markup).toContain('value="Conferido"');
+    expect(markup).toContain('value="3.5"');
+    expect(markup).toContain('value="Perfil"');
+    expect(markup).toContain("Salvar alterações");
+    expect(markup).toContain("= saldo");
+    expect(markup).toContain("Preencher saldo de CHAPA 3MM");
+    expect(markup).not.toContain("mp-recebimento-cliente");
   });
 });

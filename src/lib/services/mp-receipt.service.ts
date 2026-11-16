@@ -16,6 +16,7 @@ import {
   listMpReceiptCustomers,
   listMpReceiptMaterials,
   saveMpReceiptRpc,
+  updateMpReceiptRpc,
   type MpReceiptHistoryRow,
 } from "@/lib/repositories/mp-receipt.repository";
 import { toNumber } from "@/lib/utils/formatting";
@@ -122,6 +123,26 @@ export async function saveMpReceipt(
   },
 ): Promise<{ id: string; number: number }> {
   return saveMpReceiptRpc(client, input);
+}
+
+/** Atualiza os dados e materiais de uma nota, recalculando o espelho da OF. */
+export async function updateMpReceipt(
+  client: SupabaseServer,
+  receiptId: string,
+  input: {
+    entryNumber: string;
+    entryDate: string | null;
+    notes: string | null;
+    materials: {
+      materialKey: string;
+      description: string;
+      unit: string;
+      quantityKg: number;
+    }[];
+    freeItems: MpReceiptFreeItem[];
+  },
+): Promise<void> {
+  return updateMpReceiptRpc(client, receiptId, input);
 }
 
 /** Exclui uma nota de entrada (recalcula o espelho no banco). */

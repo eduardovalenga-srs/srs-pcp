@@ -215,6 +215,38 @@ export async function saveMpReceiptRpc(
   return { id: payload.id, number: Number(payload.number ?? 0) };
 }
 
+/** Atualiza uma NOTA DE ENTRADA e suas linhas atomicamente (076). */
+export async function updateMpReceiptRpc(
+  client: SupabaseServer,
+  receiptId: string,
+  input: {
+    entryNumber: string;
+    entryDate: string | null;
+    notes: string | null;
+    materials: {
+      materialKey: string;
+      description: string;
+      unit: string;
+      quantityKg: number;
+    }[];
+    freeItems: {
+      description: string;
+      unit: string;
+      quantity: number;
+    }[];
+  },
+): Promise<void> {
+  const { error } = await client.rpc("update_mp_receipt", {
+    p_receipt_id: receiptId,
+    p_entry_number: input.entryNumber,
+    p_entry_date: input.entryDate,
+    p_notes: input.notes,
+    p_materials: input.materials as unknown as Json,
+    p_free_items: input.freeItems as unknown as Json,
+  });
+  assertOk(error, "Não foi possível atualizar a nota de entrada");
+}
+
 /** Exclui uma nota de entrada (a RPC recalcula o espelho). */
 export async function deleteMpReceiptRpc(
   client: SupabaseServer,

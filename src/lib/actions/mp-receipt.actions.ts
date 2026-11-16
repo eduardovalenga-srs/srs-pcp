@@ -10,6 +10,7 @@ import {
   getMpReceiptCustomers,
   getMpReceiptMaterials,
   saveMpReceipt,
+  updateMpReceipt,
 } from "@/lib/services/mp-receipt.service";
 import type {
   MpReceiptCustomerOption,
@@ -125,6 +126,41 @@ export async function saveMpReceiptAction(
 }
 
 const receiptIdSchema = z.string().trim().min(1, "Nota de entrada inválida.");
+
+/** Atualiza uma nota de entrada existente (recalcula o espelho da OF). */
+export async function updateMpReceiptAction(
+  receiptId: string,
+  input: z.input<typeof mpReceiptSchema>,
+): Promise<MpReceiptActionResult> {
+  try {
+    await requireCapability("mp_receipt.edit");
+    const parsedId = receiptIdSchema.safeParse(receiptId);
+    if (!parsedId.success) return failure("Nota de entrada inválida.");
+
+    const parsed = mpReceiptSchema.safeParse(input);
+    if (!parsed.success) return failure(firstZodMessage(parsed.error));
+
+    const client = await createClient();
+    await updateMpReceipt(client, parsedId.data, {
+      entryNumber: parsed.data.entryNumber,
+      entryDate: parsed.data.entryDate,
+      notes: parsed.data.notes,
+      materials: parsed.data.materials,
+      freeItems: parsed.data.freeItems,
+    });
+
+    revalidateMpReceipt();
+    return {
+      success: true,
+      message: `Nota de entrada nº ${parsed.data.entryNumber} atualizada.`,
+      receiptId: parsedId.data,
+      number: null,
+    };
+  } catch (error) {
+    console.error("[updateMpReceiptAction]", error);
+    return failure(errorMessage(error));
+  }
+}
 
 /** Exclui uma nota de entrada para correção (recalcula o espelho no banco). */
 export async function deleteMpReceiptAction(receiptId: string): Promise<{

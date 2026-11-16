@@ -146,6 +146,19 @@ async function save(
   return { id: rows[0]?.id as string, number: Number(rows[0]?.number ?? 0) };
 }
 
+async function update(
+  receiptId: string,
+  entryNumber: string,
+  entryDate: string,
+  materials: { materialKey: string; description: string; unit: string; quantityKg: number }[],
+  freeItems: { description: string; unit: string; quantity: number }[] = [],
+): Promise<void> {
+  await db.query(
+    `select public.update_mp_receipt($1, $2, $3::date, null, $4::jsonb, $5::jsonb)`,
+    [receiptId, entryNumber, entryDate, JSON.stringify(materials), JSON.stringify(freeItems)],
+  );
+}
+
 /** Linhas do seletor em cascata (cliente → OFs com pendência). */
 async function customers(): Promise<
   { customerName: string | null; pendingMaterials: number; pendingKg: number | null }[]
@@ -257,6 +270,75 @@ describe("recebimento de MP por matéria-prima (059)", () => {
     const filho = await mpCell(childA1);
     expect(filho?.completedAt).not.toBeNull();
     expect(new Date(filho?.completedAt as string).toISOString().slice(0, 10)).toBe("2026-11-01");
+  });
+
+  it("edita a nota atomicamente e recalcula o saldo sem trocar o número interno", async () => {
+    await asSuperUser(db);
+    const orderId = await createOrder("OF-MP-EDIT", "Cliente edição");
+    const itemId = await createItem(orderId, null, "EDIT-1", "Peça editável", 1, 20);
+    await createMaterial(itemId, "CHAPA EDITÁVEL", 20);
+
+    await asUser(db, "authenticated", gestorId);
+    const receipt = await save(
+      orderId,
+      "NE-EDIT-1",
+      "2026-11-01",
+      [
+        {
+          materialKey: "CHAPA EDITÁVEL::KG",
+          description: "CHAPA EDITÁVEL",
+          unit: "KG",
+          quantityKg: 5,
+        },
+      ],
+      [{ description: "Perfil livre", unit: "UN", quantity: 2 }],
+    );
+    await update(
+      receipt.id,
+      "NE-EDIT-2",
+      "2026-11-02",
+      [
+        {
+          materialKey: "CHAPA EDITÁVEL::KG",
+          description: "CHAPA EDITÁVEL",
+          unit: "KG",
+          quantityKg: 12,
+        },
+      ],
+      [{ description: "Barra livre", unit: "M", quantity: 3 }],
+    );
+    await asSuperUser(db);
+
+    const { rows: header } = await db.query<{
+      number: number;
+      entry_number: string;
+      entry_date: string;
+    }>(
+      `select number, entry_number, entry_date::text
+         from public.mp_receipts where id = $1`,
+      [receipt.id],
+    );
+    expect(header[0]).toMatchObject({
+      number: receipt.number,
+      entry_number: "NE-EDIT-2",
+      entry_date: "2026-11-02",
+    });
+    expect(
+      (await orderMaterials(orderId)).find((material) => material.materialKey === "CHAPA EDITÁVEL::KG"),
+    ).toMatchObject({ receivedKg: 12, balanceKg: 8 });
+
+    const { rows: freeItems } = await db.query<{ description: string; quantity: number }>(
+      `select description, quantity from public.mp_receipt_free_items
+        where mp_receipt_id = $1`,
+      [receipt.id],
+    );
+    expect(freeItems).toEqual([{ description: "Barra livre", quantity: "3" }]);
+
+    // Mantém este teste independente dos cenários seguintes do arquivo.
+    await asUser(db, "authenticated", gestorId);
+    await db.query(`select public.delete_mp_receipt($1)`, [receipt.id]);
+    await asSuperUser(db);
+    await db.query(`delete from public.orders where id = $1`, [orderId]);
   });
 
   it("seletor conta os MATERIAIS com saldo (não os itens)", async () => {

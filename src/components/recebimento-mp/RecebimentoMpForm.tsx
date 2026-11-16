@@ -8,9 +8,11 @@ import { toast } from "sonner";
 import {
   loadMpReceiptOrderAction,
   saveMpReceiptAction,
+  updateMpReceiptAction,
 } from "@/lib/actions/mp-receipt.actions";
 import type {
   MpReceiptCustomerOption,
+  MpReceiptDetail,
   MpReceiptMaterial,
 } from "@/lib/types/mp-receipt";
 import { formatDate, todayISODate } from "@/lib/utils/dates";
@@ -26,6 +28,7 @@ import {
   MpFreeItemsEditor,
   invalidMpFreeItemMessage,
   markedMpFreeItems,
+  newMpFreeItem,
   type MpFreeItemDraft,
 } from "@/components/recebimento-mp/MpFreeItemsEditor";
 
@@ -140,10 +143,22 @@ export function mpQuantityValue(
   return raw === undefined || raw === "" ? "0" : raw;
 }
 
+/** Saldo disponível para preencher; na edição soma de volta o valor da nota atual. */
+export function mpReceiptBalanceToFill(
+  material: MpReceiptMaterial,
+  currentEntryQuantityKg = 0,
+): number {
+  return roundWeight(Math.max(0, material.balanceKg + currentEntryQuantityKg));
+}
+
 interface RecebimentoMpFormProps {
   customers: MpReceiptCustomerOption[];
   /** Escrita liberada (`mp_receipt.edit`) — sem ela a tela é consulta. */
   canEdit: boolean;
+  /** Nota existente: ativa o modo de edição, sem permitir trocar a OF. */
+  initialEntry?: MpReceiptDetail;
+  /** Materiais atuais da OF carregados no servidor para o modo de edição. */
+  initialMaterials?: MpReceiptMaterial[];
 }
 
 /**
@@ -156,17 +171,36 @@ interface RecebimentoMpFormProps {
  * coluna MP é recalculado no banco — por preenchimento sequencial do
  * material na ordem de produção dos itens (059).
  */
-export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps) {
+export function RecebimentoMpForm({
+  customers,
+  canEdit,
+  initialEntry,
+  initialMaterials,
+}: RecebimentoMpFormProps) {
   const router = useRouter();
 
   const [customerValue, setCustomerValue] = useState<string | null>(null);
-  const [orderId, setOrderId] = useState<string | null>(null);
-  const [materials, setMaterials] = useState<MpReceiptMaterial[] | null>(null);
-  const [quantities, setQuantities] = useState<Record<string, string>>({});
-  const [freeItems, setFreeItems] = useState<MpFreeItemDraft[]>([]);
-  const [entryNumber, setEntryNumber] = useState("");
-  const [entryDate, setEntryDate] = useState("");
-  const [notes, setNotes] = useState("");
+  const [orderId, setOrderId] = useState<string | null>(initialEntry?.orderId ?? null);
+  const [materials, setMaterials] = useState<MpReceiptMaterial[] | null>(initialMaterials ?? null);
+  const [quantities, setQuantities] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      (initialEntry?.materials ?? []).map((material) => [
+        material.materialKey,
+        String(material.quantityKg),
+      ]),
+    ),
+  );
+  const [freeItems, setFreeItems] = useState<MpFreeItemDraft[]>(() =>
+    (initialEntry?.freeItems ?? []).map((item) => ({
+      ...newMpFreeItem(),
+      description: item.description,
+      unit: item.unit as MpFreeItemDraft["unit"],
+      quantity: String(item.quantity),
+    })),
+  );
+  const [entryNumber, setEntryNumber] = useState(initialEntry?.entryNumber ?? "");
+  const [entryDate, setEntryDate] = useState(initialEntry?.entryDate ?? todayISODate());
+  const [notes, setNotes] = useState(initialEntry?.notes ?? "");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -183,6 +217,10 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
     () => customer?.ofs.find((of) => of.orderId === orderId) ?? null,
     [customer, orderId],
   );
+  const saveOrderId = initialEntry?.orderId ?? selectedOf?.orderId ?? null;
+  const selectedOrderCode = initialEntry?.orderCode ?? selectedOf?.code ?? null;
+  const selectedCustomerName = initialEntry?.customerName ?? customer?.customerName ?? null;
+  const hasOrderLoaded = initialEntry ? materials !== null : Boolean(selectedOf && materials);
 
   // Zera a cascata (OF, materiais e nota).
   const resetEntry = () => {
@@ -226,7 +264,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
   };
 
   const handleSave = async () => {
-    if (saving || !selectedOf || !materials) return;
+    if (saving || !saveOrderId || !materials) return;
 
     const invalidFreeItem = invalidMpFreeItemMessage(freeItems);
     if (invalidFreeItem) {
@@ -247,20 +285,23 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
 
     setSaving(true);
     try {
-      const result = await saveMpReceiptAction({
-        orderId: selectedOf.orderId,
+      const payload = {
+        orderId: saveOrderId,
         entryNumber: entryNumber.trim(),
         entryDate: entryDate || null,
         notes,
         materials: marked,
         freeItems: markedFree,
-      });
+      };
+      const result = initialEntry
+        ? await updateMpReceiptAction(initialEntry.id, payload)
+        : await saveMpReceiptAction(payload);
       if (!result.success) {
         toast.error(result.message || "Não foi possível registrar a nota de entrada.");
         return;
       }
       toast.success(result.message);
-      router.push("/recebimento-mp");
+      router.push(initialEntry ? `/recebimento-mp/${initialEntry.id}` : "/recebimento-mp");
     } catch (error) {
       console.error("[RecebimentoMpForm]", error);
       toast.error(errorMessage(error));
@@ -276,62 +317,87 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
   return (
     <section aria-label="Recebimento de matéria-prima" className="space-y-3">
       <div className="rounded border bg-card p-3">
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="space-y-1">
-            <Label htmlFor="mp-recebimento-cliente" className="text-xs text-muted-foreground">
-              Cliente
-            </Label>
-            <Combobox
-              id="mp-recebimento-cliente"
-              label="Cliente"
-              placeholder="Selecione o cliente…"
-              options={customerOptions}
-              value={customerValue}
-              onChange={onCustomerChange}
-              disabled={customers.length === 0}
-              emptyMessage="Nenhum cliente encontrado."
-            />
+        {initialEntry ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Cliente</Label>
+              <p className="text-sm">{selectedCustomerName || "Cliente não informado"}</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">OF</Label>
+              <p className="text-sm tabular-nums">{selectedOrderCode ?? "—"}</p>
+            </div>
           </div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label htmlFor="mp-recebimento-cliente" className="text-xs text-muted-foreground">
+                Cliente
+              </Label>
+              <Combobox
+                id="mp-recebimento-cliente"
+                label="Cliente"
+                placeholder="Selecione o cliente…"
+                options={customerOptions}
+                value={customerValue}
+                onChange={onCustomerChange}
+                disabled={customers.length === 0}
+                emptyMessage="Nenhum cliente encontrado."
+              />
+            </div>
 
-          <div className="space-y-1">
-            <Label htmlFor="mp-recebimento-of" className="text-xs text-muted-foreground">
-              OF
-            </Label>
-            <Combobox
-              id="mp-recebimento-of"
-              label="OF"
-              placeholder={customer ? "Selecione a OF…" : "Escolha primeiro o cliente…"}
-              options={orderOptions}
-              value={orderId}
-              onChange={(next) => void onOrderChange(next)}
-              disabled={!customer || loading}
-              emptyMessage="Nenhuma OF com pendência para este cliente."
-            />
+            <div className="space-y-1">
+              <Label htmlFor="mp-recebimento-of" className="text-xs text-muted-foreground">
+                OF
+              </Label>
+              <Combobox
+                id="mp-recebimento-of"
+                label="OF"
+                placeholder={customer ? "Selecione a OF…" : "Escolha primeiro o cliente…"}
+                options={orderOptions}
+                value={orderId}
+                onChange={(next) => void onOrderChange(next)}
+                disabled={!customer || loading}
+                emptyMessage="Nenhuma OF com pendência para este cliente."
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
           <div className="space-y-1 text-sm text-muted-foreground">
             <p>
-              {selectedOf
-                ? "Informe a nota de entrada, o peso recebido de cada matéria-prima e, se houver, os itens fora da OF."
+              {hasOrderLoaded
+                ? "Informe os dados da nota, o peso recebido de cada matéria-prima e, se houver, os itens fora da OF."
                 : "Selecione o cliente e a OF para registrar o recebimento."}
             </p>
-            {selectedOf ? (
+            {hasOrderLoaded ? (
               <p className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="px-1 py-0">
-                  {selectedOf.type}
-                </Badge>
-                <span className="font-medium text-foreground tabular-nums">{selectedOf.code}</span>
-                <OrderStatusBadge status={selectedOf.status} />
-                <span className="tabular-nums">
-                  {selectedOf.pendingMaterials}{" "}
-                  {selectedOf.pendingMaterials === 1 ? "matéria-prima" : "matérias-primas"} com
-                  pendência
-                </span>
-                {selectedOf.pendingKg !== null ? (
-                  <span className="tabular-nums">{formatWeight(selectedOf.pendingKg)} pendentes</span>
-                ) : null}
+                {selectedOf ? (
+                  <>
+                    <Badge variant="outline" className="px-1 py-0">
+                      {selectedOf.type}
+                    </Badge>
+                    <span className="font-medium text-foreground tabular-nums">
+                      {selectedOf.code}
+                    </span>
+                    <OrderStatusBadge status={selectedOf.status} />
+                    <span className="tabular-nums">
+                      {selectedOf.pendingMaterials}{" "}
+                      {selectedOf.pendingMaterials === 1 ? "matéria-prima" : "matérias-primas"} com
+                      pendência
+                    </span>
+                    {selectedOf.pendingKg !== null ? (
+                      <span className="tabular-nums">
+                        {formatWeight(selectedOf.pendingKg)} pendentes
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="font-medium text-foreground tabular-nums">
+                    {selectedOrderCode}
+                  </span>
+                )}
               </p>
             ) : null}
           </div>
@@ -340,7 +406,11 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
             type="button"
             id="mp-recebimento-confirmar"
             disabled={
-              !canEdit || saving || !materials || !canSaveMpReceipt(materials, quantities, freeItems)
+              !canEdit ||
+              saving ||
+              !materials ||
+              (!initialEntry && !selectedOf) ||
+              !canSaveMpReceipt(materials, quantities, freeItems)
             }
             onClick={() => void handleSave()}
           >
@@ -349,7 +419,7 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
             ) : (
               <PackageCheck className="h-4 w-4" aria-hidden />
             )}
-            Registrar nota de entrada
+            {initialEntry ? "Salvar alterações" : "Registrar nota de entrada"}
           </Button>
         </div>
       </div>
@@ -456,30 +526,57 @@ export function RecebimentoMpForm({ customers, canEdit }: RecebimentoMpFormProps
                       {formatWeight(material.balanceKg)}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <Input
-                        id={`mp-kg-${material.materialKey}`}
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        inputMode="decimal"
-                        value={mpQuantityValue(quantities, material.materialKey)}
-                        onChange={(event) =>
-                          setQuantities((previous) => ({
-                            ...previous,
-                            [material.materialKey]: event.target.value,
-                          }))
-                        }
-                        onFocus={(event) => {
-                          // Campo ainda no 0 (intocado): seleciona o
-                          // texto para o clerk DIGITAR por cima. Com
-                          // valor já lançado, o cursor fica normal —
-                          // dá para acrescentar dígitos (25 → 250).
-                          if (event.target.value === "0") event.target.select();
-                        }}
-                        disabled={!canEdit}
-                        className="ml-auto w-32 text-right tabular-nums"
-                        aria-label={`Peso recebido de ${material.description} nesta nota`}
-                      />
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Input
+                          id={`mp-kg-${material.materialKey}`}
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          inputMode="decimal"
+                          value={mpQuantityValue(quantities, material.materialKey)}
+                          onChange={(event) =>
+                            setQuantities((previous) => ({
+                              ...previous,
+                              [material.materialKey]: event.target.value,
+                            }))
+                          }
+                          onFocus={(event) => {
+                            // Campo ainda no 0 (intocado): seleciona o
+                            // texto para o clerk DIGITAR por cima. Com
+                            // valor já lançado, o cursor fica normal —
+                            // dá para acrescentar dígitos (25 → 250).
+                            if (event.target.value === "0") event.target.select();
+                          }}
+                          disabled={!canEdit}
+                          className="w-32 text-right tabular-nums"
+                          aria-label={`Peso recebido de ${material.description} nesta nota`}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-9 shrink-0 px-2 text-xs"
+                          disabled={!canEdit}
+                          title={`Preencher com o saldo de ${material.description}`}
+                          aria-label={`Preencher saldo de ${material.description}`}
+                          onClick={() => {
+                            const currentEntryQuantity =
+                              initialEntry?.materials.find(
+                                (entryMaterial) => entryMaterial.materialKey === material.materialKey,
+                              )?.quantityKg ?? 0;
+                            const balance = mpReceiptBalanceToFill(
+                              material,
+                              currentEntryQuantity,
+                            );
+                            setQuantities((previous) => ({
+                              ...previous,
+                              [material.materialKey]: String(balance),
+                            }));
+                          }}
+                        >
+                          = saldo
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
