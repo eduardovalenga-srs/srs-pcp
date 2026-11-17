@@ -3,15 +3,16 @@ import { z } from "zod";
 import { isValidISODate } from "@/lib/utils/dates";
 
 /**
- * Gravação da fila de um processo (070). A ordem enviada é a ordem final:
- * o servidor atribui position 1..n na sequência do array.
+ * Gravação da fila global (077). O processo e a data são opcionais:
+ * quando ausentes, salva somente a prioridade global sem capacidade.
  */
 export const saveProcessScheduleSchema = z
   .object({
-    processId: z.string().uuid("Processo inválido"),
+    processId: z.string().uuid("Processo inválido").nullable(),
     anchorDate: z
       .string()
-      .refine((value) => isValidISODate(value), "Informe uma data de início válida"),
+      .refine((value) => isValidISODate(value), "Informe uma data de início válida")
+      .nullable(),
     rows: z
       .array(
         z.object({
@@ -25,7 +26,15 @@ export const saveProcessScheduleSchema = z
       )
       .max(2000, "Muitas OFs na sequência"),
   })
-  .superRefine(({ rows }, ctx) => {
+  .superRefine(({ processId, anchorDate, rows }, ctx) => {
+    if (processId !== null && anchorDate === null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["anchorDate"],
+        message: "Informe uma data de início válida",
+      });
+    }
+
     const seen = new Set<string>();
     rows.forEach((row, index) => {
       if (seen.has(row.orderId)) {

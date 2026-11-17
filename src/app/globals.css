@@ -166,3 +166,16 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Fins de semana na matriz Dia × processo do dashboard (079).
+   Cinza um pouco mais escuro que o card; a célula fixa do dia precisa
+   de fundo opaco para as colunas não aparecerem por baixo ao rolar. */
+.weekend-row {
+  background: color-mix(in srgb, var(--muted) 55%, var(--card));
+}
+.weekend-row:hover {
+  background: color-mix(in srgb, var(--muted) 75%, var(--card));
+}
+.weekend-cell {
+  background: color-mix(in srgb, var(--muted) 55%, var(--card));
+}

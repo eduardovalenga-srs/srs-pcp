@@ -28,8 +28,6 @@ import { Badge } from "@/components/ui/badge";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ProposalDateCell } from "@/components/shared/ProposalDateCell";
-import { SeqCell } from "@/components/shared/SeqCell";
-import { updateOrderItemsSeqAction } from "@/lib/actions/orders.actions";
 import {
   ColumnHeader,
   DeliveryFilter,
@@ -51,7 +49,7 @@ export interface ProductionCapabilities {
   canUpdateStatus: boolean;
   /** Edição da entrega do PEDIDO (orders.edit) — recalcula as previsões. */
   canEditDelivery: boolean;
-  /** 036: edição da sequência de fabricação da OF (orders.edit — ADMIN/GESTOR). */
+  /** 036: mantém compatibilidade com as telas de fábrica; Gestão de OF é somente leitura. */
   canEditSeq: boolean;
 }
 
@@ -259,8 +257,7 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
 
   const columns = useMemo(() => {
     const orderColumns = [
-      // 036: prioridade do planejamento no nível OF — o número gravado
-      // aqui é aplicado a TODOS os itens da OF (pais e filhos).
+      // 036: prioridade global da OF, compartilhada por todos os itens.
       helper.accessor("seq", {
         id: "seq",
         header: () => (
@@ -275,12 +272,12 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
         cell: (info) => {
           const row = info.row.original;
           return (
-            <SeqCell
-              value={info.getValue()}
-              canEdit={capabilities.canEditSeq}
-              label={`${row.orderType} ${row.orderCode}`}
-              onCommit={(seq) => updateOrderItemsSeqAction(row.orderId, seq)}
-            />
+            <span
+              className="block w-full text-center tabular-nums"
+              title={`Sequência de fabricação de ${row.orderType} ${row.orderCode}`}
+            >
+              {info.getValue() ?? "—"}
+            </span>
           );
         },
       }),
@@ -445,7 +442,7 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
         columns: helper.columns(processColumns),
       }),
     ]);
-  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, capabilities.canEditSeq, scheduleByOrder, today]);
+  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, scheduleByOrder, today]);
 
   const table = useTable({
     features: coreFeatures,
@@ -584,13 +581,10 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
               </div>
               <div>
                 <dt className="inline">Seq.: </dt>
-                <dd className="inline">
-                  <SeqCell
-                    value={row.seq}
-                    canEdit={capabilities.canEditSeq}
-                    label={`${row.orderType} ${row.orderCode}`}
-                    onCommit={(seq) => updateOrderItemsSeqAction(row.orderId, seq)}
-                  />
+                <dd className="inline text-foreground tabular-nums">
+                  <span title={`Sequência de fabricação de ${row.orderType} ${row.orderCode}`}>
+                    {row.seq ?? "—"}
+                  </span>
                 </dd>
               </div>
               <div>

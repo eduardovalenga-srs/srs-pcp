@@ -16,6 +16,8 @@ export type ProcessStatusValue =
   | "NAO_INICIADO"
   | "CONCLUIDO"
   | "NAO_APLICAVEL";
+/** 078: espelho do recebimento de MP agregado por OF no sequenciamento. */
+export type MpReceiptStateValue = "NONE" | "PARCIAL" | "TOTAL";
 export type ImportBatchStatusValue = "PENDENTE" | "PROCESSANDO" | "CONCLUIDO" | "COM_ERROS" | "FALHOU";
 
 export type ProfileRow = {
@@ -149,7 +151,7 @@ export type ProcessScheduleSettingsRow = {
   updated_at: string;
 };
 
-/** Linha retornada pela RPC get_process_scheduling (070). */
+/** Linha retornada pela RPC get_process_scheduling (070/077/078). */
 export type ProcessSchedulingRowRecord = {
   order_id: string;
   order_code: string;
@@ -166,6 +168,10 @@ export type ProcessSchedulingRowRecord = {
   capacity_kg: number | string | null;
   position: number | string | null;
   notes: string | null;
+  /** 078: situação do processo selecionado na OF (null = sem processo). */
+  process_status: ProcessStatusValue | null;
+  /** 078: situação do recebimento de MP da OF (null = sem MP aplicável). */
+  mp_state: MpReceiptStateValue | null;
 };
 
 export type ProductionProcessRow = {
@@ -1190,6 +1196,8 @@ export type Database = {
           p_anchor?: string | null;
           p_timezone?: string;
           p_process_code?: string | null;
+          p_product_group_id?: number | null;
+          p_without_product_group?: boolean;
         };
         Returns: Json;
       };
@@ -1330,18 +1338,18 @@ export type Database = {
         Returns: undefined;
       };
       get_process_scheduling: {
-        // fila de um processo com peso, capacidade e posição salva (070)
+        // OFs pendentes de um processo (ou todas quando null), com sequência global (077)
         Args: {
-          p_process_id: string;
+          p_process_id: string | null;
           p_family_group_id?: number | null;
         };
         Returns: ProcessSchedulingRowRecord[];
       };
       save_process_schedule: {
-        // grava a ordem e a data de início do processo (070)
+        // grava a sequência global, opcionalmente com processo/data (077)
         Args: {
-          p_process_id: string;
-          p_anchor_date: string;
+          p_process_id: string | null;
+          p_anchor_date: string | null;
           p_rows: Json;
         };
         Returns: undefined;

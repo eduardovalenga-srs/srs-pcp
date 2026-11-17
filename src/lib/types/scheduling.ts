@@ -1,11 +1,14 @@
 /**
  * Sequenciamento de produção (070).
  *
- * A fila é POR PROCESSO: cada OF ocupa uma posição na fila daquele
- * processo. A carga é calculada em dias úteis a partir do peso da OF e
- * da capacidade em KG/dia do grupo de produto da família.
+ * A prioridade é GLOBAL e compartilhada com order_items.seq. O processo
+ * selecionado filtra OFs pendentes e fornece a capacidade para o cálculo
+ * de carga em dias úteis. As situações do processo e da MP por OF vêm
+ * agregadas do banco (078).
  */
 
+import type { ProcessStatus } from "@/lib/constants/production";
+import type { MpReceiptState } from "@/lib/types/mp-receipt";
 /** OF na fila de um processo (dados crus, antes do cálculo de datas). */
 export interface SchedulingOrderRow {
   orderId: string;
@@ -14,6 +17,8 @@ export interface SchedulingOrderRow {
   customerName: string | null;
   deliveryDate: string | null;
   orderStatus: string;
+  /** Posição da prioridade global (null = ainda não sequenciada). */
+  sequence: number | null;
   productGroupId: number | null;
   familyDescription: string | null;
   familyAbbreviation: string | null;
@@ -22,6 +27,10 @@ export interface SchedulingOrderRow {
   weightKg: number | null;
   capacityKg: number | null;
   notes: string | null;
+  /** 078: situação do processo selecionado na OF (null = sem processo). */
+  processStatus: ProcessStatus | null;
+  /** 078: situação do recebimento de MP da OF (null = sem MP aplicável). */
+  mpState: MpReceiptState | null;
 }
 
 /** Linha da tela com a carga e as datas previstas calculadas. */
@@ -35,7 +44,7 @@ export interface ScheduledOrderRow extends SchedulingOrderRow {
 }
 
 export interface ProcessSchedulingData {
-  processId: string;
+  processId: string | null;
   anchorDate: string;
   rows: SchedulingOrderRow[];
 }

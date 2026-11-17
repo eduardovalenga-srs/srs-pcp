@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { SchedulingOrderRow } from "@/lib/types/scheduling";
-import { computeScheduleRows, formatLoadDays } from "@/lib/utils/scheduling";
+import { computeScheduleRows, formatLoadDays, moveSchedulingRow } from "@/lib/utils/scheduling";
 
 /**
  * Calendário de referência: 2026-10-05 = segunda-feira.
@@ -17,6 +17,7 @@ function makeRow(overrides: Partial<SchedulingOrderRow> = {}): SchedulingOrderRo
     customerName: "Cliente",
     deliveryDate: "2026-12-01",
     orderStatus: "PLANEJADO",
+    sequence: null,
     productGroupId: 12,
     familyDescription: "Estruturas metálicas",
     familyAbbreviation: "EST",
@@ -25,9 +26,45 @@ function makeRow(overrides: Partial<SchedulingOrderRow> = {}): SchedulingOrderRo
     weightKg: 1000,
     capacityKg: 500,
     notes: null,
+    processStatus: null,
+    mpState: null,
     ...overrides,
   };
 }
+
+describe("moveSchedulingRow — edição direta da posição", () => {
+  const rows = [
+    makeRow({ orderId: "of-1", orderCode: "OF 1" }),
+    makeRow({ orderId: "of-2", orderCode: "OF 2" }),
+    makeRow({ orderId: "of-3", orderCode: "OF 3" }),
+  ];
+
+  it("move para a posição solicitada e desloca as demais", () => {
+    expect(moveSchedulingRow(rows, "of-1", 3).map((row) => row.orderId)).toEqual([
+      "of-2",
+      "of-3",
+      "of-1",
+    ]);
+    expect(moveSchedulingRow(rows, "of-3", 1).map((row) => row.orderId)).toEqual([
+      "of-3",
+      "of-1",
+      "of-2",
+    ]);
+  });
+
+  it("ignora posição fora da faixa e OF inexistente", () => {
+    expect(moveSchedulingRow(rows, "of-1", 0).map((row) => row.orderId)).toEqual([
+      "of-1",
+      "of-2",
+      "of-3",
+    ]);
+    expect(moveSchedulingRow(rows, "missing", 2).map((row) => row.orderId)).toEqual([
+      "of-1",
+      "of-2",
+      "of-3",
+    ]);
+  });
+});
 
 describe("computeScheduleRows — carga e datas em dias úteis", () => {
   it("calcula peso ÷ capacidade e acumula a carga em dias úteis", () => {

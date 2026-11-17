@@ -9,11 +9,12 @@ let close: () => Promise<void>;
 let adminId: string;
 let gestorId: string;
 let processId: string;
+let otherProcessId: string;
 let activeOrderId: string;
 let secondOrderId: string;
 
 /**
- * 070/071 — sequenciamento por processo e família da importação.
+ * 070/071/077/078 — sequência global filtrada por processo e família.
  * O calendário/cálculo de datas é testado na aplicação
  * (tests/scheduling.test.ts); aqui validamos a persistência e as RPCs.
  */
@@ -29,6 +30,10 @@ beforeAll(async () => {
     "select id, location from public.processes where code = 'LASER'",
   );
   processId = laser[0]?.id as string;
+  const { rows: solda } = await db.query<{ id: string }>(
+    "select id from public.processes where code = 'SOLDA'",
+  );
+  otherProcessId = solda[0]?.id as string;
 
   await asUser(db, "authenticated", adminId);
   const { rows: catalog } = await db.query<{ id: string; location: string; code: string }>(
@@ -103,6 +108,40 @@ beforeAll(async () => {
      values ($1, 'Conjunto D', 1, 120)`,
     [secondOrderId],
   );
+
+  // A tela só lista OFs cujo processo selecionado está pendente.
+  await db.query(
+    `insert into public.production_processes (order_item_id, process_id, status)
+     select oi.id, p.id, 'NAO_INICIADO'
+       from public.order_items oi
+       cross join public.processes p
+      where oi.order_id in ($1, $2, $3)
+        and p.code = 'LASER'`,
+    [activeOrderId, secondOrderId, semFamilia[0]?.id],
+  );
+  await db.query(
+    `insert into public.production_processes (order_item_id, process_id, status)
+     select oi.id, p.id, 'NAO_INICIADO'
+       from public.order_items oi
+       cross join public.processes p
+      where oi.order_id in ($1, $2)
+        and p.code = 'SOLDA'`,
+    [activeOrderId, secondOrderId],
+  );
+
+  // 078: espelho MP por OF — Conjunto C/D concluídos e o restante pendente.
+  // OF-SEQ-1 fica PARCIAL, OF-SEQ-2 TOTAL e OF-SEQ-SEM NONE.
+  await db.query(
+    `insert into public.production_processes (order_item_id, process_id, status)
+     select oi.id, p.id,
+            case when oi.description in ('Conjunto C', 'Conjunto D')
+                 then 'CONCLUIDO' else 'NAO_INICIADO' end
+       from public.order_items oi
+       cross join public.processes p
+      where oi.order_id in ($1, $2, $3)
+        and p.code = 'MP'`,
+    [activeOrderId, secondOrderId, semFamilia[0]?.id],
+  );
 });
 
 afterAll(async () => {
@@ -146,6 +185,60 @@ describe("migration 070 — get_process_scheduling", () => {
     expect(rows.map((row) => row.order_code)).toEqual(["OF-SEQ-2", "OF-SEQ-1", "OF-SEQ-SEM"]);
   });
 
+  it("filtra as OFs pelo processo pendente e usa a sequência global", async () => {
+    await asSuperUser(db);
+    await db.query(
+      `update public.order_items oi
+          set seq = case when oi.order_id = $1 then 2 else 1 end
+         where oi.order_id in ($1, $2)`,
+      [activeOrderId, secondOrderId],
+    );
+    await asUser(db, "authenticated", adminId);
+
+    const { rows } = await db.query<{ order_code: string }>(
+      `select order_code from public.get_process_scheduling($1, null)`,
+      [otherProcessId],
+    );
+    expect(rows.map((row) => row.order_code)).toEqual(["OF-SEQ-2", "OF-SEQ-1"]);
+
+    const { rows: allOrders } = await db.query<{ order_code: string }>(
+      `select order_code from public.get_process_scheduling(null, null)`,
+    );
+    expect(allOrders.map((row) => row.order_code)).toEqual([
+      "OF-SEQ-2",
+      "OF-SEQ-1",
+      "OF-SEQ-SEM",
+    ]);
+
+    await asSuperUser(db);
+    await db.query(
+      `update public.production_processes pp
+          set status = 'NAO_APLICAVEL'
+         from public.order_items oi
+        where oi.id = pp.order_item_id
+          and oi.order_id = $1
+          and pp.process_id = $2`,
+      [secondOrderId, otherProcessId],
+    );
+    await asUser(db, "authenticated", adminId);
+    const { rows: filtered } = await db.query<{ order_code: string }>(
+      `select order_code from public.get_process_scheduling($1, null)`,
+      [otherProcessId],
+    );
+    expect(filtered.map((row) => row.order_code)).toEqual(["OF-SEQ-1"]);
+
+    await asSuperUser(db);
+    await db.query(
+      `update public.production_processes pp
+          set status = 'NAO_INICIADO'
+         from public.order_items oi
+        where oi.id = pp.order_item_id
+          and oi.order_id = $1
+          and pp.process_id = $2`,
+      [secondOrderId, otherProcessId],
+    );
+  });
+
   it("filtra por família (grupo de produto)", async () => {
     await asUser(db, "authenticated", adminId);
 
@@ -178,6 +271,75 @@ describe("migration 070 — get_process_scheduling", () => {
   });
 });
 
+describe("migration 078 — situação do processo e da MP por OF", () => {
+  it("agrega o espelho de MP por OF (TOTAL/PARCIAL/NONE)", async () => {
+    await asUser(db, "authenticated", adminId);
+
+    const { rows } = await db.query<{ order_code: string; mp_state: string | null }>(
+      `select order_code, mp_state from public.get_process_scheduling($1, null)`,
+      [processId],
+    );
+
+    const byCode = new Map(rows.map((row) => [row.order_code, row.mp_state]));
+    expect(byCode.get("OF-SEQ-1")).toBe("PARCIAL");
+    expect(byCode.get("OF-SEQ-2")).toBe("TOTAL");
+    expect(byCode.get("OF-SEQ-SEM")).toBe("NONE");
+  });
+
+  it("OF sem MP aplicável fica com situação nula", async () => {
+    await asSuperUser(db);
+    await db.query(
+      `update public.production_processes pp
+          set status = 'NAO_APLICAVEL'
+         from public.order_items oi, public.processes p
+        where oi.id = pp.order_item_id
+          and oi.order_id = $1
+          and p.id = pp.process_id
+          and p.code = 'MP'`,
+      [await idOf("OF-SEQ-SEM")],
+    );
+
+    await asUser(db, "authenticated", adminId);
+    const { rows } = await db.query<{ order_code: string; mp_state: string | null }>(
+      `select order_code, mp_state from public.get_process_scheduling($1, null)`,
+      [processId],
+    );
+    expect(rows.find((row) => row.order_code === "OF-SEQ-SEM")?.mp_state).toBeNull();
+
+    // Restaura o cenário dos demais testes.
+    await asSuperUser(db);
+    await db.query(
+      `update public.production_processes pp
+          set status = 'NAO_INICIADO'
+         from public.order_items oi, public.processes p
+        where oi.id = pp.order_item_id
+          and oi.order_id = $1
+          and p.id = pp.process_id
+          and p.code = 'MP'`,
+      [await idOf("OF-SEQ-SEM")],
+    );
+  });
+
+  it("mostra a situação do processo só quando há processo selecionado", async () => {
+    await asUser(db, "authenticated", adminId);
+
+    const { rows: filtered } = await db.query<{
+      order_code: string;
+      process_status: string | null;
+    }>(`select order_code, process_status from public.get_process_scheduling($1, null)`, [
+      processId,
+    ]);
+    // O filtro só devolve OFs com a etapa pendente: nunca CONCLUIDO aqui.
+    expect(filtered).toHaveLength(3);
+    expect(filtered.every((row) => row.process_status === "NAO_INICIADO")).toBe(true);
+
+    const { rows: global } = await db.query<{ process_status: string | null }>(
+      `select process_status from public.get_process_scheduling(null, null)`,
+    );
+    expect(global.every((row) => row.process_status === null)).toBe(true);
+  });
+});
+
 describe("migration 070 — save_process_schedule", () => {
   it("grava posições, observações e a data de início (ADMIN)", async () => {
     await asUser(db, "authenticated", adminId);
@@ -206,6 +368,23 @@ describe("migration 070 — save_process_schedule", () => {
 
     expect(rows.map((row) => row.order_code)).toEqual(["OF-SEQ-1", "OF-SEQ-2"]);
     expect(rows[0]?.notes).toBe("Prioridade do cliente");
+
+    const { rows: globalSequence } = await db.query<{
+      order_code: string;
+      position: number;
+    }>(
+      `select o.code as order_code, min(oi.seq)::int as position
+         from public.orders o
+         join public.order_items oi on oi.order_id = o.id
+        where o.id in ($1, $2)
+        group by o.code
+        order by position`,
+      [activeOrderId, secondOrderId],
+    );
+    expect(globalSequence.map((row) => [row.order_code, row.position])).toEqual([
+      ["OF-SEQ-1", 1],
+      ["OF-SEQ-2", 2],
+    ]);
 
     const { rows: settings } = await db.query<{ anchor_date: string }>(
       `select to_char(anchor_date, 'YYYY-MM-DD') as anchor_date
@@ -253,9 +432,19 @@ describe("migration 070 — save_process_schedule", () => {
       "OF-SEQ-1",
       "OF-SEQ-SEM",
     ]);
+
+    // A ordem salva por LASER também é consumida pela fila de SOLDA.
+    const { rows: otherProcessOrdering } = await db.query<{ order_code: string }>(
+      `select order_code from public.get_process_scheduling($1, null)`,
+      [otherProcessId],
+    );
+    expect(otherProcessOrdering.map((row) => row.order_code)).toEqual([
+      "OF-SEQ-2",
+      "OF-SEQ-1",
+    ]);
   });
 
-  it("salvar uma visão filtrada preserva a posição das outras OFs", async () => {
+  it("salvar uma visão filtrada move as OFs já sequenciadas omitidas para o fim global", async () => {
     const semFamiliaId = await idOf("OF-SEQ-SEM");
     await asUser(db, "authenticated", adminId);
 
@@ -281,18 +470,33 @@ describe("migration 070 — save_process_schedule", () => {
     ]);
 
     const { rows } = await db.query<{ order_code: string; position: number }>(
-      `select o.code as order_code, s.position
-         from public.order_process_schedules s
-         join public.orders o on o.id = s.order_id
-        where s.process_id = $1
-        order by s.position`,
+      `select order_code, "position"
+         from public.get_process_scheduling($1, null)`,
       [processId],
     );
 
     expect(rows.map((row) => [row.order_code, row.position])).toEqual([
-      ["OF-SEQ-SEM", 1],
-      ["OF-SEQ-2", 2],
-      ["OF-SEQ-1", 3],
+      ["OF-SEQ-2", 1],
+      ["OF-SEQ-1", 2],
+      ["OF-SEQ-SEM", 3],
+    ]);
+
+    const { rows: globalSequence } = await db.query<{
+      order_code: string;
+      position: number;
+    }>(
+      `select o.code as order_code, min(oi.seq)::int as position
+         from public.orders o
+         join public.order_items oi on oi.order_id = o.id
+        where o.id in ($1, $2, $3)
+        group by o.code
+        order by position`,
+      [semFamiliaId, secondOrderId, activeOrderId],
+    );
+    expect(globalSequence.map((row) => [row.order_code, row.position])).toEqual([
+      ["OF-SEQ-2", 1],
+      ["OF-SEQ-1", 2],
+      ["OF-SEQ-SEM", 3],
     ]);
 
     const { rows: settings } = await db.query<{ anchor_date: string }>(
@@ -301,6 +505,72 @@ describe("migration 070 — save_process_schedule", () => {
       [processId],
     );
     expect(settings[0]?.anchor_date).toBe("2026-10-08");
+  });
+
+  it("permite salvar a sequência global sem processo nem data", async () => {
+    const semFamiliaId = await idOf("OF-SEQ-SEM");
+    await asUser(db, "authenticated", adminId);
+
+    await db.query(`select public.save_process_schedule($1, $2, $3::jsonb)`, [
+      null,
+      null,
+      JSON.stringify([
+        { order_id: semFamiliaId, position: 1, notes: null },
+        { order_id: activeOrderId, position: 2, notes: null },
+        { order_id: secondOrderId, position: 3, notes: null },
+      ]),
+    ]);
+
+    const { rows } = await db.query<{ order_code: string; position: number }>(
+      `select o.code as order_code, min(oi.seq)::int as position
+         from public.orders o
+         join public.order_items oi on oi.order_id = o.id
+        where o.id in ($1, $2, $3)
+        group by o.code
+        order by position`,
+      [semFamiliaId, activeOrderId, secondOrderId],
+    );
+    expect(rows.map((row) => [row.order_code, row.position])).toEqual([
+      ["OF-SEQ-SEM", 1],
+      ["OF-SEQ-1", 2],
+      ["OF-SEQ-2", 3],
+    ]);
+  });
+
+  it("preserva sequências históricas de OFs concluídas", async () => {
+    await asSuperUser(db);
+    const completedOrderId = await idOf("OF-SEQ-CONCLUIDA");
+    await db.query(
+      `insert into public.order_items (order_id, description, quantity, seq)
+       values ($1, 'Item concluído', 1, 100)`,
+      [completedOrderId],
+    );
+
+    await asUser(db, "authenticated", adminId);
+    await db.query(`select public.save_process_schedule($1, $2, $3::jsonb)`, [
+      processId,
+      "2026-10-09",
+      JSON.stringify([
+        { order_id: secondOrderId, position: 1, notes: null },
+        { order_id: activeOrderId, position: 2, notes: null },
+      ]),
+    ]);
+
+    const { rows } = await db.query<{ order_code: string; position: number }>(
+      `select o.code as order_code, min(oi.seq)::int as position
+         from public.orders o
+         join public.order_items oi on oi.order_id = o.id
+        where o.id in ($1, $2, $3, $4)
+        group by o.code
+        order by position`,
+      [completedOrderId, secondOrderId, activeOrderId, await idOf("OF-SEQ-SEM")],
+    );
+    expect(rows.map((row) => [row.order_code, row.position])).toEqual([
+      ["OF-SEQ-CONCLUIDA", 100],
+      ["OF-SEQ-2", 101],
+      ["OF-SEQ-1", 102],
+      ["OF-SEQ-SEM", 103],
+    ]);
   });
 
   it("rejeita gravação de perfil sem permissão e data ausente", async () => {

@@ -11,6 +11,14 @@ interface ExportButtonProps {
   endpoint: string;
   /** Nome do arquivo quando a resposta não vier com Content-Disposition. */
   fallbackFileName: string;
+  /**
+   * Filtros adicionais enviados na query string. Útil quando o estado da
+   * tela não vive na URL (dashboard): sobrescreve as chaves informadas e
+   * preserva o restante da query atual.
+   */
+  params?: Record<string, string | number | null | undefined>;
+  /** Bloqueia o clique (ex.: painel carregando ou sem dados). */
+  disabled?: boolean;
 }
 
 /** Extrai o filename do header Content-Disposition (`attachment; filename="..."`). */
@@ -24,13 +32,19 @@ function fileNameFrom(header: string | null, fallback: string): string {
  * então a planilha espelha os FILTROS vigentes — a lista inteira, não só a
  * página visível.
  */
-export function ExportButton({ endpoint, fallbackFileName }: ExportButtonProps) {
+export function ExportButton({ endpoint, fallbackFileName, params, disabled = false }: ExportButtonProps) {
   const [busy, setBusy] = useState(false);
 
   const handleExport = async () => {
     setBusy(true);
     try {
-      const response = await fetch(`${endpoint}${window.location.search}`, { method: "GET" });
+      const search = new URLSearchParams(window.location.search);
+      for (const [key, value] of Object.entries(params ?? {})) {
+        if (value === null || value === undefined || value === "") search.delete(key);
+        else search.set(key, String(value));
+      }
+      const query = search.toString();
+      const response = await fetch(query ? `${endpoint}?${query}` : endpoint, { method: "GET" });
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
         toast.error(payload?.error ?? "Não foi possível exportar a lista.");
@@ -55,7 +69,7 @@ export function ExportButton({ endpoint, fallbackFileName }: ExportButtonProps) 
   };
 
   return (
-    <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={busy}>
+    <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()} disabled={disabled || busy}>
       {busy ? (
         <Loader2 className="animate-spin" aria-hidden />
       ) : (

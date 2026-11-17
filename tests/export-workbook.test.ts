@@ -2,7 +2,7 @@ import * as XLSX from "xlsx";
 import { describe, expect, it } from "vitest";
 
 import type { ExportSheet } from "@/lib/export/columns";
-import { buildWorkbook } from "@/lib/export/workbook";
+import { buildWorkbook, buildWorkbookSheets } from "@/lib/export/workbook";
 
 const SHEET: ExportSheet = {
   headers: ["OF/OS", "Ent.", "Qtd.", "Matérias-primas"],
@@ -70,5 +70,53 @@ describe("buildWorkbook", () => {
 
     expect(cell.t).toBe("s");
     expect(cell.v).toBe("—");
+  });
+});
+
+describe("buildWorkbookSheets", () => {
+  const OTHER: ExportSheet = {
+    headers: ["Processo", "Peso (kg)"],
+    rows: [["MP", 20]],
+    dateColumns: [],
+  };
+
+  /** Lê o .xlsx de várias abas de volta. */
+  function roundTripMany(sheets: Parameters<typeof buildWorkbookSheets>[0]) {
+    return XLSX.read(buildWorkbookSheets(sheets), {
+      type: "buffer",
+      cellDates: false,
+      cellNF: true,
+      cellStyles: true,
+    });
+  }
+
+  it("preserva a ordem e o conteúdo das abas", () => {
+    const workbook = roundTripMany([
+      { name: "Lançamentos", sheet: SHEET },
+      { name: "Totais por processo", sheet: OTHER },
+    ]);
+
+    expect(workbook.SheetNames).toEqual(["Lançamentos", "Totais por processo"]);
+    expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets["Lançamentos"], { header: 1 })[0]).toEqual(
+      SHEET.headers,
+    );
+    expect(workbook.Sheets["Totais por processo"]["B2"]).toMatchObject({ t: "n", v: 20 });
+  });
+
+  it("sanitiza nomes proibidos pelo Excel e limita a 31 caracteres", () => {
+    const workbook = roundTripMany([
+      { name: "Lista/2026 [final]:*?", sheet: SHEET },
+      { name: "Um nome de aba absurdamente comprido para o Excel", sheet: OTHER },
+      { name: "[]:*?/\\", sheet: OTHER },
+    ]);
+
+    expect(workbook.SheetNames[0]).toBe("Lista 2026  final");
+    expect(workbook.SheetNames[1]).toHaveLength(31);
+    // Nome só com caracteres proibidos cai no rótulo padrão.
+    expect(workbook.SheetNames[2]).toBe("Planilha");
+  });
+
+  it("exige ao menos uma aba", () => {
+    expect(() => buildWorkbookSheets([])).toThrow(/ao menos uma aba/);
   });
 });

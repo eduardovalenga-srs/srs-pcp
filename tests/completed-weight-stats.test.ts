@@ -276,4 +276,86 @@ describe("get_completed_weight_stats (074)", () => {
 
     await db.query(`delete from public.orders where id = $1`, [orderId]);
   });
+
+  it("recorta por família e devolve o montante de cada grupo no período (079)", async () => {
+    await asSuperUser(db);
+    const { rows: groupRows } = await db.query<{ id: number }>(
+      `insert into public.product_groups (family_description, family_abbreviation)
+       values ('Alfa 079', 'A79'), ('Beta 079', 'B79')
+       returning id`,
+    );
+    const [groupA, groupB] = groupRows.map((row) => row.id);
+
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type, product_group_id)
+       values ('OF-WEIGHT-079-A', 'OF', $1),
+              ('OF-WEIGHT-079-B', 'OF', $2),
+              ('OF-WEIGHT-079-NONE', 'OF', null)
+       returning id`,
+      [groupA, groupB],
+    );
+    const orderIds = orderRows.map((row) => row.id);
+
+    const items = [
+      { order: orderIds[0], quantity: 2, weight: 10 }, // 20 kg
+      { order: orderIds[1], quantity: 3, weight: 4 }, // 12 kg
+      { order: orderIds[2], quantity: 1, weight: 5 }, // 5 kg
+    ];
+    for (const item of items) {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.order_items (order_id, description, quantity, unit_weight_kg)
+         values ($1, 'Item família 079', $2, $3) returning id`,
+        [item.order, item.quantity, item.weight],
+      );
+      await db.query(
+        `insert into public.production_processes
+           (order_item_id, process_id, status, quantity_planned, quantity_completed, completed_at)
+         select $1, p.id, 'CONCLUIDO', $2, $2, '2026-11-12 12:00:00-03'
+           from public.processes p where p.code = 'MP'`,
+        [rows[0]?.id, item.quantity],
+      );
+    }
+
+    // Sem filtro: todos os grupos (inclusive "Sem família") aparecem.
+    const { rows: allRows } = await db.query<{ stats: Stats }>(
+      `select public.get_completed_weight_stats('month', '2026-11-12', 'America/Sao_Paulo', null) as stats`,
+    );
+    const all = parseStats(allRows[0]?.stats);
+    expect(all?.productGroupId).toBeNull();
+    expect(all?.withoutProductGroup).toBe(false);
+    expect(all?.total).toEqual({ weightKg: 37, quantity: 6 });
+    expect(all?.groups).toEqual([
+      { id: groupA, name: "Alfa 079", abbreviation: "A79", weightKg: 20, quantity: 2, items: 1, cells: 1 },
+      { id: groupB, name: "Beta 079", abbreviation: "B79", weightKg: 12, quantity: 3, items: 1, cells: 1 },
+      { id: null, name: "Sem família", abbreviation: "—", weightKg: 5, quantity: 1, items: 1, cells: 1 },
+    ]);
+
+    // Filtro por família: total/matriz recortados, mas os totais dos
+    // grupos continuam completos para o seletor.
+    const { rows: filteredRows } = await db.query<{ stats: Stats }>(
+      `select public.get_completed_weight_stats('month', '2026-11-12', 'America/Sao_Paulo', null, $1, false) as stats`,
+      [groupA],
+    );
+    const filtered = parseStats(filteredRows[0]?.stats);
+    expect(filtered?.productGroupId).toBe(groupA);
+    expect(filtered?.total).toEqual({ weightKg: 20, quantity: 2 });
+    expect(filtered?.groups).toHaveLength(3);
+    expect(
+      (filtered?.days as Array<{ date: string; processes: Array<{ weightKg: number }> }>).find(
+        (day) => day.date === "2026-11-12",
+      )?.processes,
+    ).toEqual([{ code: "MP", weightKg: 20, quantity: 2, cells: 1 }]);
+
+    // "Sem família" seleciona apenas as OFs com product_group_id nulo.
+    const { rows: noneRows } = await db.query<{ stats: Stats }>(
+      `select public.get_completed_weight_stats('month', '2026-11-12', 'America/Sao_Paulo', null, null, true) as stats`,
+    );
+    const none = parseStats(noneRows[0]?.stats);
+    expect(none?.withoutProductGroup).toBe(true);
+    expect(none?.total).toEqual({ weightKg: 5, quantity: 1 });
+    expect(none?.groups).toHaveLength(3);
+
+    await db.query(`delete from public.orders where id = any($1::uuid[])`, [orderIds]);
+    await db.query(`delete from public.product_groups where id = any($1::bigint[])`, [[groupA, groupB]]);
+  });
 });

@@ -283,6 +283,21 @@ export interface CompletedWeightTotals {
   quantity: number;
 }
 
+/** Montante de uma família de produto no período (079). */
+export interface CompletedWeightGroupStat {
+  /** `product_groups.id`; null = OFs sem família. */
+  id: number | null;
+  name: string;
+  /** Abreviação da família ("—" quando sem família). */
+  abbreviation: string;
+  weightKg: number;
+  quantity: number;
+  /** Quantas células (processo × item) foram concluídas no grupo. */
+  cells: number;
+  /** Quantos itens do grupo tiveram produção no período. */
+  items: number;
+}
+
 /** Um dia do período com a produção concluída de cada processo. */
 export interface CompletedWeightDay {
   /** Dia no formato AAAA-MM-DD (calendário do fuso do negócio). */
@@ -304,7 +319,16 @@ export interface CompletedWeightStats {
   periodStart: string;
   periodEnd: string;
   processCode: string | null;
+  /** Família filtrada; null = todas (ou "sem família", conforme a flag). */
+  productGroupId: number | null;
+  /** true quando o recorte são apenas OFs sem família (079). */
+  withoutProductGroup: boolean;
   processes: CompletedWeightProcessStat[];
+  /**
+   * Montante por família no período (079). Ignora o filtro de família,
+   * mas respeita o de processo — alimenta as opções do seletor.
+   */
+  groups: CompletedWeightGroupStat[];
   total: CompletedWeightTotals;
   previous: CompletedWeightTotals;
   /** Matriz: um registro por dia do período, inclusive dias sem produção. */

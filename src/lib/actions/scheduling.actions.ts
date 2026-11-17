@@ -17,7 +17,7 @@ export interface SaveProcessScheduleResult {
   message: string;
 }
 
-/** Salva a fila do processo e a data de início (070). */
+/** Salva a prioridade global; processo/data são opcionais (077). */
 export async function saveProcessScheduleAction(
   input: SaveProcessScheduleInput,
 ): Promise<SaveProcessScheduleResult> {
@@ -36,6 +36,10 @@ export async function saveProcessScheduleAction(
     });
 
     revalidatePath("/sequenciamento");
+    revalidatePath("/gestao-entregas");
+    revalidatePath("/fabrica-1");
+    revalidatePath("/fabrica-2");
+    revalidatePath("/dashboard");
     return { success: true, message: "Sequenciamento salvo." };
   } catch (error) {
     console.error("[saveProcessScheduleAction]", error);

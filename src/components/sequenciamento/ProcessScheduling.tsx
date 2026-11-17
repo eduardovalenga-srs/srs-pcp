@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowDown, ArrowUp, Loader2, Save } from "lucide-react";
+import { AlertTriangle, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveProcessScheduleAction } from "@/lib/actions/scheduling.actions";
@@ -10,17 +10,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import type { ProcessStatus } from "@/lib/constants/production";
 import type { ProcessDefinition } from "@/lib/types/production";
 import type { ProductGroupDefinition } from "@/lib/types/product-group";
+import type { MpReceiptState } from "@/lib/types/mp-receipt";
 import type { SchedulingOrderRow } from "@/lib/types/scheduling";
 import { formatDate } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
-import { computeScheduleRows, formatLoadDays } from "@/lib/utils/scheduling";
+import { MP_RECEIPT_STATE_LABELS, mpReceiptClass } from "@/lib/utils/mp-receipt";
+import { computeScheduleRows, formatLoadDays, moveSchedulingRow } from "@/lib/utils/scheduling";
 
 interface ProcessSchedulingProps {
   processes: ProcessDefinition[];
   groups: ProductGroupDefinition[];
-  processId: string;
+  processId: string | null;
   familyGroupId: number | null;
   initialAnchorDate: string;
   initialRows: SchedulingOrderRow[];
@@ -42,8 +46,17 @@ export function ProcessScheduling({
   const [saving, setSaving] = useState(false);
 
   const scheduledRows = useMemo(
-    () => computeScheduleRows(rows, anchorDate),
-    [rows, anchorDate],
+    () =>
+      processId
+        ? computeScheduleRows(rows, anchorDate)
+        : rows.map((row) => ({
+            ...row,
+            loadDays: null,
+            startDate: null,
+            endDate: null,
+            issue: null,
+          })),
+    [rows, anchorDate, processId],
   );
 
   const totals = useMemo(() => {
@@ -56,29 +69,15 @@ export function ProcessScheduling({
     );
   }, [scheduledRows]);
 
-  const goTo = (nextProcessId: string, nextFamilyId: number | null) => {
+  const goTo = (nextProcessId: string | null, nextFamilyId: number | null) => {
     const params = new URLSearchParams();
-    params.set("processo", nextProcessId);
+    if (nextProcessId) params.set("processo", nextProcessId);
     if (nextFamilyId !== null) params.set("familia", String(nextFamilyId));
     router.push(`/sequenciamento?${params.toString()}`);
   };
 
-  const move = (index: number, direction: -1 | 1) => {
-    setRows((current) => {
-      const target = index + direction;
-      if (target < 0 || target >= current.length) return current;
-      const next = [...current];
-      const [moved] = next.splice(index, 1);
-      if (!moved) return current;
-      next.splice(target, 0, moved);
-      return next;
-    });
-  };
-
-  const updateNotes = (orderId: string, notes: string) => {
-    setRows((current) =>
-      current.map((row) => (row.orderId === orderId ? { ...row, notes } : row)),
-    );
+  const moveTo = (orderId: string, position: number) => {
+    setRows((current) => moveSchedulingRow(current, orderId, position));
   };
 
   const handleSave = async () => {
@@ -87,11 +86,13 @@ export function ProcessScheduling({
     try {
       const result = await saveProcessScheduleAction({
         processId,
-        anchorDate,
+        anchorDate: processId ? anchorDate : null,
         rows: rows.map((row) => ({ orderId: row.orderId, notes: row.notes })),
       });
-      if (result.success) toast.success(result.message);
-      else toast.error(result.message);
+      if (result.success) {
+        toast.success(result.message);
+        router.refresh();
+      } else toast.error(result.message);
     } finally {
       setSaving(false);
     }
@@ -104,16 +105,17 @@ export function ProcessScheduling({
     <section className="space-y-3">
       <div className="flex flex-wrap items-end gap-3 rounded border bg-card p-3">
         <div className="space-y-1.5">
-          <Label htmlFor="sequenciamento-processo">Processo *</Label>
+          <Label htmlFor="sequenciamento-processo">Processo</Label>
           <Select
-            value={processId}
-            onValueChange={(value) => goTo(value, familyGroupId)}
+            value={processId ?? "ALL"}
+            onValueChange={(value) => goTo(value === "ALL" ? null : value, familyGroupId)}
             disabled={saving}
           >
             <SelectTrigger id="sequenciamento-processo" className="w-[260px]">
-              <SelectValue placeholder="Selecione o processo" />
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="ALL">Todos os processos</SelectItem>
               {processes.map((process) => (
                 <SelectItem key={process.id} value={process.id}>
                   {process.name} ({process.code})
@@ -145,17 +147,19 @@ export function ProcessScheduling({
           </Select>
         </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="sequenciamento-inicio">Data de início</Label>
-          <Input
-            id="sequenciamento-inicio"
-            type="date"
-            className="w-[170px]"
-            value={anchorDate}
-            onChange={(event) => setAnchorDate(event.target.value)}
-            disabled={saving}
-          />
-        </div>
+        {processId ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="sequenciamento-inicio">Data de início</Label>
+            <Input
+              id="sequenciamento-inicio"
+              type="date"
+              className="w-[170px]"
+              value={anchorDate}
+              onChange={(event) => setAnchorDate(event.target.value)}
+              disabled={saving}
+            />
+          </div>
+        ) : null}
 
         {canEdit ? (
           <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
@@ -176,24 +180,45 @@ export function ProcessScheduling({
         <span>
           Peso: <strong className="text-foreground">{formatWeight(totals.weight)} kg</strong>
         </span>
-        <span>
-          Carga: <strong className="text-foreground">{formatLoadDays(totals.days)} dia(s)</strong>
-        </span>
-        <span>
-          Início: <strong className="text-foreground">{formatDate(anchorDate)}</strong>
-        </span>
+        {processId ? (
+          <>
+            <span>
+              Carga: <strong className="text-foreground">{formatLoadDays(totals.days)} dia(s)</strong>
+            </span>
+            <span>
+              Início: <strong className="text-foreground">{formatDate(anchorDate)}</strong>
+            </span>
+          </>
+        ) : null}
       </div>
+
+      {canEdit ? (
+        <p className="text-xs text-muted-foreground">
+          Ao salvar, as OFs exibidas assumem o início da sequência global. OFs já sequenciadas que
+          ficaram fora dos filtros vão para o fim da fila.
+        </p>
+      ) : null}
+
+      {!processId ? (
+        <p className="rounded border border-blue-500/30 bg-blue-50 px-3 py-2 text-xs text-blue-950 dark:bg-blue-950/20 dark:text-blue-100">
+          Você pode salvar esta sequência global sem selecionar um processo. Selecione um processo
+          para filtrar as OFs por etapa e calcular a capacidade.
+        </p>
+      ) : null}
 
       {scheduledRows.length === 0 ? (
         <p className="rounded border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
-          Nenhuma OF ativa para este processo. Ajuste o filtro de família ou importe as OFs com a família
-          selecionada.
+          {processId
+            ? "Nenhuma OF pendente para este processo. Ajuste o filtro de família ou confira as etapas cadastradas nas OFs."
+            : "Nenhuma OF ativa para exibir."}
         </p>
       ) : (
         <div className="overflow-x-auto rounded border bg-card">
           <table className="w-full min-w-max border-separate border-spacing-0 text-sm">
             <caption className="sr-only">
-              Sequenciamento das OFs para o processo selecionado
+              {processId
+                ? "Sequenciamento global das OFs pendentes para o processo selecionado"
+                : "Sequência global das OFs"}
             </caption>
             <thead>
               <tr className="bg-muted/50 text-left text-xs uppercase tracking-wide">
@@ -204,11 +229,12 @@ export function ProcessScheduling({
                 <th scope="col" className="min-w-24 border-b px-2 py-2 text-right">Peso (kg)</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2">Entrega</th>
                 <th scope="col" className="min-w-28 border-b px-2 py-2">Família</th>
+                <th scope="col" className="min-w-24 border-b px-2 py-2">Processo</th>
+                <th scope="col" className="min-w-20 border-b px-2 py-2">MP</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2 text-right">Cap. (kg/dia)</th>
                 <th scope="col" className="min-w-20 border-b px-2 py-2 text-right">Carga (dias)</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2">Início prev.</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2">Fim prev.</th>
-                <th scope="col" className="min-w-48 border-b px-2 py-2">Observação</th>
               </tr>
             </thead>
             <tbody>
@@ -216,33 +242,23 @@ export function ProcessScheduling({
                 <tr key={row.orderId} className="align-middle hover:bg-muted/20">
                   <td className="border-b px-2 py-1.5">
                     <div className="flex items-center gap-1">
-                      <span className="w-6 text-right font-semibold tabular-nums">{index + 1}</span>
                       {canEdit ? (
-                        <span className="flex flex-col">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            className="h-5 w-5"
-                            onClick={() => move(index, -1)}
-                            disabled={saving || index === 0}
-                            aria-label={`Mover ${row.orderCode} para cima`}
-                          >
-                            <ArrowUp className="h-3 w-3" aria-hidden />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            className="h-5 w-5"
-                            onClick={() => move(index, 1)}
-                            disabled={saving || index === scheduledRows.length - 1}
-                            aria-label={`Mover ${row.orderCode} para baixo`}
-                          >
-                            <ArrowDown className="h-3 w-3" aria-hidden />
-                          </Button>
+                        <SequencePositionInput
+                          key={`${row.orderId}-${index + 1}`}
+                          orderCode={row.orderCode}
+                          position={index + 1}
+                          max={scheduledRows.length}
+                          disabled={saving}
+                          onCommit={(position) => moveTo(row.orderId, position)}
+                        />
+                      ) : (
+                        <span
+                          className="block w-full text-center font-semibold tabular-nums"
+                          title={`Sequência global de ${row.orderCode}`}
+                        >
+                          {row.sequence ?? "—"}
                         </span>
-                      ) : null}
+                      )}
                     </div>
                   </td>
                   <td className="border-b px-2 py-1.5 font-medium tabular-nums">{row.orderCode}</td>
@@ -259,6 +275,36 @@ export function ProcessScheduling({
                       <span title={row.familyDescription ?? undefined}>{row.groupType}</span>
                     ) : (
                       <span className="text-amber-700 dark:text-amber-400">Sem família</span>
+                    )}
+                  </td>
+                  <td className="border-b px-2 py-1.5">
+                    {row.processStatus ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-semibold",
+                          processStatusClass(row.processStatus),
+                        )}
+                        title={`Processo selecionado — ${row.orderCode}: ${PROCESS_STATUS_UI_LABELS[row.processStatus]}`}
+                      >
+                        {PROCESS_STATUS_UI_LABELS[row.processStatus]}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="border-b px-2 py-1.5">
+                    {row.mpState ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-semibold",
+                          mpReceiptClass(row.mpState),
+                        )}
+                        title={`Matéria-prima — ${row.orderCode}: ${MP_RECEIPT_STATE_LABELS[row.mpState]}`}
+                      >
+                        {MP_STATE_UI_LABELS[row.mpState]}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
                     )}
                   </td>
                   <td className="border-b px-2 py-1.5 text-right tabular-nums">
@@ -279,20 +325,6 @@ export function ProcessScheduling({
                   </td>
                   <td className="border-b px-2 py-1.5 tabular-nums">{formatDate(row.startDate)}</td>
                   <td className="border-b px-2 py-1.5 tabular-nums">{formatDate(row.endDate)}</td>
-                  <td className="border-b px-2 py-1.5">
-                    {canEdit ? (
-                      <Input
-                        aria-label={`Observação da OF ${row.orderCode}`}
-                        className="h-7 min-w-44 px-1.5 text-xs"
-                        maxLength={500}
-                        value={row.notes ?? ""}
-                        disabled={saving}
-                        onChange={(event) => updateNotes(row.orderId, event.target.value)}
-                      />
-                    ) : (
-                      row.notes || "—"
-                    )}
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -300,12 +332,98 @@ export function ProcessScheduling({
         </div>
       )}
 
-      {scheduledRows.some((row) => row.issue) ? (
+      {processId && scheduledRows.some((row) => row.issue) ? (
         <p className="rounded border border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
           As OFs com alerta não entram no cálculo de datas. Confira a família/capacidade em{" "}
           <strong>Grupos de produtos</strong> e o peso dos itens.
         </p>
       ) : null}
     </section>
+  );
+}
+
+/** Rótulos curtos da coluna Processo (078). */
+const PROCESS_STATUS_UI_LABELS: Record<ProcessStatus, string> = {
+  CONCLUIDO: "Concluído",
+  NAO_INICIADO: "Pendente",
+  NAO_APLICAVEL: "—",
+};
+
+/** Rótulos curtos da coluna MP (078) — mesma situação da coluna MP das listas. */
+const MP_STATE_UI_LABELS: Record<MpReceiptState, string> = {
+  NONE: "Pendente",
+  PARCIAL: "Parcial",
+  TOTAL: "Total",
+};
+
+/** Cores da coluna Processo — mesmas da célula de processo das listas. */
+function processStatusClass(status: ProcessStatus): string {
+  return status === "CONCLUIDO"
+    ? "border-status-done/40 bg-status-done-bg text-status-done"
+    : "border-border bg-background text-muted-foreground";
+}
+
+function SequencePositionInput({
+  orderCode,
+  position,
+  max,
+  disabled,
+  onCommit,
+}: {
+  orderCode: string;
+  position: number;
+  max: number;
+  disabled: boolean;
+  onCommit: (position: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(position));
+  const skipNextBlur = useRef(false);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    const parsed = Number(trimmed);
+    if (!/^\d+$/.test(trimmed) || !Number.isInteger(parsed) || parsed < 1 || parsed > max) {
+      toast.error(`Informe uma sequência entre 1 e ${max}.`);
+      setDraft(String(position));
+      return;
+    }
+
+    setDraft(String(parsed));
+    if (parsed !== position) onCommit(parsed);
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commit();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      skipNextBlur.current = true;
+      setDraft(String(position));
+      event.currentTarget.blur();
+    }
+  };
+
+  return (
+    <Input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      className="h-7 w-14 px-1 text-center text-xs font-semibold tabular-nums"
+      value={draft}
+      maxLength={String(max).length}
+      disabled={disabled}
+      aria-label={`Posição na sequência da OF ${orderCode}`}
+      title={`Informe uma posição de 1 a ${max}; as outras OFs serão deslocadas`}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={onKeyDown}
+      onBlur={() => {
+        if (skipNextBlur.current) {
+          skipNextBlur.current = false;
+          return;
+        }
+        commit();
+      }}
+    />
   );
 }

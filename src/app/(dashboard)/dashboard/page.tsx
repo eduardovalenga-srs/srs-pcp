@@ -15,7 +15,9 @@ import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getDashboardCompletedWeight, getDashboardData } from "@/lib/services/production.service";
 import { getDashboardOrders } from "@/lib/repositories/orders.repository";
+import { listProductGroupOptions } from "@/lib/repositories/product-groups.repository";
 import type { CompletedWeightStats } from "@/lib/types/production";
+import type { ProductGroupOption } from "@/lib/types/product-group";
 import { todayISODate } from "@/lib/utils/dates";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -58,13 +60,18 @@ export default async function DashboardPage() {
 
   let stats: Awaited<ReturnType<typeof getDashboardData>>;
   let orders: Awaited<ReturnType<typeof getDashboardOrders>>;
+  let families: ProductGroupOption[] = [];
   let completedWeight: CompletedWeightStats | null = null;
   let completedWeightError = "";
   const today = todayISODate();
   let client: Awaited<ReturnType<typeof createClient>>;
   try {
     client = await createClient();
-    [stats, orders] = await Promise.all([getDashboardData(client), getDashboardOrders(client)]);
+    [stats, orders, families] = await Promise.all([
+      getDashboardData(client),
+      getDashboardOrders(client),
+      listProductGroupOptions(client),
+    ]);
   } catch (error) {
     return (
       <>
@@ -104,6 +111,7 @@ export default async function DashboardPage() {
           initialData={completedWeight}
           today={today}
           processes={stats.processes}
+          families={families}
           initialError={completedWeightError}
         />
 

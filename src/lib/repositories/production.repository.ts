@@ -315,18 +315,22 @@ export async function getProductionStats(client: SupabaseServer, today: string):
   return data as unknown as ProductionStats;
 }
 
-/** Peso concluído por processo, matriz diária e série do dashboard (074). */
+/** Peso concluído por processo, matriz diária e série do dashboard (074/079). */
 export async function getCompletedWeightStats(
   client: SupabaseServer,
   granularity: WeightGranularity,
   anchor: string,
   processCode: string | null,
+  productGroupId: number | null = null,
+  withoutProductGroup = false,
 ): Promise<CompletedWeightStats> {
   const { data, error } = await client.rpc("get_completed_weight_stats", {
     p_granularity: granularity,
     p_anchor: anchor,
     p_timezone: process.env.BUSINESS_TIMEZONE ?? "America/Sao_Paulo",
     p_process_code: processCode,
+    p_product_group_id: productGroupId,
+    p_without_product_group: withoutProductGroup,
   });
   assertOk(error, "Não foi possível carregar o peso concluído");
   return data as unknown as CompletedWeightStats;

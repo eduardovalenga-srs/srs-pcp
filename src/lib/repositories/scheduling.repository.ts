@@ -1,6 +1,8 @@
 import type { ProcessSchedulingRowRecord } from "@/lib/types/database";
 import type { ProcessSchedulingData, SchedulingOrderRow } from "@/lib/types/scheduling";
 import type { SupabaseServer } from "@/lib/supabase/types";
+import { isProcessStatus } from "@/lib/constants/production";
+import type { MpReceiptState } from "@/lib/types/mp-receipt";
 import { todayISODate } from "@/lib/utils/dates";
 import { roundWeightOrNull } from "@/lib/utils/formatting";
 import { assertOk } from "@/lib/utils/supabase-result";
@@ -11,6 +13,11 @@ function toNumber(value: number | string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** 078: normaliza a situação de MP vinda da RPC (valor inesperado = null). */
+function toMpState(value: string | null): MpReceiptState | null {
+  return value === "NONE" || value === "PARCIAL" || value === "TOTAL" ? value : null;
+}
+
 function mapRow(raw: ProcessSchedulingRowRecord): SchedulingOrderRow {
   return {
     orderId: raw.order_id,
@@ -19,6 +26,7 @@ function mapRow(raw: ProcessSchedulingRowRecord): SchedulingOrderRow {
     customerName: raw.customer_name,
     deliveryDate: raw.delivery_date,
     orderStatus: raw.order_status,
+    sequence: toNumber(raw.position),
     productGroupId: raw.product_group_id === null ? null : Number(raw.product_group_id),
     familyDescription: raw.family_description,
     familyAbbreviation: raw.family_abbreviation,
@@ -27,50 +35,57 @@ function mapRow(raw: ProcessSchedulingRowRecord): SchedulingOrderRow {
     weightKg: roundWeightOrNull(toNumber(raw.weight_kg)),
     capacityKg: roundWeightOrNull(toNumber(raw.capacity_kg)),
     notes: raw.notes,
+    processStatus:
+      raw.process_status !== null && isProcessStatus(raw.process_status)
+        ? raw.process_status
+        : null,
+    mpState: toMpState(raw.mp_state),
   };
 }
 
 /**
- * Linhas da fila de um processo (070) + data de início persistida.
- * A ordem vem do banco: posição salva, depois entrega, depois código.
+ * Linhas elegíveis para o processo (077) + data de início persistida.
+ * O processo filtra as OFs e fornece a capacidade; a ordem vem da
+ * sequência global de fabricação, depois entrega e código.
  */
 export async function getProcessScheduling(
   client: SupabaseServer,
-  input: { processId: string; familyGroupId: number | null },
+  input: { processId: string | null; familyGroupId: number | null },
 ): Promise<ProcessSchedulingData> {
-  const [rowsResult, settingsResult] = await Promise.all([
-    client.rpc("get_process_scheduling", {
-      p_process_id: input.processId,
-      p_family_group_id: input.familyGroupId,
-    }),
-    client
+  const rowsResult = await client.rpc("get_process_scheduling", {
+    p_process_id: input.processId,
+    p_family_group_id: input.familyGroupId,
+  });
+  const settingsResult = input.processId
+    ? await client
       .from("process_schedule_settings")
       .select("anchor_date")
       .eq("process_id", input.processId)
-      .maybeSingle(),
-  ]);
+      .maybeSingle()
+    : null;
 
   assertOk(rowsResult.error, "Não foi possível carregar o sequenciamento");
-  assertOk(settingsResult.error, "Não foi possível carregar a data de início do sequenciamento");
+  if (settingsResult) {
+    assertOk(settingsResult.error, "Não foi possível carregar a data de início do sequenciamento");
+  }
 
   return {
     processId: input.processId,
-    anchorDate: settingsResult.data?.anchor_date ?? todayISODate(),
+    anchorDate: settingsResult?.data?.anchor_date ?? todayISODate(),
     rows: ((rowsResult.data ?? []) as ProcessSchedulingRowRecord[]).map(mapRow),
   };
 }
 
 /**
- * Grava a ordem final da fila na sequência do array e a data de início.
- * A RPC valida a permissão, roda tudo em uma transação e preserva as
- * posições já ocupadas pelas OFs enviadas (salvar uma família filtrada
- * não reinicia a posição das outras).
+ * Grava a ordem recebida como início da sequência global e a data de
+ * início do processo. OFs já sequenciadas que ficaram fora da visão vão
+ * para o fim; a RPC faz tudo em uma transação.
  */
 export async function saveProcessSchedule(
   client: SupabaseServer,
   input: {
-    processId: string;
-    anchorDate: string;
+    processId: string | null;
+    anchorDate: string | null;
     rows: readonly { orderId: string; notes: string | null }[];
   },
 ): Promise<void> {

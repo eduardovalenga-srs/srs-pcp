@@ -61,6 +61,37 @@ function columnWidth(header: string, values: readonly ExportCell[]): number {
 
 /** Bytes do .xlsx (SheetJS materializa o zip sobre ArrayBuffer). */
 export function buildWorkbook(sheet: ExportSheet): Uint8Array<ArrayBuffer> {
+  return buildWorkbookSheets([{ name: "Lista", sheet }]);
+}
+
+/** Um item do arquivo com várias abas: nome + planilha. */
+export interface NamedExportSheet {
+  name: string;
+  sheet: ExportSheet;
+}
+
+/** Excel limita o nome da aba a 31 caracteres e proíbe `[]:*?/\`. */
+function sheetName(name: string): string {
+  const clean = name.replace(/[[\]:*?\/\\]/g, " ").trim();
+  return (clean || "Planilha").slice(0, 31);
+}
+
+/** Monta o .xlsx com uma ou mais abas, preservando a ordem recebida. */
+export function buildWorkbookSheets(sheets: readonly NamedExportSheet[]): Uint8Array<ArrayBuffer> {
+  if (sheets.length === 0) {
+    throw new Error("A exportação precisa de ao menos uma aba.");
+  }
+
+  const workbook = XLSX.utils.book_new();
+  for (const { name, sheet } of sheets) {
+    XLSX.utils.book_append_sheet(workbook, buildWorksheet(sheet), sheetName(name));
+  }
+
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Uint8Array<ArrayBuffer>;
+}
+
+/** Bytes de UMA aba, com formatos de data/número aplicados. */
+function buildWorksheet(sheet: ExportSheet): XLSX.WorkSheet {
   const worksheet = XLSX.utils.aoa_to_sheet([sheet.headers, ...sheet.rows]);
   const lastRow = sheet.rows.length;
 
@@ -84,15 +115,20 @@ export function buildWorkbook(sheet: ExportSheet): Uint8Array<ArrayBuffer> {
     wch: columnWidth(header, sheet.rows.map((row) => row[column])),
   }));
 
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Lista");
-
-  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Uint8Array<ArrayBuffer>;
+  return worksheet;
 }
 
 /** Resposta HTTP de download com o nome `<tela>-<AAAA-MM-DD>.xlsx`. */
 export function workbookResponse(fileName: string, sheet: ExportSheet): Response {
-  return new Response(buildWorkbook(sheet), {
+  return workbookResponseSheets(fileName, [{ name: "Lista", sheet }]);
+}
+
+/** Resposta HTTP de download de um workbook com várias abas. */
+export function workbookResponseSheets(
+  fileName: string,
+  sheets: readonly NamedExportSheet[],
+): Response {
+  return new Response(buildWorkbookSheets(sheets), {
     headers: {
       "Content-Type": XLSX_CONTENT_TYPE,
       "Content-Disposition": `attachment; filename="${fileName}"`,

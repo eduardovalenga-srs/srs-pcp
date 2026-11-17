@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, LoaderCircle, Scale } from "lucide-react";
+import { useRef, useState } from "react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Download, LoaderCircle, Scale } from "lucide-react";
+import { toast } from "sonner";
 import {
   Bar,
   BarChart,
@@ -24,9 +25,14 @@ import type {
   CompletedWeightColumn,
   CompletedWeightStats,
 } from "@/lib/types/production";
+import type { ProductGroupOption } from "@/lib/types/product-group";
 import { formatWeight } from "@/lib/utils/formatting";
 import { parseISODateToLocal, toISODate } from "@/lib/utils/dates";
+import { countBusinessDays, isWeekendISO } from "@/lib/utils/weight-period";
+import { weightProcessColumns } from "@/lib/utils/weight-columns";
+import { downloadChartPng } from "@/lib/utils/chart-image";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ExportButton } from "@/components/shared/ExportButton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,12 +44,23 @@ import {
 } from "@/components/ui/select";
 
 const ALL_PROCESSES = "__all__";
+const ALL_FAMILIES = "__all_families__";
+const NO_FAMILY = "__no_family__";
+
+/** Valor do seletor que representa o recorte devolvido pela RPC. */
+function familySelection(data: CompletedWeightStats | null): string {
+  if (!data) return ALL_FAMILIES;
+  if (data.withoutProductGroup) return NO_FAMILY;
+  return data.productGroupId === null ? ALL_FAMILIES : String(data.productGroupId);
+}
 
 interface CompletedWeightPanelProps {
   initialData: CompletedWeightStats | null;
   today: string;
   /** Catálogo ativo — as colunas da matriz, como na gestão de OF. */
   processes: CompletedWeightColumn[];
+  /** Famílias cadastradas — opções do filtro por grupo de produto. */
+  families: ProductGroupOption[];
   initialError?: string;
 }
 
@@ -100,19 +117,25 @@ export function CompletedWeightPanel({
   initialData,
   today,
   processes,
+  families,
   initialError,
 }: CompletedWeightPanelProps) {
   const [data, setData] = useState(initialData);
   const [granularity, setGranularity] = useState<WeightGranularity>(initialData?.granularity ?? "month");
   const [anchor, setAnchor] = useState(initialData?.anchor ?? today);
   const [selectedProcess, setSelectedProcess] = useState(initialData?.processCode ?? ALL_PROCESSES);
+  const [selectedFamily, setSelectedFamily] = useState(familySelection(initialData));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError ?? "");
+  const [chartBusy, setChartBusy] = useState<"evolution" | "process" | null>(null);
+  const evolutionChartRef = useRef<HTMLDivElement>(null);
+  const processChartRef = useRef<HTMLDivElement>(null);
 
   async function load(
     nextGranularity: WeightGranularity,
     nextAnchor: string,
     nextProcess: string = selectedProcess,
+    nextFamily: string = selectedFamily,
   ) {
     setLoading(true);
     setError("");
@@ -120,12 +143,16 @@ export function CompletedWeightPanel({
       granularity: nextGranularity,
       anchor: nextAnchor,
       processCode: nextProcess === ALL_PROCESSES ? null : nextProcess,
+      productGroupId:
+        nextFamily === ALL_FAMILIES || nextFamily === NO_FAMILY ? null : Number(nextFamily),
+      withoutProductGroup: nextFamily === NO_FAMILY,
     });
     if (result.success) {
       setData(result.data);
       setGranularity(nextGranularity);
       setAnchor(nextAnchor);
       setSelectedProcess(result.data.processCode ?? ALL_PROCESSES);
+      setSelectedFamily(familySelection(result.data));
     } else {
       setError(result.message);
     }
@@ -143,6 +170,11 @@ export function CompletedWeightPanel({
     void load(granularity, anchor, value);
   }
 
+  function selectFamily(value: string) {
+    setSelectedFamily(value);
+    void load(granularity, anchor, selectedProcess, value);
+  }
+
   function navigate(direction: -1 | 1) {
     if (!data) return;
     void load(granularity, shiftISODate(data.periodStart, granularity, direction));
@@ -152,14 +184,39 @@ export function CompletedWeightPanel({
     void load(granularity, bucket);
   }
 
-  // Colunas: catálogo da gestão de OF + processos que só aparecem nos dados.
-  const catalog = [...processes];
-  for (const process of data?.processes ?? []) {
-    if (!catalog.some((column) => column.code === process.code)) {
-      catalog.push({ code: process.code, name: process.name, displayOrder: process.displayOrder });
+  async function exportChart(kind: "evolution" | "process") {
+    const container = kind === "evolution" ? evolutionChartRef.current : processChartRef.current;
+    if (!container || !data) return;
+
+    const processLabel =
+      selectedProcess === ALL_PROCESSES
+        ? "Todos os processos"
+        : processes.find((process) => process.code === selectedProcess)?.name ?? selectedProcess;
+    const familyLabel =
+      selectedFamily === ALL_FAMILIES
+        ? "Todas as famílias"
+        : selectedFamily === NO_FAMILY
+          ? "Sem família"
+          : families.find((family) => String(family.id) === selectedFamily)?.familyDescription ??
+            `Família ${selectedFamily}`;
+
+    setChartBusy(kind);
+    try {
+      await downloadChartPng(container, {
+        fileName: `${kind === "evolution" ? "grafico-evolucao-peso" : "grafico-peso-por-processo"}-${data.periodStart}.png`,
+        title: kind === "evolution" ? "Evolução do peso concluído" : "Peso por processo",
+        subtitle: `${periodLabel(data)} · ${processLabel} · ${familyLabel}`,
+      });
+      toast.success("Imagem exportada.");
+    } catch {
+      toast.error("Não foi possível exportar o gráfico.");
+    } finally {
+      setChartBusy(null);
     }
   }
-  catalog.sort((a, b) => a.displayOrder - b.displayOrder);
+
+  // Colunas: catálogo da gestão de OF + processos que só aparecem nos dados.
+  const catalog = weightProcessColumns(processes, data?.processes ?? []);
   const columns =
     selectedProcess === ALL_PROCESSES ? catalog : catalog.filter((column) => column.code === selectedProcess);
 
@@ -170,6 +227,28 @@ export function CompletedWeightPanel({
   const periodIsCurrent = Boolean(data && data.periodStart <= today && data.periodEnd >= today);
   const weightByProcess = new Map((data?.processes ?? []).map((process) => [process.code, process.weightKg]));
 
+  // Montante por família (079): a RPC devolve todos os grupos do período,
+  // mesmo com um grupo selecionado, para o seletor exibir os totais.
+  const groupsById = new Map((data?.groups ?? []).map((group) => [group.id, group] as const));
+  const familyOptions = families.map((family) => ({
+    value: String(family.id),
+    label: `${family.groupType} — ${family.familyDescription}`,
+    total: groupsById.get(family.id)?.weightKg ?? null,
+  }));
+  for (const group of data?.groups ?? []) {
+    if (group.id === null || familyOptions.some((option) => option.value === String(group.id))) continue;
+    familyOptions.push({
+      value: String(group.id),
+      label: `${group.abbreviation} — ${group.name}`,
+      total: group.weightKg,
+    });
+  }
+  const noFamilyTotal = groupsById.get(null)?.weightKg ?? null;
+
+  // Média por dia útil do período (seg–sex). No período em curso, só os
+  // dias úteis já transcorridos entram na conta.
+  const businessDays = data ? countBusinessDays(data.periodStart, data.periodEnd, today) : 0;
+
   return (
     <section aria-label="Peso concluído por processo" className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -179,18 +258,36 @@ export function CompletedWeightPanel({
             Peso concluído por processo
           </h2>
           <p className="text-xs text-muted-foreground">
-            kg = quantidade concluída × peso unitário do item, por dia e processo.
+            kg = quantidade concluída × peso unitário do item, por dia e processo. Fins de semana em cinza.
           </p>
         </div>
-        <Tabs value={granularity} onValueChange={selectGranularity}>
-          <TabsList aria-label="Granularidade do período">
-            {WEIGHT_GRANULARITIES.map((value) => (
-              <TabsTrigger key={value} value={value}>
-                {WEIGHT_GRANULARITY_LABELS[value]}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <div className="flex flex-wrap items-center gap-2">
+          <ExportButton
+            endpoint="/api/export/dashboard"
+            fallbackFileName="export-dashboard-peso.xlsx"
+            disabled={loading || !data}
+            params={{
+              granularidade: granularity,
+              ancora: anchor,
+              processo: selectedProcess === ALL_PROCESSES ? null : selectedProcess,
+              familia:
+                selectedFamily === ALL_FAMILIES
+                  ? null
+                  : selectedFamily === NO_FAMILY
+                    ? "sem-familia"
+                    : selectedFamily,
+            }}
+          />
+          <Tabs value={granularity} onValueChange={selectGranularity}>
+            <TabsList aria-label="Granularidade do período">
+              {WEIGHT_GRANULARITIES.map((value) => (
+                <TabsTrigger key={value} value={value}>
+                  {WEIGHT_GRANULARITY_LABELS[value]}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
       <div className="rounded border bg-card p-3">
@@ -231,6 +328,25 @@ export function CompletedWeightPanel({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <Select value={selectedFamily} onValueChange={selectFamily} disabled={loading}>
+              <SelectTrigger className="h-8 w-64" aria-label="Filtrar por família de produto">
+                <SelectValue placeholder="Todas as famílias" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_FAMILIES}>Todas as famílias</SelectItem>
+                {familyOptions.map((family) => (
+                  <SelectItem key={family.value} value={family.value}>
+                    {family.label}
+                    {family.total !== null ? ` · ${formatWeight(family.total)} kg` : ""}
+                  </SelectItem>
+                ))}
+                {noFamilyTotal !== null ? (
+                  <SelectItem value={NO_FAMILY}>
+                    Sem família · {formatWeight(noFamilyTotal)} kg
+                  </SelectItem>
+                ) : null}
+              </SelectContent>
+            </Select>
             <Select value={selectedProcess} onValueChange={selectProcess} disabled={loading}>
               <SelectTrigger className="h-8 w-48" aria-label="Filtrar por processo">
                 <SelectValue placeholder="Todos os processos" />
@@ -306,11 +422,21 @@ export function CompletedWeightPanel({
                     data.days.map((day) => {
                       const cells = cellByCode(day);
                       const dayTotal = day.processes.reduce((sum, cell) => sum + cell.weightKg, 0);
+                      const weekend = isWeekendISO(day.date);
                       return (
-                        <tr key={day.date} className="border-b last:border-0 hover:bg-muted/30">
+                        <tr
+                          key={day.date}
+                          className={
+                            weekend
+                              ? "weekend-row border-b last:border-0"
+                              : "border-b last:border-0 hover:bg-muted/30"
+                          }
+                        >
                           <th
                             scope="row"
-                            className="sticky left-0 z-10 border-r bg-card px-2 py-1 text-left font-medium whitespace-nowrap"
+                            className={`sticky left-0 z-10 border-r px-2 py-1 text-left font-medium whitespace-nowrap ${
+                              weekend ? "weekend-cell" : "bg-card"
+                            }`}
                           >
                             {displayDate(day.date, {
                               weekday: "short",
@@ -359,6 +485,31 @@ export function CompletedWeightPanel({
                       {formatWeight(data.total.weightKg)}
                     </td>
                   </tr>
+                  {data.granularity !== "day" ? (
+                    <tr>
+                      <th
+                        scope="row"
+                        title={`Total do período ÷ ${businessDays} dia(s) útil(eis) (seg–sex, sem feriados).`}
+                        className="sticky left-0 z-30 border-t bg-muted px-2 py-1 text-left font-normal text-muted-foreground whitespace-nowrap"
+                      >
+                        Média/dia útil
+                        <span className="ml-1 text-[10px]">({businessDays})</span>
+                      </th>
+                      {columns.map((column) => (
+                        <td
+                          key={column.code}
+                          className="border-t px-2 py-1 text-right font-normal text-muted-foreground tabular-nums"
+                        >
+                          {businessDays > 0
+                            ? formatWeight((weightByProcess.get(column.code) ?? 0) / businessDays)
+                            : "—"}
+                        </td>
+                      ))}
+                      <td className="border-t px-2 py-1 text-right font-normal text-muted-foreground tabular-nums">
+                        {businessDays > 0 ? formatWeight(data.total.weightKg / businessDays) : "—"}
+                      </td>
+                    </tr>
+                  ) : null}
                 </tfoot>
               </table>
             </div>
@@ -377,9 +528,30 @@ export function CompletedWeightPanel({
             ) : (
               <div className="mt-4 grid gap-3 xl:grid-cols-2">
                 <div className="min-w-0 rounded border p-2">
-                  <h3 className="mb-1 text-xs font-semibold">Evolução do peso concluído</h3>
-                  <p className="mb-2 text-[11px] text-muted-foreground">Selecione uma barra para abrir o período.</p>
-                  <div className="h-48">
+                  <div className="mb-1 flex items-start justify-between gap-2">
+                    <div>
+                      <h3 className="text-xs font-semibold">Evolução do peso concluído</h3>
+                      <p className="mt-0.5 mb-1 text-[11px] text-muted-foreground">
+                        Selecione uma barra para abrir o período.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      title="Baixar gráfico em PNG"
+                      aria-label="Baixar gráfico de evolução em PNG"
+                      onClick={() => void exportChart("evolution")}
+                      disabled={chartBusy !== null}
+                    >
+                      {chartBusy === "evolution" ? (
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      ) : (
+                        <Download className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                    </Button>
+                  </div>
+                  <div ref={evolutionChartRef} className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={data.series} margin={{ top: 4, right: 8, left: -18, bottom: 2 }}>
                         <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
@@ -433,20 +605,39 @@ export function CompletedWeightPanel({
                 </div>
 
                 <div className="min-w-0 rounded border p-2">
-                  <h3 className="mb-1 text-xs font-semibold">Peso por processo</h3>
-                  <p className="mb-2 text-[11px] text-muted-foreground">
-                    {change === null
-                      ? "Sem base no período anterior para comparar."
-                      : `${change >= 0 ? "+" : ""}${change.toLocaleString("pt-BR", {
-                          maximumFractionDigits: 1,
-                        })}% vs. período anterior.`}
-                  </p>
+                  <div className="mb-1 flex items-start justify-between gap-2">
+                    <div>
+                      <h3 className="text-xs font-semibold">Peso por processo</h3>
+                      <p className="mt-0.5 mb-1 text-[11px] text-muted-foreground">
+                        {change === null
+                          ? "Sem base no período anterior para comparar."
+                          : `${change >= 0 ? "+" : ""}${change.toLocaleString("pt-BR", {
+                              maximumFractionDigits: 1,
+                            })}% vs. período anterior.`}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      title="Baixar gráfico em PNG"
+                      aria-label="Baixar gráfico de peso por processo em PNG"
+                      onClick={() => void exportChart("process")}
+                      disabled={chartBusy !== null || data.processes.length === 0}
+                    >
+                      {chartBusy === "process" ? (
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      ) : (
+                        <Download className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                    </Button>
+                  </div>
                   {data.processes.length === 0 ? (
                     <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
                       Sem processos com peso neste período.
                     </div>
                   ) : (
-                    <div className="h-48">
+                    <div ref={processChartRef} className="h-48">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                           data={data.processes}

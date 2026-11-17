@@ -5,19 +5,24 @@ import {
   FABRICA1_EDITABLE_PROCESS_CODES,
   romaneioProcessColumns,
 } from "@/lib/constants/processes";
-import { PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
+import { PROCESS_STATUS_SYMBOLS, WEIGHT_GRANULARITY_LABELS, type ProcessStatus } from "@/lib/constants/production";
 import type { ChildItemGroup, OrderSummary } from "@/lib/types/order";
 import type { RomaneioSummary, RomaneioView } from "@/lib/types/romaneio";
 import type {
+  CompletedWeightCell,
+  CompletedWeightColumn,
+  CompletedWeightStats,
   OrderProcessCell,
   ProcessDefinition,
   ProductionOrderRow,
   ProductionRow,
 } from "@/lib/types/production";
-import { formatDateTime } from "@/lib/utils/dates";
+import type { NamedExportSheet } from "@/lib/export/workbook";
+import { formatDate, formatDateTime } from "@/lib/utils/dates";
 import { formatQuantity } from "@/lib/utils/formatting";
 import { fabrica1ProcessColumns } from "@/lib/utils/production";
 import { weightKgOf } from "@/lib/utils/romaneio";
+import { countBusinessDays, isWeekendISO } from "@/lib/utils/weight-period";
 import { childItemProposalDate, itemProposalDate, orderProposalDate } from "@/lib/utils/proposal-date";
 
 /**
@@ -381,4 +386,188 @@ export function romaneioDocumentSheet(view: RomaneioView): ExportSheet {
   ]);
 
   return { headers, rows, dateColumns: [4] };
+}
+
+/* ------------------------------------------------------------------ *
+ * Dashboard — peso concluído por processo (074/079)
+ * ------------------------------------------------------------------ */
+
+/** Rótulos dos filtros aplicados, exibidos na aba "Resumo". */
+export interface DashboardWeightSheetLabels {
+  process: string;
+  family: string;
+}
+
+/** Célula da matriz: kg, "✓" (concluído sem peso) ou "—" (sem produção). */
+function weightCell(cell: CompletedWeightCell | undefined): ExportCell {
+  if (!cell) return "—";
+  if (cell.weightKg > 0) return cell.weightKg;
+  return cell.cells > 0 ? "✓" : "—";
+}
+
+/** Variação percentual vs. período anterior (texto pt-BR) ou "—". */
+function weightChange(stats: CompletedWeightStats): string {
+  if (stats.previous.weightKg <= 0) return "—";
+  const change = ((stats.total.weightKg - stats.previous.weightKg) / stats.previous.weightKg) * 100;
+  return `${change >= 0 ? "+" : ""}${change.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+}
+
+/** Dias úteis do período (mesma regra da linha "Média/dia útil" da tela). */
+function dashboardBusinessDays(stats: CompletedWeightStats, today: string): number {
+  return countBusinessDays(stats.periodStart, stats.periodEnd, today);
+}
+
+/**
+ * Aba "Lançamentos": a matriz Dia × processo da tela, com a marcação de
+ * fim de semana (coluna filtrável — o SheetJS Community não grava cor de
+ * célula), a linha de Total e a de Média/dia útil.
+ */
+export function dashboardWeightMatrixSheet(
+  stats: CompletedWeightStats,
+  processes: readonly CompletedWeightColumn[],
+  today: string,
+): ExportSheet {
+  const columns = stats.processCode
+    ? processes.filter((process) => process.code === stats.processCode)
+    : processes;
+  const businessDays = dashboardBusinessDays(stats, today);
+  const weightByProcess = new Map(stats.processes.map((process) => [process.code, process.weightKg]));
+
+  const headers = ["Dia", "Fim de semana", ...columns.map((column) => column.name), "Total"];
+  const rows: ExportCell[][] = stats.days.map((day) => {
+    const cells = new Map(day.processes.map((cell) => [cell.code, cell]));
+    const dayTotal = day.processes.reduce((sum, cell) => sum + cell.weightKg, 0);
+    return [
+      dateCell(day.date),
+      isWeekendISO(day.date) ? "Sim" : "Não",
+      ...columns.map((column) => weightCell(cells.get(column.code))),
+      dayTotal,
+    ];
+  });
+
+  rows.push([
+    "Total",
+    "",
+    ...columns.map((column) => weightByProcess.get(column.code) ?? 0),
+    stats.total.weightKg,
+  ]);
+
+  // Na aba "Dia" a média seria o próprio total — a tela também omite.
+  if (stats.granularity !== "day") {
+    rows.push([
+      `Média/dia útil (${businessDays})`,
+      "",
+      ...columns.map((column) =>
+        businessDays > 0 ? (weightByProcess.get(column.code) ?? 0) / businessDays : "—",
+      ),
+      businessDays > 0 ? stats.total.weightKg / businessDays : "—",
+    ]);
+  }
+
+  return { headers, rows, dateColumns: [0] };
+}
+
+/** Aba "Totais por processo": totais e média kg/dia útil de cada processo. */
+export function dashboardWeightProcessesSheet(
+  stats: CompletedWeightStats,
+  today: string,
+): ExportSheet {
+  const businessDays = dashboardBusinessDays(stats, today);
+  const average = (weightKg: number): ExportCell =>
+    businessDays > 0 ? weightKg / businessDays : "—";
+
+  const headers = ["Processo", "Código", "Peso (kg)", "Peças", "Itens", "Células", "Média kg/dia útil"];
+  const rows: ExportCell[][] = stats.processes.map((process) => [
+    process.name,
+    process.code,
+    process.weightKg,
+    process.quantity,
+    process.items,
+    process.cells,
+    average(process.weightKg),
+  ]);
+  rows.push([
+    "Total",
+    "",
+    stats.total.weightKg,
+    stats.total.quantity,
+    "—",
+    "—",
+    average(stats.total.weightKg),
+  ]);
+
+  return { headers, rows, dateColumns: [] };
+}
+
+/** Aba "Famílias": montante por grupo de produto no período. */
+export function dashboardWeightFamiliesSheet(stats: CompletedWeightStats): ExportSheet {
+  const headers = ["Família", "Abreviação", "Peso (kg)", "Peças", "Itens", "Células"];
+  const rows: ExportCell[][] = stats.groups.map((group) => [
+    group.name,
+    group.abbreviation,
+    group.weightKg,
+    group.quantity,
+    group.items,
+    group.cells,
+  ]);
+  const weightTotal = stats.groups.reduce((sum, group) => sum + group.weightKg, 0);
+  const quantityTotal = stats.groups.reduce((sum, group) => sum + group.quantity, 0);
+  rows.push(["Total", "", weightTotal, quantityTotal, "—", "—"]);
+
+  return { headers, rows, dateColumns: [] };
+}
+
+/** Aba "Evolução": dados do gráfico de barras (mesma janela da tela). */
+export function dashboardWeightSeriesSheet(stats: CompletedWeightStats): ExportSheet {
+  const rows: ExportCell[][] = stats.series.map((bucket) => [
+    dateCell(bucket.bucket),
+    bucket.weightKg,
+    bucket.quantity,
+  ]);
+  return { headers: ["Período", "Peso (kg)", "Peças"], rows, dateColumns: [0] };
+}
+
+/** Aba "Resumo": período, filtros aplicados e totais do recorte. */
+export function dashboardWeightSummarySheet(
+  stats: CompletedWeightStats,
+  today: string,
+  labels: DashboardWeightSheetLabels,
+): ExportSheet {
+  const businessDays = dashboardBusinessDays(stats, today);
+  const rows: ExportCell[][] = [
+    ["Período", `${formatDate(stats.periodStart)} – ${formatDate(stats.periodEnd)}`],
+    ["Granularidade", WEIGHT_GRANULARITY_LABELS[stats.granularity]],
+    ["Processo", labels.process],
+    ["Família", labels.family],
+    ["Peso total (kg)", stats.total.weightKg],
+    ["Peças totais", stats.total.quantity],
+    ["Peso no período anterior (kg)", stats.previous.weightKg],
+    ["Variação vs. período anterior", weightChange(stats)],
+    ["Dias úteis considerados", businessDays],
+    [
+      "Média kg/dia útil",
+      businessDays > 0 ? stats.total.weightKg / businessDays : "—",
+    ],
+  ];
+  return { headers: ["Indicador", "Valor"], rows, dateColumns: [] };
+}
+
+/**
+ * Workbook completo do painel: a lista (matriz) + abas de apoio. A ordem
+ * das abas acompanha a leitura da tela: lançamentos, processos, famílias,
+ * evolução e, por último, o resumo dos filtros.
+ */
+export function dashboardWeightSheets(
+  stats: CompletedWeightStats,
+  processes: readonly CompletedWeightColumn[],
+  today: string,
+  labels: DashboardWeightSheetLabels,
+): NamedExportSheet[] {
+  return [
+    { name: "Lançamentos", sheet: dashboardWeightMatrixSheet(stats, processes, today) },
+    { name: "Totais por processo", sheet: dashboardWeightProcessesSheet(stats, today) },
+    { name: "Famílias", sheet: dashboardWeightFamiliesSheet(stats) },
+    { name: "Evolução", sheet: dashboardWeightSeriesSheet(stats) },
+    { name: "Resumo", sheet: dashboardWeightSummarySheet(stats, today, labels) },
+  ];
 }

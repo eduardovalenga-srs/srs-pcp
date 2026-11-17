@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ChildItemGroup, ChildItemProcess, OrderItemMaterial, OrderSummary } from "@/lib/types/order";
 import type {
+  CompletedWeightStats,
   OrderProcessCell,
   ProcessCell,
   ProcessDefinition,
@@ -11,6 +12,12 @@ import type {
 import type { RomaneioOrderItem, RomaneioSummary, RomaneioView } from "@/lib/types/romaneio";
 import { collectAllPages, EXPORT_PAGE_SIZE } from "@/lib/export/common";
 import {
+  dashboardWeightFamiliesSheet,
+  dashboardWeightMatrixSheet,
+  dashboardWeightProcessesSheet,
+  dashboardWeightSeriesSheet,
+  dashboardWeightSheets,
+  dashboardWeightSummarySheet,
   fabrica1Sheet,
   fabrica2Sheet,
   gestaoEntregasSheet,
@@ -18,6 +25,7 @@ import {
   romaneioDocumentSheet,
   romaneiosListSheet,
 } from "@/lib/export/columns";
+import { weightProcessColumns } from "@/lib/utils/weight-columns";
 
 /** Catálogo com a cadeia da Fábrica 1 + etapas da gestão (ordem real). */
 const PROCESSES: ProcessDefinition[] = [
@@ -523,8 +531,7 @@ function romaneioView(overrides: Partial<RomaneioView> = {}): RomaneioView {
   };
 }
 
-describe("romaneioDocumentSheet — documento do detalhe", () => {
-  it("troca a coluna EXP por uma coluna por processo na lista de itens", () => {
+describe("romaneioDocumentSheet — documento do detalhe", () => {  it("troca a coluna EXP por uma coluna por processo na lista de itens", () => {
     const sheet = romaneioDocumentSheet(romaneioView());
     const itemsHeaderIndex = sheet.rows.findIndex((row) => row[0] === "ITENS DA CARGA");
     expect(itemsHeaderIndex).toBeGreaterThanOrEqual(0);
@@ -624,5 +631,193 @@ describe("romaneioDocumentSheet — documento do detalhe", () => {
       "Utilizada",
       "Saldo a devolver",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dashboard — peso concluído por processo (079)
+// ---------------------------------------------------------------------------
+
+const WEIGHT_TODAY = "2026-11-17";
+
+function weightStats(overrides: Partial<CompletedWeightStats> = {}): CompletedWeightStats {
+  return {
+    granularity: "month",
+    anchor: "2026-11-13",
+    periodStart: "2026-11-01",
+    periodEnd: "2026-11-30",
+    processCode: null,
+    productGroupId: null,
+    withoutProductGroup: false,
+    processes: [
+      { code: "MP", name: "MP", displayOrder: 5, weightKg: 20, quantity: 2, cells: 1, items: 1 },
+      { code: "LASER", name: "LASER", displayOrder: 10, weightKg: 8, quantity: 4, cells: 1, items: 1 },
+    ],
+    groups: [
+      { id: 1, name: "Alfa", abbreviation: "A", weightKg: 20, quantity: 2, cells: 1, items: 1 },
+      { id: null, name: "Sem família", abbreviation: "—", weightKg: 8, quantity: 4, cells: 1, items: 1 },
+    ],
+    total: { weightKg: 28, quantity: 6 },
+    previous: { weightKg: 14, quantity: 3 },
+    days: [
+      { date: "2026-11-01", processes: [] }, // domingo
+      {
+        date: "2026-11-02",
+        processes: [{ code: "MP", weightKg: 20, quantity: 2, cells: 1 }],
+      },
+      {
+        date: "2026-11-03",
+        processes: [{ code: "LASER", weightKg: 8, quantity: 4, cells: 1 }],
+      },
+    ],
+    series: [
+      {
+        bucket: "2026-11-02",
+        weightKg: 20,
+        quantity: 2,
+        processes: [{ code: "MP", weightKg: 20, quantity: 2, cells: 1 }],
+      },
+      {
+        bucket: "2026-11-03",
+        weightKg: 8,
+        quantity: 4,
+        processes: [{ code: "LASER", weightKg: 8, quantity: 4, cells: 1 }],
+      },
+    ],
+    ...overrides,
+  };
+}
+
+const WEIGHT_COLUMNS = [
+  { code: "MP", name: "MP", displayOrder: 5 },
+  { code: "LASER", name: "LASER", displayOrder: 10 },
+];
+
+describe("dashboardWeightMatrixSheet", () => {
+  it("espelha Dia × processo, marca fim de semana e totaliza", () => {
+    const sheet = dashboardWeightMatrixSheet(weightStats(), WEIGHT_COLUMNS, WEIGHT_TODAY);
+
+    expect(sheet.headers).toEqual(["Dia", "Fim de semana", "MP", "LASER", "Total"]);
+    expect(sheet.dateColumns).toEqual([0]);
+    expect(sheet.rows[0]).toEqual([new Date(2026, 10, 1), "Sim", "—", "—", 0]);
+    expect(sheet.rows[1]).toEqual([new Date(2026, 10, 2), "Não", 20, "—", 20]);
+    expect(sheet.rows[2]).toEqual([new Date(2026, 10, 3), "Não", "—", 8, 8]);
+    expect(sheet.rows[3]).toEqual(["Total", "", 20, 8, 28]);
+
+    // Nov/2026: 12 dias úteis transcorridos até 17/11 (mesma regra da tela).
+    const average = sheet.rows[4]!;
+    expect(average[0]).toBe("Média/dia útil (12)");
+    expect(average[2]).toBeCloseTo(20 / 12);
+    expect(average[3]).toBeCloseTo(8 / 12);
+    expect(average[4]).toBeCloseTo(28 / 12);
+  });
+
+  it("mostra só a coluna do processo filtrado", () => {
+    const sheet = dashboardWeightMatrixSheet(
+      weightStats({ processCode: "LASER" }),
+      WEIGHT_COLUMNS,
+      WEIGHT_TODAY,
+    );
+    expect(sheet.headers).toEqual(["Dia", "Fim de semana", "LASER", "Total"]);
+  });
+
+  it("na aba Dia não repete a média (seria o próprio total)", () => {
+    const sheet = dashboardWeightMatrixSheet(
+      weightStats({
+        granularity: "day",
+        periodStart: "2026-11-02",
+        periodEnd: "2026-11-02",
+        days: [
+          {
+            date: "2026-11-02",
+            processes: [{ code: "MP", weightKg: 20, quantity: 2, cells: 1 }],
+          },
+        ],
+      }),
+      WEIGHT_COLUMNS,
+      WEIGHT_TODAY,
+    );
+    expect(sheet.rows).toHaveLength(2); // dia + total
+  });
+
+  it("célula concluída sem peso sai como ✓", () => {
+    const sheet = dashboardWeightMatrixSheet(
+      weightStats({
+        days: [
+          {
+            date: "2026-11-04",
+            processes: [{ code: "MP", weightKg: 0, quantity: 2, cells: 1 }],
+          },
+        ],
+      }),
+      WEIGHT_COLUMNS,
+      WEIGHT_TODAY,
+    );
+    expect(sheet.rows[0]![2]).toBe("✓");
+  });
+});
+
+describe("abas de apoio do dashboard", () => {
+  it("totais por processo trazem kg, peças, itens, células e média", () => {
+    const sheet = dashboardWeightProcessesSheet(weightStats(), WEIGHT_TODAY);
+    expect(sheet.headers).toEqual([
+      "Processo",
+      "Código",
+      "Peso (kg)",
+      "Peças",
+      "Itens",
+      "Células",
+      "Média kg/dia útil",
+    ]);
+    expect(sheet.rows[0]).toEqual(["MP", "MP", 20, 2, 1, 1, 20 / 12]);
+    expect(sheet.rows[2]![0]).toBe("Total");
+    expect(sheet.rows[2]![2]).toBe(28);
+  });
+
+  it("famílias incluem o grupo sem família e o total do período", () => {
+    const sheet = dashboardWeightFamiliesSheet(weightStats());
+    expect(sheet.headers).toEqual(["Família", "Abreviação", "Peso (kg)", "Peças", "Itens", "Células"]);
+    expect(sheet.rows[1]).toEqual(["Sem família", "—", 8, 4, 1, 1]);
+    expect(sheet.rows[2]).toEqual(["Total", "", 28, 6, "—", "—"]);
+  });
+
+  it("evolução sai com data tipada e os mesmos valores do gráfico", () => {
+    const sheet = dashboardWeightSeriesSheet(weightStats());
+    expect(sheet.headers).toEqual(["Período", "Peso (kg)", "Peças"]);
+    expect(sheet.dateColumns).toEqual([0]);
+    expect(sheet.rows[0]).toEqual([new Date(2026, 10, 2), 20, 2]);
+  });
+
+  it("resumo descreve filtros, comparação e dias úteis", () => {
+    const sheet = dashboardWeightSummarySheet(weightStats(), WEIGHT_TODAY, {
+      process: "Todos os processos",
+      family: "Todas as famílias",
+    });
+    expect(sheet.rows[0]).toEqual(["Período", "01/11/2026 – 30/11/2026"]);
+    expect(sheet.rows[2]).toEqual(["Processo", "Todos os processos"]);
+    expect(sheet.rows[3]).toEqual(["Família", "Todas as famílias"]);
+    expect(sheet.rows[7]).toEqual(["Variação vs. período anterior", "+100%"]);
+    expect(sheet.rows[8]).toEqual(["Dias úteis considerados", 12]);
+  });
+
+  it("monta o workbook na ordem da tela (lista primeiro)", () => {
+    const sheets = dashboardWeightSheets(weightStats(), WEIGHT_COLUMNS, WEIGHT_TODAY, {
+      process: "Todos os processos",
+      family: "Todas as famílias",
+    });
+    expect(sheets.map((entry) => entry.name)).toEqual([
+      "Lançamentos",
+      "Totais por processo",
+      "Famílias",
+      "Evolução",
+      "Resumo",
+    ]);
+  });
+
+  it("acrescenta processos fora do catálogo na ordem de exibição", () => {
+    const columns = weightProcessColumns(WEIGHT_COLUMNS, [
+      { code: "SOLDA", name: "SOLDA", displayOrder: 7 },
+    ]);
+    expect(columns.map((column) => column.code)).toEqual(["MP", "SOLDA", "LASER"]);
   });
 });

@@ -4,12 +4,12 @@ import { revalidatePath } from "next/cache";
 
 import { requireCapability } from "@/lib/auth/guards";
 import { can } from "@/lib/auth/permissions";
-import { isProcessStatus, isWeightGranularity } from "@/lib/constants/production";
+import { isProcessStatus } from "@/lib/constants/production";
 import { createClient } from "@/lib/supabase/server";
 import type { CompletedWeightStats, ProductionEvent } from "@/lib/types/production";
 import { getDashboardCompletedWeight, getItemHistory, updateProcess, updateProcessBatch } from "@/lib/services/production.service";
 import { errorMessage } from "@/lib/utils/supabase-result";
-import { isValidISODate, todayISODate } from "@/lib/utils/dates";
+import { parseWeightSelection } from "@/lib/utils/weight-selection";
 
 /** Normaliza valor de formulário para o texto esperado pelos schemas. */
 function toText(value: string | number | null | undefined): string {
@@ -28,20 +28,30 @@ export async function getCompletedWeightStatsAction(input: {
   granularity: string;
   anchor: string;
   processCode?: string | null;
+  productGroupId?: number | string | null;
+  withoutProductGroup?: boolean;
 }): Promise<{ success: true; data: CompletedWeightStats } | { success: false; message: string }> {
   try {
     await requireCapability("dashboard.view");
-    if (!isWeightGranularity(input.granularity)) {
-      return { success: false, message: "Período inválido." };
-    }
-    const anchor = isValidISODate(input.anchor) ? input.anchor : todayISODate();
-    const rawCode = input.processCode?.trim() ?? "";
-    if (rawCode.length > 60 || /[\u0000-\u001f]/.test(rawCode)) {
-      return { success: false, message: "Processo inválido." };
-    }
-    const processCode = rawCode === "" || rawCode === "ALL" ? null : rawCode;
+    const parsed = parseWeightSelection({
+      granularity: input.granularity,
+      anchor: input.anchor,
+      processCode: input.processCode,
+      productGroupId: input.productGroupId,
+      withoutProductGroup: input.withoutProductGroup,
+    });
+    if (!parsed.success) return parsed;
+    const { granularity, anchor, processCode, productGroupId, withoutProductGroup } = parsed.selection;
+
     const client = await createClient();
-    const data = await getDashboardCompletedWeight(client, input.granularity, anchor, processCode);
+    const data = await getDashboardCompletedWeight(
+      client,
+      granularity,
+      anchor,
+      processCode,
+      productGroupId,
+      withoutProductGroup,
+    );
     return { success: true, data };
   } catch (error) {
     console.error("[getCompletedWeightStatsAction]", error);

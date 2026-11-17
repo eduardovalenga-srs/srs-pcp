@@ -26,7 +26,7 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
   if (!can(sessionUser.role, "menu.sequenciamento")) {
     return (
       <>
-        <Header title="Sequenciamento" description="Fila de OFs por processo." />
+        <Header title="Sequenciamento" description="Prioridade global das OFs e planejamento por capacidade." />
         <AccessDenied />
       </>
     );
@@ -45,7 +45,7 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
   } catch (error) {
     return (
       <>
-        <Header title="Sequenciamento" description="Fila de OFs por processo." />
+        <Header title="Sequenciamento" description="Prioridade global das OFs e planejamento por capacidade." />
         <ErrorState
           title="Não foi possível carregar o sequenciamento"
           message={error instanceof Error ? error.message : "Erro desconhecido."}
@@ -56,10 +56,7 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
 
   const activeProcesses = processes.filter((process) => process.active);
   const requestedProcess = typeof params.processo === "string" ? params.processo : null;
-  const processId =
-    activeProcesses.find((process) => process.id === requestedProcess)?.id ??
-    activeProcesses[0]?.id ??
-    null;
+  const processId = activeProcesses.find((process) => process.id === requestedProcess)?.id ?? null;
   const requestedFamily = typeof params.familia === "string" ? Number(params.familia) : Number.NaN;
   const familyGroupId = groups.some((group) => group.id === requestedFamily)
     ? requestedFamily
@@ -67,13 +64,11 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
 
   let scheduling: Awaited<ReturnType<typeof getProcessScheduling>> | null = null;
   let loadError: unknown = null;
-  if (processId) {
-    try {
-      const client = await createClient();
-      scheduling = await getProcessScheduling(client, { processId, familyGroupId });
-    } catch (error) {
-      loadError = error;
-    }
+  try {
+    const client = await createClient();
+    scheduling = await getProcessScheduling(client, { processId, familyGroupId });
+  } catch (error) {
+    loadError = error;
   }
 
   const canEdit = can(sessionUser.role, "production.edit");
@@ -81,7 +76,7 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
   if (loadError) {
     return (
       <>
-        <Header title="Sequenciamento" description="Fila de OFs por processo." />
+        <Header title="Sequenciamento" description="Prioridade global das OFs e planejamento por capacidade." />
         <ErrorState
           title="Não foi possível carregar o sequenciamento"
           message={loadError instanceof Error ? loadError.message : "Erro desconhecido."}
@@ -94,16 +89,16 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
     <>
       <Header
         title="Sequenciamento"
-        description="Defina a ordem das OFs por processo. A carga usa o peso da OF ÷ capacidade em kg/dia da família, em dias úteis."
+        description="Defina a prioridade global das OFs. Sem processo, veja todas; ao selecionar um processo, veja apenas OFs com essa etapa pendente e calcule a capacidade (peso ÷ kg/dia, em dias úteis)."
       />
 
-      {!processId || !scheduling ? (
+      {!scheduling ? (
         <p className="rounded border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
-          Cadastre ao menos um processo ativo para montar o sequenciamento.
+          Não foi possível carregar as OFs do sequenciamento.
         </p>
       ) : (
         <ProcessScheduling
-          key={`${processId}-${familyGroupId ?? "all"}`}
+          key={`${processId ?? "all"}-${familyGroupId ?? "all"}`}
           processes={activeProcesses}
           groups={groups}
           processId={processId}

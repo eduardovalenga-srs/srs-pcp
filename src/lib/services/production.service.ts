@@ -235,8 +235,17 @@ export async function getDashboardCompletedWeight(
   granularity: WeightGranularity,
   anchor: string,
   processCode: string | null = null,
+  productGroupId: number | null = null,
+  withoutProductGroup = false,
 ): Promise<CompletedWeightStats> {
-  return getCompletedWeightStatsFromRepository(client, granularity, anchor, processCode);
+  return getCompletedWeightStatsFromRepository(
+    client,
+    granularity,
+    anchor,
+    processCode,
+    productGroupId,
+    withoutProductGroup,
+  );
 }
 
 /** Histórico de alterações de um item. */

@@ -58,6 +58,29 @@ export function computeScheduleRows(
   });
 }
 
+/**
+ * Move uma OF para a posição solicitada e desloca as demais sem criar
+ * posições duplicadas.
+ */
+export function moveSchedulingRow(
+  rows: readonly SchedulingOrderRow[],
+  orderId: string,
+  position: number,
+): SchedulingOrderRow[] {
+  if (!Number.isInteger(position) || position < 1 || position > rows.length) {
+    return [...rows];
+  }
+
+  const currentIndex = rows.findIndex((row) => row.orderId === orderId);
+  if (currentIndex < 0 || currentIndex === position - 1) return [...rows];
+
+  const next = [...rows];
+  const [moved] = next.splice(currentIndex, 1);
+  if (!moved) return next;
+  next.splice(position - 1, 0, moved);
+  return next;
+}
+
 /** Carga em dias com uma casa decimal (ex.: 1,9). */
 export function formatLoadDays(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "—";
