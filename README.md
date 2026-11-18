@@ -1002,6 +1002,29 @@ m², m³, l, un, cx, sc).
 - A RPC `save_mp_receipt` ganhou o 6º parâmetro `p_free_items` (default `[]`); o
   overload antigo de 5 parâmetros foi removido.
 
+## Peso concluído: MP pelas notas de entrada (migração 080)
+
+O painel **Peso concluído por processo** do dashboard (`get_completed_weight_stats`)
+calcula os processos normais como `quantidade concluída × peso unitário`. O **MP é a
+exceção**: no espelho, a quantidade concluída **já é o peso recebido em kg** — multiplicá-la
+pelo peso unitário elevava o recebimento ao quadrado (uma nota de 30,54 kg aparecia como
+932,69 kg) e a data ainda voltava um dia.
+
+A partir da 080:
+
+- a coluna **MP** soma `mp_receipt_materials.quantity_kg` das notas de `mp_receipts`,
+  agrupadas por **`entry_date`** — os mesmos números de `/recebimento-mp`;
+- a data da célula é a **data da nota**, sem conversão de fuso;
+- MP não tem peças: `quantity` fica **0** e a coluna "Peças" da exportação sai como "—";
+  `cells` conta as linhas de material da nota e `items`, as OFs;
+- nota **parcial aparece mesmo com o espelho pendente**, e item fora da OF
+  (`mp_receipt_free_items`) continua fora do painel (não tem OF/família);
+- o espelho (`mp_receipt_apply`) passa a gravar ao **meio-dia UTC** da data da nota, e a
+  migração move para 12:00 UTC as linhas antigas gravadas exatamente à meia-noite UTC.
+
+A soma das células do dia é igual ao total do processo, e a soma dos processos é igual ao
+total do período (coberto por `tests/completed-weight-stats.test.ts`).
+
 ## Recuperar as marcas de MP perdidas na 057 (migração 058)
 
 A migração **057** (§7, "backfill silêncioso") recalculou a célula MP dos itens

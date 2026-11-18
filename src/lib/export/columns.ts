@@ -22,7 +22,7 @@ import { formatDate, formatDateTime } from "@/lib/utils/dates";
 import { formatQuantity } from "@/lib/utils/formatting";
 import { fabrica1ProcessColumns } from "@/lib/utils/production";
 import { weightKgOf } from "@/lib/utils/romaneio";
-import { countBusinessDays, isWeekendISO } from "@/lib/utils/weight-period";
+import { countBusinessDays, isWeekendISO, sumCompletedWeightBefore } from "@/lib/utils/weight-period";
 import { childItemProposalDate, itemProposalDate, orderProposalDate } from "@/lib/utils/proposal-date";
 
 /**
@@ -412,7 +412,7 @@ function weightChange(stats: CompletedWeightStats): string {
   return `${change >= 0 ? "+" : ""}${change.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 }
 
-/** Dias úteis do período (mesma regra da linha "Média/dia útil" da tela). */
+/** Dias úteis ENCERRADOS do período (mesma regra da linha "Média/dia útil" da tela). */
 function dashboardBusinessDays(stats: CompletedWeightStats, today: string): number {
   return countBusinessDays(stats.periodStart, stats.periodEnd, today);
 }
@@ -432,6 +432,8 @@ export function dashboardWeightMatrixSheet(
     : processes;
   const businessDays = dashboardBusinessDays(stats, today);
   const weightByProcess = new Map(stats.processes.map((process) => [process.code, process.weightKg]));
+  // Média: só dias encerrados — o dia atual fica fora do numerador e do divisor.
+  const beforeToday = sumCompletedWeightBefore(stats.days, today);
 
   const headers = ["Dia", "Fim de semana", ...columns.map((column) => column.name), "Total"];
   const rows: ExportCell[][] = stats.days.map((day) => {
@@ -458,9 +460,9 @@ export function dashboardWeightMatrixSheet(
       `Média/dia útil (${businessDays})`,
       "",
       ...columns.map((column) =>
-        businessDays > 0 ? (weightByProcess.get(column.code) ?? 0) / businessDays : "—",
+        businessDays > 0 ? (beforeToday.byProcess.get(column.code) ?? 0) / businessDays : "—",
       ),
-      businessDays > 0 ? stats.total.weightKg / businessDays : "—",
+      businessDays > 0 ? beforeToday.total / businessDays : "—",
     ]);
   }
 
@@ -473,6 +475,8 @@ export function dashboardWeightProcessesSheet(
   today: string,
 ): ExportSheet {
   const businessDays = dashboardBusinessDays(stats, today);
+  // Média: só dias encerrados — o dia atual fica fora do numerador e do divisor.
+  const beforeToday = sumCompletedWeightBefore(stats.days, today);
   const average = (weightKg: number): ExportCell =>
     businessDays > 0 ? weightKg / businessDays : "—";
 
@@ -481,10 +485,11 @@ export function dashboardWeightProcessesSheet(
     process.name,
     process.code,
     process.weightKg,
-    process.quantity,
+    // MP é medido em kg (notas de entrada), não em peças.
+    process.code === "MP" ? "—" : process.quantity,
     process.items,
     process.cells,
-    average(process.weightKg),
+    average(beforeToday.byProcess.get(process.code) ?? 0),
   ]);
   rows.push([
     "Total",
@@ -493,7 +498,7 @@ export function dashboardWeightProcessesSheet(
     stats.total.quantity,
     "—",
     "—",
-    average(stats.total.weightKg),
+    average(beforeToday.total),
   ]);
 
   return { headers, rows, dateColumns: [] };
@@ -534,6 +539,8 @@ export function dashboardWeightSummarySheet(
   labels: DashboardWeightSheetLabels,
 ): ExportSheet {
   const businessDays = dashboardBusinessDays(stats, today);
+  // A média do resumo segue a tela: só dias encerrados (sem o dia atual).
+  const beforeToday = sumCompletedWeightBefore(stats.days, today);
   const rows: ExportCell[][] = [
     ["Período", `${formatDate(stats.periodStart)} – ${formatDate(stats.periodEnd)}`],
     ["Granularidade", WEIGHT_GRANULARITY_LABELS[stats.granularity]],
@@ -543,10 +550,10 @@ export function dashboardWeightSummarySheet(
     ["Peças totais", stats.total.quantity],
     ["Peso no período anterior (kg)", stats.previous.weightKg],
     ["Variação vs. período anterior", weightChange(stats)],
-    ["Dias úteis considerados", businessDays],
+    ["Dias úteis considerados (encerrados)", businessDays],
     [
-      "Média kg/dia útil",
-      businessDays > 0 ? stats.total.weightKg / businessDays : "—",
+      "Média kg/dia útil (encerrados)",
+      businessDays > 0 ? beforeToday.total / businessDays : "—",
     ],
   ];
   return { headers: ["Indicador", "Valor"], rows, dateColumns: [] };

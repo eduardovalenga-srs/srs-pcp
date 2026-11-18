@@ -248,20 +248,26 @@ export interface CompletedWeightProcessStat {
   code: string;
   name: string;
   displayOrder: number;
-  /** kg = quantidade concluída × peso unitário do item. */
+  /**
+   * kg do período. Nos processos normais é quantidade concluída × peso
+   * unitário; no MP é a soma de `mp_receipt_materials.quantity_kg` das
+   * notas de entrada (já em kg, sem multiplicação).
+   */
   weightKg: number;
-  /** Peças concluídas no processo. */
+  /** Peças concluídas no processo. MP não tem peças (sempre 0). */
   quantity: number;
-  /** Quantas células (processo × item) foram concluídas. */
+  /** Células concluídas (processo × item); no MP, linhas de material. */
   cells: number;
-  /** Quantos itens tiveram produção neste período. */
+  /** Quantos itens/OFs tiveram produção neste período. */
   items: number;
 }
 
 /** Célula da matriz Dia × processo: produção de um processo em um dia. */
 export interface CompletedWeightCell {
   code: string;
+  /** kg do dia (no MP: kg recebidos nas notas com `entry_date` nesse dia). */
   weightKg: number;
+  /** Peças concluídas no dia; MP não tem peças (sempre 0). */
   quantity: number;
   /** Células concluídas — permite distinguir "sem peso" de "sem produção". */
   cells: number;

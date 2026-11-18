@@ -6,6 +6,8 @@
  * navegador — mesma convenção usada na matriz Dia × processo.
  */
 
+import type { CompletedWeightDay } from "@/lib/types/production";
+
 /** Converte AAAA-MM-DD em uma data UTC à meia-noite. */
 function isoDateToUtc(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -25,12 +27,14 @@ export function isWeekendISO(value: string): boolean {
 }
 
 /**
- * Dias úteis (seg–sex) entre `periodStart` e `periodEnd`, inclusive.
+ * Dias úteis (seg–sex) do período, com `periodEnd` inclusive.
  *
- * Para o período em curso, `today` limita o fim: só os dias úteis já
- * transcorridos entram na conta (dias futuros não diluem a média).
- * Feriados não são considerados — não há calendário de feriados no
- * sistema.
+ * `today` é o corte EXCLUSIVO: o dia atual não entra na conta. No período
+ * em curso, a média considera apenas os dias úteis já ENCERRADOS — o dia
+ * de hoje ainda está em andamento e não deve diluir a média. Dias futuros
+ * também ficam fora. Sem `today`, conta o período inteiro.
+ *
+ * Feriados não são considerados — não há calendário de feriados no sistema.
  */
 export function countBusinessDays(
   periodStart: string,
@@ -42,7 +46,8 @@ export function countBusinessDays(
   if (!start || !end) return 0;
 
   const todayDate = today ? isoDateToUtc(today) : null;
-  const limit = todayDate && todayDate < end ? todayDate : end;
+  const cutoff = todayDate ? new Date(todayDate.getTime() - DAY_MS) : null;
+  const limit = cutoff && cutoff < end ? cutoff : end;
   if (limit < start) return 0;
 
   let count = 0;
@@ -51,4 +56,30 @@ export function countBusinessDays(
     if (weekday !== 0 && weekday !== 6) count += 1;
   }
   return count;
+}
+
+/**
+ * Peso concluído por processo nos dias ANTERIORES a `today` — numerador da
+ * média do painel. O dia atual fica fora mesmo que já tenha lançamentos,
+ * para casar com o divisor de `countBusinessDays` (dias úteis encerrados).
+ *
+ * As datas são AAAA-MM-DD, então a comparação de strings equivale à
+ * comparação cronológica.
+ */
+export function sumCompletedWeightBefore(
+  days: readonly CompletedWeightDay[],
+  today: string,
+): { total: number; byProcess: Map<string, number> } {
+  let total = 0;
+  const byProcess = new Map<string, number>();
+
+  for (const day of days) {
+    if (day.date >= today) continue;
+    for (const cell of day.processes) {
+      total += cell.weightKg;
+      byProcess.set(cell.code, (byProcess.get(cell.code) ?? 0) + cell.weightKg);
+    }
+  }
+
+  return { total, byProcess };
 }

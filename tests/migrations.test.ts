@@ -2479,3 +2479,61 @@ describe("claim_first_admin", () => {
     await asSuperUser(db);
   });
 });
+describe("080_completed_weight_mp_receipts", () => {
+  it("grava o espelho do MP ao meio-dia UTC e corrige o histórico à meia-noite", async () => {
+    await asSuperUser(db);
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ('OF-080-MIRROR', 'OF') returning id`,
+    );
+    const orderId = orderRows[0]?.id as string;
+    const { rows: itemRows } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, description, quantity, unit_weight_kg)
+       values ($1, 'Item espelho 080', 1, 41.63), ($1, 'Item espelho 080 novo', 1, 41.63)
+       returning id`,
+      [orderId],
+    );
+    const oldItemId = itemRows[0]?.id as string;
+    const newItemId = itemRows[1]?.id as string;
+    const userId = await createUser(db, "mp080@serralheria.com");
+
+    // Histórico no formato antigo: meia-noite UTC.
+    await db.query(
+      `insert into public.production_processes
+         (order_item_id, process_id, status, quantity_planned, quantity_completed, completed_at)
+       select $1, p.id, 'CONCLUIDO', 41.63, 41.63, '2026-11-04 00:00:00+00'
+         from public.processes p where p.code = 'MP'`,
+      [oldItemId],
+    );
+
+    const migration = readFileSync(
+      path.join(process.cwd(), "supabase", "migrations", "080_completed_weight_mp_receipts.sql"),
+      "utf8",
+    );
+    await db.exec(migration);
+
+    const { rows: backfilled } = await db.query<{ utc: string }>(
+      `select (pp.completed_at at time zone 'UTC')::text as utc
+         from public.production_processes pp
+         join public.processes pr on pr.id = pp.process_id
+        where pp.order_item_id = $1 and pr.code = 'MP'`,
+      [oldItemId],
+    );
+    expect(backfilled[0]?.utc).toBe("2026-11-04 12:00:00");
+
+    // Novo recebimento: o espelho nasce ao meio-dia UTC da data da nota.
+    await db.query(
+      `select public.mp_receipt_apply($1, 100, 41.63, 'TOTAL', '2026-11-05', $2)`,
+      [newItemId, userId],
+    );
+    const { rows: created } = await db.query<{ utc: string }>(
+      `select (pp.completed_at at time zone 'UTC')::text as utc
+         from public.production_processes pp
+         join public.processes pr on pr.id = pp.process_id
+        where pp.order_item_id = $1 and pr.code = 'MP'`,
+      [newItemId],
+    );
+    expect(created[0]?.utc).toBe("2026-11-05 12:00:00");
+
+    await db.query(`delete from public.orders where id = $1`, [orderId]);
+  });
+});

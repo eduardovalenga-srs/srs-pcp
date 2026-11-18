@@ -28,7 +28,7 @@ import type {
 import type { ProductGroupOption } from "@/lib/types/product-group";
 import { formatWeight } from "@/lib/utils/formatting";
 import { parseISODateToLocal, toISODate } from "@/lib/utils/dates";
-import { countBusinessDays, isWeekendISO } from "@/lib/utils/weight-period";
+import { countBusinessDays, isWeekendISO, sumCompletedWeightBefore } from "@/lib/utils/weight-period";
 import { weightProcessColumns } from "@/lib/utils/weight-columns";
 import { downloadChartPng } from "@/lib/utils/chart-image";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -111,6 +111,18 @@ function cellText(cell: CompletedWeightCell | undefined): string {
   if (!cell) return "—";
   if (cell.weightKg > 0) return formatWeight(cell.weightKg);
   return cell.cells > 0 ? "✓" : "—";
+}
+
+/**
+ * Tooltip da célula. No MP o peso vem das NOTAS DE ENTRADA (kg), então
+ * não existe contagem de peças — mostramos as linhas de material.
+ */
+function cellTooltip(column: CompletedWeightColumn, cell: CompletedWeightCell | undefined): string {
+  if (!cell) return `${column.name}: sem produção concluída`;
+  if (column.code === "MP") {
+    return `${column.name}: ${formatWeight(cell.weightKg)} kg recebidos em ${cell.cells} linha(s) de material`;
+  }
+  return `${column.name}: ${formatWeight(cell.weightKg)} kg em ${cell.quantity} peça(s)`;
 }
 
 export function CompletedWeightPanel({
@@ -245,9 +257,12 @@ export function CompletedWeightPanel({
   }
   const noFamilyTotal = groupsById.get(null)?.weightKg ?? null;
 
-  // Média por dia útil do período (seg–sex). No período em curso, só os
-  // dias úteis já transcorridos entram na conta.
+  // Média por dia útil encerrado (seg–sex). O dia atual fica fora do
+  // divisor E do numerador: a produção de hoje ainda está em andamento.
   const businessDays = data ? countBusinessDays(data.periodStart, data.periodEnd, today) : 0;
+  const average = data
+    ? sumCompletedWeightBefore(data.days, today)
+    : { total: 0, byProcess: new Map<string, number>() };
 
   return (
     <section aria-label="Peso concluído por processo" className="space-y-2">
@@ -258,7 +273,8 @@ export function CompletedWeightPanel({
             Peso concluído por processo
           </h2>
           <p className="text-xs text-muted-foreground">
-            kg = quantidade concluída × peso unitário do item, por dia e processo. Fins de semana em cinza.
+            kg = quantidade concluída × peso unitário do item, por dia e processo. MP = kg das notas de
+            entrada, pela data da nota. Fins de semana em cinza.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -450,11 +466,7 @@ export function CompletedWeightPanel({
                               <td
                                 key={column.code}
                                 className="px-2 py-1 text-right tabular-nums"
-                                title={
-                                  cell
-                                    ? `${column.name}: ${formatWeight(cell.weightKg)} kg em ${cell.quantity} peça(s)`
-                                    : `${column.name}: sem produção concluída`
-                                }
+                                title={cellTooltip(column, cell)}
                               >
                                 <span className={cell && cell.weightKg > 0 ? "text-status-done" : "text-muted-foreground"}>
                                   {cellText(cell)}
@@ -489,7 +501,7 @@ export function CompletedWeightPanel({
                     <tr>
                       <th
                         scope="row"
-                        title={`Total do período ÷ ${businessDays} dia(s) útil(eis) (seg–sex, sem feriados).`}
+                        title={`Média dos dias úteis encerrados (seg–sex, sem feriados), sem o dia atual. Total até ontem ÷ ${businessDays} dia(s) útil(eis).`}
                         className="sticky left-0 z-30 border-t bg-muted px-2 py-1 text-left font-normal text-muted-foreground whitespace-nowrap"
                       >
                         Média/dia útil
@@ -501,12 +513,12 @@ export function CompletedWeightPanel({
                           className="border-t px-2 py-1 text-right font-normal text-muted-foreground tabular-nums"
                         >
                           {businessDays > 0
-                            ? formatWeight((weightByProcess.get(column.code) ?? 0) / businessDays)
+                            ? formatWeight((average.byProcess.get(column.code) ?? 0) / businessDays)
                             : "—"}
                         </td>
                       ))}
                       <td className="border-t px-2 py-1 text-right font-normal text-muted-foreground tabular-nums">
-                        {businessDays > 0 ? formatWeight(data.total.weightKg / businessDays) : "—"}
+                        {businessDays > 0 ? formatWeight(average.total / businessDays) : "—"}
                       </td>
                     </tr>
                   ) : null}

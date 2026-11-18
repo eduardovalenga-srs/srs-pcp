@@ -650,20 +650,20 @@ function weightStats(overrides: Partial<CompletedWeightStats> = {}): CompletedWe
     productGroupId: null,
     withoutProductGroup: false,
     processes: [
-      { code: "MP", name: "MP", displayOrder: 5, weightKg: 20, quantity: 2, cells: 1, items: 1 },
+      { code: "MP", name: "MP", displayOrder: 5, weightKg: 20, quantity: 0, cells: 1, items: 1 },
       { code: "LASER", name: "LASER", displayOrder: 10, weightKg: 8, quantity: 4, cells: 1, items: 1 },
     ],
     groups: [
-      { id: 1, name: "Alfa", abbreviation: "A", weightKg: 20, quantity: 2, cells: 1, items: 1 },
+      { id: 1, name: "Alfa", abbreviation: "A", weightKg: 20, quantity: 0, cells: 1, items: 1 },
       { id: null, name: "Sem família", abbreviation: "—", weightKg: 8, quantity: 4, cells: 1, items: 1 },
     ],
-    total: { weightKg: 28, quantity: 6 },
+    total: { weightKg: 28, quantity: 4 },
     previous: { weightKg: 14, quantity: 3 },
     days: [
       { date: "2026-11-01", processes: [] }, // domingo
       {
         date: "2026-11-02",
-        processes: [{ code: "MP", weightKg: 20, quantity: 2, cells: 1 }],
+        processes: [{ code: "MP", weightKg: 20, quantity: 0, cells: 1 }],
       },
       {
         date: "2026-11-03",
@@ -675,7 +675,7 @@ function weightStats(overrides: Partial<CompletedWeightStats> = {}): CompletedWe
         bucket: "2026-11-02",
         weightKg: 20,
         quantity: 2,
-        processes: [{ code: "MP", weightKg: 20, quantity: 2, cells: 1 }],
+        processes: [{ code: "MP", weightKg: 20, quantity: 0, cells: 1 }],
       },
       {
         bucket: "2026-11-03",
@@ -704,12 +704,43 @@ describe("dashboardWeightMatrixSheet", () => {
     expect(sheet.rows[2]).toEqual([new Date(2026, 10, 3), "Não", "—", 8, 8]);
     expect(sheet.rows[3]).toEqual(["Total", "", 20, 8, 28]);
 
-    // Nov/2026: 12 dias úteis transcorridos até 17/11 (mesma regra da tela).
+    // Nov/2026: 11 dias úteis encerrados até 17/11 — o dia atual não entra.
     const average = sheet.rows[4]!;
-    expect(average[0]).toBe("Média/dia útil (12)");
-    expect(average[2]).toBeCloseTo(20 / 12);
-    expect(average[3]).toBeCloseTo(8 / 12);
-    expect(average[4]).toBeCloseTo(28 / 12);
+    expect(average[0]).toBe("Média/dia útil (11)");
+    expect(average[2]).toBeCloseTo(20 / 11);
+    expect(average[3]).toBeCloseTo(8 / 11);
+    expect(average[4]).toBeCloseTo(28 / 11);
+  });
+
+  it("exclui o dia atual da média, mas mantém o valor no total", () => {
+    const sheet = dashboardWeightMatrixSheet(
+      weightStats({
+        processes: [
+          { code: "MP", name: "MP", displayOrder: 5, weightKg: 25, quantity: 0, cells: 2, items: 1 },
+        ],
+        total: { weightKg: 25, quantity: 0 },
+        days: [
+          {
+            date: "2026-11-16",
+            processes: [{ code: "MP", weightKg: 20, quantity: 0, cells: 1 }],
+          },
+          {
+            date: "2026-11-17",
+            processes: [{ code: "MP", weightKg: 5, quantity: 0, cells: 1 }],
+          },
+        ],
+      }),
+      WEIGHT_COLUMNS,
+      WEIGHT_TODAY,
+    );
+
+    expect(sheet.rows[1]).toEqual([new Date(2026, 10, 17), "Não", 5, "—", 5]);
+    expect(sheet.rows[2]).toEqual(["Total", "", 25, 0, 25]);
+
+    const average = sheet.rows[3]!;
+    expect(average[0]).toBe("Média/dia útil (11)");
+    expect(average[2]).toBeCloseTo(20 / 11); // só o dia 16 entra
+    expect(average[4]).toBeCloseTo(20 / 11);
   });
 
   it("mostra só a coluna do processo filtrado", () => {
@@ -730,7 +761,7 @@ describe("dashboardWeightMatrixSheet", () => {
         days: [
           {
             date: "2026-11-02",
-            processes: [{ code: "MP", weightKg: 20, quantity: 2, cells: 1 }],
+            processes: [{ code: "MP", weightKg: 20, quantity: 0, cells: 1 }],
           },
         ],
       }),
@@ -746,7 +777,7 @@ describe("dashboardWeightMatrixSheet", () => {
         days: [
           {
             date: "2026-11-04",
-            processes: [{ code: "MP", weightKg: 0, quantity: 2, cells: 1 }],
+            processes: [{ code: "MP", weightKg: 0, quantity: 0, cells: 1 }],
           },
         ],
       }),
@@ -769,7 +800,7 @@ describe("abas de apoio do dashboard", () => {
       "Células",
       "Média kg/dia útil",
     ]);
-    expect(sheet.rows[0]).toEqual(["MP", "MP", 20, 2, 1, 1, 20 / 12]);
+    expect(sheet.rows[0]).toEqual(["MP", "MP", 20, "—", 1, 1, 20 / 11]);
     expect(sheet.rows[2]![0]).toBe("Total");
     expect(sheet.rows[2]![2]).toBe(28);
   });
@@ -778,7 +809,7 @@ describe("abas de apoio do dashboard", () => {
     const sheet = dashboardWeightFamiliesSheet(weightStats());
     expect(sheet.headers).toEqual(["Família", "Abreviação", "Peso (kg)", "Peças", "Itens", "Células"]);
     expect(sheet.rows[1]).toEqual(["Sem família", "—", 8, 4, 1, 1]);
-    expect(sheet.rows[2]).toEqual(["Total", "", 28, 6, "—", "—"]);
+    expect(sheet.rows[2]).toEqual(["Total", "", 28, 4, "—", "—"]);
   });
 
   it("evolução sai com data tipada e os mesmos valores do gráfico", () => {
@@ -797,7 +828,9 @@ describe("abas de apoio do dashboard", () => {
     expect(sheet.rows[2]).toEqual(["Processo", "Todos os processos"]);
     expect(sheet.rows[3]).toEqual(["Família", "Todas as famílias"]);
     expect(sheet.rows[7]).toEqual(["Variação vs. período anterior", "+100%"]);
-    expect(sheet.rows[8]).toEqual(["Dias úteis considerados", 12]);
+    expect(sheet.rows[8]).toEqual(["Dias úteis considerados (encerrados)", 11]);
+    expect(sheet.rows[9]![0]).toBe("Média kg/dia útil (encerrados)");
+    expect(sheet.rows[9]![1]).toBeCloseTo(28 / 11);
   });
 
   it("monta o workbook na ordem da tela (lista primeiro)", () => {
