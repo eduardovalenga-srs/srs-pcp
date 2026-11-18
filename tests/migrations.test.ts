@@ -56,6 +56,7 @@ describe("migrations", () => {
       "processes",
       "production_processes",
       "production_events",
+      "employees",
       "import_batches",
       "import_errors",
       "product_groups",
@@ -67,6 +68,85 @@ describe("migrations", () => {
     ]) {
       expect(await tableExists(table), `tabela ${table}`).toBe(true);
     }
+  });
+
+  it("081/082 cria o cadastro e importa a base inicial conciliada", async () => {
+    const { rows } = await db.query<{
+      total: number;
+      active: number;
+      inactive: number;
+      with_location: number;
+      missing_admission: number;
+      manual_fields_empty: number;
+      unique_keys: number;
+    }>(`
+      select
+        count(*)::int as total,
+        count(*) filter (where status = 'ATIVO')::int as active,
+        count(*) filter (where status = 'INATIVO')::int as inactive,
+        count(*) filter (where location is not null)::int as with_location,
+        count(*) filter (where admission_date is null)::int as missing_admission,
+        count(*) filter (
+          where shift is null and area is null and client is null
+            and responsible_1 is null and responsible_2 is null
+        )::int as manual_fields_empty,
+        count(distinct (company_code, registration))::int as unique_keys
+      from public.employees
+    `);
+    expect(rows[0]).toMatchObject({
+      total: 633,
+      active: 310,
+      inactive: 323,
+      with_location: 303,
+      missing_admission: 91,
+      manual_fields_empty: 633,
+      unique_keys: 633,
+    });
+
+    await db.exec(`
+      update public.employees
+      set dismissal_date = '2026-11-18'
+      where company_code = '752' and registration = '2'
+    `);
+    const { rows: status } = await db.query<{ status: string }>(
+      `select status from public.employees where company_code = '752' and registration = '2'`,
+    );
+    expect(status[0]?.status).toBe("INATIVO");
+  });
+
+  it("import_employees atualiza campos de origem sem apagar dados complementares", async () => {
+    await asSuperUser(db);
+    await db.query(
+      `update public.employees
+       set shift = 'Noturno', area = 'Solda', location = 'GERAL/BRAFER'
+       where company_code = '752' and registration = '2'`,
+    );
+    const adminId = await createUser(db, "rh-import-admin@test.local", "ADMIN");
+    await asUser(db, "authenticated", adminId);
+    const { rows } = await db.query<{ imported: number }>(
+      `select public.import_employees($1::jsonb) as imported`,
+      [JSON.stringify([{
+        company_code: "752",
+        company_name: "SRS DESENVOLVIMENTO LTDA",
+        registration: "2",
+        name: "ADRIANO CARDOSO DE OLIVEIRA",
+        admission_date: "2023-04-13",
+        dismissal_date: null,
+        location: null,
+      }])],
+    );
+    expect(Number(rows[0]?.imported)).toBe(1);
+
+    await asSuperUser(db);
+    const { rows: saved } = await db.query<{
+      shift: string | null;
+      area: string | null;
+      location: string | null;
+    }>(
+      `select shift, area, location from public.employees
+       where company_code = '752' and registration = '2'`,
+    );
+    expect(saved[0]).toEqual({ shift: "Noturno", area: "Solda", location: "GERAL/BRAFER" });
   });
 
   it("065 escala filhos, materiais e espelho MP uma vez, sem alterar pesos recebidos", async () => {

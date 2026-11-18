@@ -1,6 +1,7 @@
 import {
   Boxes,
   ClipboardList,
+  FileUp,
   Factory,
   LayoutDashboard,
   ListOrdered,
@@ -138,6 +139,13 @@ export const NAV_ENTRIES: NavEntry[] = [
         label: "Funcionários",
         icon: UserRound,
         capability: "rh.view",
+      },
+      {
+        type: "item",
+        href: "/rh/funcionarios/importacao",
+        label: "Importar funcionários",
+        icon: FileUp,
+        capability: "rh.manage",
       },
     ],
   },

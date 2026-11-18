@@ -19,6 +19,28 @@ export type ProcessStatusValue =
 /** 078: espelho do recebimento de MP agregado por OF no sequenciamento. */
 export type MpReceiptStateValue = "NONE" | "PARCIAL" | "TOTAL";
 export type ImportBatchStatusValue = "PENDENTE" | "PROCESSANDO" | "CONCLUIDO" | "COM_ERROS" | "FALHOU";
+export type EmployeeStatusValue = "ATIVO" | "INATIVO";
+
+export type EmployeeRow = {
+  id: string;
+  company_code: string;
+  company_name: string;
+  registration: string;
+  name: string;
+  admission_date: string | null;
+  dismissal_date: string | null;
+  location: string | null;
+  status: EmployeeStatusValue;
+  shift: string | null;
+  area: string | null;
+  client: string | null;
+  responsible_1: string | null;
+  responsible_2: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+};
 
 export type ProfileRow = {
   id: string;
@@ -527,6 +549,57 @@ export type MpReceiptCustomerRow = {
 export type Database = {
   public: {
     Tables: {
+      employees: {
+        Row: EmployeeRow;
+        Insert: {
+          id?: string;
+          company_code: string;
+          company_name: string;
+          registration: string;
+          name: string;
+          admission_date?: string | null;
+          dismissal_date?: string | null;
+          location?: string | null;
+          shift?: string | null;
+          area?: string | null;
+          client?: string | null;
+          responsible_1?: string | null;
+          responsible_2?: string | null;
+          created_by?: string | null;
+          updated_by?: string | null;
+        };
+        Update: Partial<{
+          company_code: string;
+          company_name: string;
+          registration: string;
+          name: string;
+          admission_date: string | null;
+          dismissal_date: string | null;
+          location: string | null;
+          shift: string | null;
+          area: string | null;
+          client: string | null;
+          responsible_1: string | null;
+          responsible_2: string | null;
+          updated_by: string | null;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "employees_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "employees_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       profiles: {
         Row: ProfileRow;
         Insert: {
@@ -1128,6 +1201,10 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      import_employees: {
+        Args: { p_rows: Json };
+        Returns: number;
+      };
       claim_first_admin: {
         Args: Record<string, never>;
         Returns: { claimed: boolean; message: string };
