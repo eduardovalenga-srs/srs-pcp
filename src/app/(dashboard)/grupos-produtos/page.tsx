@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
+import { ListPage } from "@/components/layout/ListPage";
 import { ProductGroupsCatalog } from "@/components/grupos-produtos/ProductGroupsCatalog";
 import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
@@ -51,7 +52,7 @@ export default async function ProductGroupsPage() {
   }
 
   return (
-    <>
+    <ListPage>
       <Header
         title="Grupos de produtos"
         description="Cadastre famílias e defina a capacidade por processo e fábrica."
@@ -61,6 +62,6 @@ export default async function ProductGroupsPage() {
         processes={processes}
         canManage={can(sessionUser.role, "processes.manage")}
       />
-    </>
+    </ListPage>
   );
 }

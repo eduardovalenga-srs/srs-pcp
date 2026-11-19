@@ -120,7 +120,7 @@ export function UsersTable({ users, currentUser, canManageUsers }: UsersTablePro
   }
 
   return (
-    <section aria-label="Usuários" className="overflow-x-auto rounded border bg-card">
+    <section aria-label="Usuários" className="overflow-hidden rounded border bg-card">
       <div className="flex flex-wrap items-start justify-between gap-2 border-b bg-muted/40 px-3 py-2">
         <div>
           <h2 className="text-sm font-semibold">Usuários</h2>
@@ -131,9 +131,10 @@ export function UsersTable({ users, currentUser, canManageUsers }: UsersTablePro
         </div>
         {canManageUsers ? <CreateUserDialog /> : null}
       </div>
-      <table className="w-full text-sm">
-        <caption className="sr-only">Usuários cadastrados, perfil, status e acesso</caption>
-        <thead>
+      <div className="overflow-auto lg:max-h-[calc(100dvh-15rem)]">
+        <table className="w-full text-sm">
+          <caption className="sr-only">Usuários cadastrados, perfil, status e acesso</caption>
+        <thead className="sticky top-0 z-20 bg-muted">
           <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
             <th scope="col" className="px-3 py-2 font-semibold">Nome</th>
             <th scope="col" className="px-3 py-2 font-semibold">E-mail</th>
@@ -246,8 +247,9 @@ export function UsersTable({ users, currentUser, canManageUsers }: UsersTablePro
               </tr>
             );
           })}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
       {!canManageUsers ? (
         <p className="border-t px-3 py-2 text-xs text-muted-foreground">
           Somente administradores alteram perfis e status.

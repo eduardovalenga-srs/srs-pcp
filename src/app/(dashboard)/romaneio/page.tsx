@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { ExportButton } from "@/components/shared/ExportButton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
+import { ListFooter, ListPage, ListScroll, ListTop } from "@/components/layout/ListPage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { RomaneioActiveFilters } from "@/components/romaneio/RomaneioColumnHeaders";
@@ -87,7 +88,7 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
   const hasFilters = hasRomaneioFilters(filters);
 
   return (
-    <>
+    <ListPage>
       <Header
         title="Romaneio"
         description={pluralize(total, "romaneio")}
@@ -109,7 +110,7 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
         }
       />
 
-      <div className="space-y-3">
+      <ListTop>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SummaryCard label="Abertos" value={openCount} hint="Aguardando conferência" />
           <SummaryCard label="Conferidos" value={conferredCount} hint="Prontos para confirmar" />
@@ -128,39 +129,47 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
 
         {/* Chips de filtros ativos: removem um a um ou limpam tudo. */}
         <RomaneioActiveFilters filters={filters} />
+      </ListTop>
 
-        {romaneios.length === 0 ? (
-          <EmptyState
-            title="Nenhum romaneio encontrado"
-            description={
-              hasFilters
-                ? "Ajuste os filtros para encontrar o romaneio que você procura."
-                : canEdit
-                  ? "Monte a primeira carga de expedição de uma OF para começar."
-                  : "Nenhum romaneio de expedição registrado até o momento."
-            }
-            action={
-              canEdit && !hasFilters ? (
-                <Button type="button" size="sm" asChild>
-                  <Link href="/romaneio/novo">
-                    <Plus className="h-4 w-4" aria-hidden />
-                    Novo romaneio
-                  </Link>
-                </Button>
-              ) : undefined
-            }
-          />
-        ) : (
-          <>
+      {romaneios.length === 0 ? (
+        <ListScroll>
+          <div className="p-3">
+            <EmptyState
+              title="Nenhum romaneio encontrado"
+              description={
+                hasFilters
+                  ? "Ajuste os filtros para encontrar o romaneio que você procura."
+                  : canEdit
+                    ? "Monte a primeira carga de expedição de uma OF para começar."
+                    : "Nenhum romaneio de expedição registrado até o momento."
+              }
+              action={
+                canEdit && !hasFilters ? (
+                  <Button type="button" size="sm" asChild>
+                    <Link href="/romaneio/novo">
+                      <Plus className="h-4 w-4" aria-hidden />
+                      Novo romaneio
+                    </Link>
+                  </Button>
+                ) : undefined
+              }
+            />
+          </div>
+        </ListScroll>
+      ) : (
+        <>
+          <ListScroll>
             <RomaneioList
               romaneios={romaneios}
               filters={filters}
               canEdit={canEdit}
             />
+          </ListScroll>
+          <ListFooter>
             <RomaneioPagination filters={filters} total={total} />
-          </>
-        )}
-      </div>
-    </>
+          </ListFooter>
+        </>
+      )}
+    </ListPage>
   );
 }

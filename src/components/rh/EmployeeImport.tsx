@@ -62,6 +62,7 @@ export function EmployeeImport() {
           <p className="mt-1 text-sm text-muted-foreground">
             A planilha é a fonte principal. O PDF é opcional e complementa o local de alocação.
             Funcionários existentes apenas no PDF serão incluídos sem datas para preenchimento posterior.
+            Datas em branco no arquivo não apagam as datas já cadastradas.
           </p>
         </div>
         <label className="block space-y-1.5 text-sm">

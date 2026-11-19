@@ -1,17 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { Pencil, Plus, RotateCcw, Search, Upload } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Pencil, Plus, RotateCcw, Upload } from "lucide-react";
 
 import type { EmployeeRow } from "@/lib/types/database";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { ListFooter, ListScroll } from "@/components/layout/ListPage";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  DeliveryPeriodPopover,
+  FilterMenu,
+  TextColumnFilter,
+} from "@/components/shared/column-filters";
 
 const PAGE_SIZE = 25;
-type Filters = {
-  search: string;
+
+export interface EmployeeListFilters {
+  registration: string;
+  name: string;
   company: string;
   status: string;
   location: string;
@@ -20,14 +27,37 @@ type Filters = {
   client: string;
   responsible1: string;
   responsible2: string;
-  admissionFrom: string;
-  admissionTo: string;
-  dismissalFrom: string;
-  dismissalTo: string;
-};
-const EMPTY_FILTERS: Filters = {
-  search: "", company: "", status: "", location: "", shift: "", area: "", client: "",
-  responsible1: "", responsible2: "", admissionFrom: "", admissionTo: "", dismissalFrom: "", dismissalTo: "",
+  admissionFrom: string | null;
+  admissionTo: string | null;
+  dismissalFrom: string | null;
+  dismissalTo: string | null;
+}
+
+type TextFilterField =
+  | "registration"
+  | "name"
+  | "location"
+  | "shift"
+  | "area"
+  | "client"
+  | "responsible1"
+  | "responsible2";
+
+const EMPTY_FILTERS: EmployeeListFilters = {
+  registration: "",
+  name: "",
+  company: "",
+  status: "ALL",
+  location: "",
+  shift: "",
+  area: "",
+  client: "",
+  responsible1: "",
+  responsible2: "",
+  admissionFrom: null,
+  admissionTo: null,
+  dismissalFrom: null,
+  dismissalTo: null,
 };
 
 function dateLabel(value: string | null): string {
@@ -36,73 +66,129 @@ function dateLabel(value: string | null): string {
   return `${day}/${month}/${year}`;
 }
 
-function uniqueValues(employees: EmployeeRow[], field: "location" | "shift" | "area" | "client" | "responsible_1" | "responsible_2") {
-  return [...new Set(employees.map((employee) => employee[field]).filter((value): value is string => Boolean(value)))]
-    .sort((a, b) => a.localeCompare(b, "pt-BR"));
+function normalizeSearch(value: string | null | undefined): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLocaleLowerCase("pt-BR");
+}
+
+function matchesText(value: string | null | undefined, query: string): boolean {
+  return !query || normalizeSearch(value).includes(normalizeSearch(query));
+}
+
+function hasActiveFilters(filters: EmployeeListFilters): boolean {
+  return (
+    filters.registration !== "" ||
+    filters.name !== "" ||
+    filters.company !== "" ||
+    filters.status !== "ALL" ||
+    filters.location !== "" ||
+    filters.shift !== "" ||
+    filters.area !== "" ||
+    filters.client !== "" ||
+    filters.responsible1 !== "" ||
+    filters.responsible2 !== "" ||
+    filters.admissionFrom !== null ||
+    filters.admissionTo !== null ||
+    filters.dismissalFrom !== null ||
+    filters.dismissalTo !== null
+  );
+}
+
+/** Aplica os filtros das colunas à lista já carregada no servidor. */
+export function filterEmployees(
+  employees: readonly EmployeeRow[],
+  filters: EmployeeListFilters,
+): EmployeeRow[] {
+  return employees.filter((employee) => {
+    if (!matchesText(employee.registration, filters.registration)) return false;
+    if (!matchesText(employee.name, filters.name)) return false;
+    if (filters.company && employee.company_code !== filters.company) return false;
+    if (filters.status !== "ALL" && employee.status !== filters.status) return false;
+    if (!matchesText(employee.location, filters.location)) return false;
+    if (!matchesText(employee.shift, filters.shift)) return false;
+    if (!matchesText(employee.area, filters.area)) return false;
+    if (!matchesText(employee.client, filters.client)) return false;
+    if (!matchesText(employee.responsible_1, filters.responsible1)) return false;
+    if (!matchesText(employee.responsible_2, filters.responsible2)) return false;
+
+    const admission = employee.admission_date ?? "";
+    if (filters.admissionFrom && (!admission || admission < filters.admissionFrom)) return false;
+    if (filters.admissionTo && (!admission || admission > filters.admissionTo)) return false;
+
+    const dismissal = employee.dismissal_date ?? "";
+    if (filters.dismissalFrom && (!dismissal || dismissal < filters.dismissalFrom)) return false;
+    if (filters.dismissalTo && (!dismissal || dismissal > filters.dismissalTo)) return false;
+
+    return true;
+  });
+}
+
+/** Rótulo do cabeçalho com o funil de filtro ao lado. */
+function HeaderLabel({
+  label,
+  fullLabel,
+  filter,
+}: {
+  label: string;
+  fullLabel?: string;
+  filter?: ReactNode;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span title={fullLabel}>{label}</span>
+      {fullLabel ? <span className="sr-only">{fullLabel}</span> : null}
+      {filter}
+    </span>
+  );
 }
 
 export function EmployeesList({ employees, canManage }: { employees: EmployeeRow[]; canManage: boolean }) {
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<EmployeeListFilters>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
-  const distinct = {
-    locations: uniqueValues(employees, "location"),
-    shifts: uniqueValues(employees, "shift"),
-    areas: uniqueValues(employees, "area"),
-    clients: uniqueValues(employees, "client"),
-    responsible1: uniqueValues(employees, "responsible_1"),
-    responsible2: uniqueValues(employees, "responsible_2"),
-  };
-  const filtered = useMemo(() => {
-    const includes = (value: string | null, filter: string) =>
-      !filter || (value ?? "").toLocaleLowerCase("pt-BR").includes(filter.toLocaleLowerCase("pt-BR"));
-    return employees.filter((employee) => {
-      const search = filters.search.trim().toLocaleLowerCase("pt-BR");
-      const searchMatch = !search ||
-        [employee.registration, employee.name, employee.company_name, employee.location ?? ""]
-          .some((value) => value.toLocaleLowerCase("pt-BR").includes(search));
-      return searchMatch &&
-        (!filters.company || employee.company_code === filters.company) &&
-        (!filters.status || employee.status === filters.status) &&
-        includes(employee.location, filters.location) &&
-        includes(employee.shift, filters.shift) &&
-        includes(employee.area, filters.area) &&
-        includes(employee.client, filters.client) &&
-        includes(employee.responsible_1, filters.responsible1) &&
-        includes(employee.responsible_2, filters.responsible2) &&
-        (!filters.admissionFrom || (employee.admission_date ?? "") >= filters.admissionFrom) &&
-        (!filters.admissionTo || (employee.admission_date ?? "") <= filters.admissionTo) &&
-        (!filters.dismissalFrom || (employee.dismissal_date ?? "") >= filters.dismissalFrom) &&
-        (!filters.dismissalTo || (employee.dismissal_date ?? "") <= filters.dismissalTo);
-    });
-  }, [employees, filters]);
+  const filtered = useMemo(() => filterEmployees(employees, filters), [employees, filters]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  function update<K extends keyof Filters>(key: K, value: Filters[K]) {
-    setFilters((current) => ({ ...current, [key]: value }));
+  const companies = [...new Map(employees.map((employee) => [employee.company_code, employee.company_name])).entries()]
+    .sort(([codeA], [codeB]) => codeA.localeCompare(codeB, "pt-BR"));
+
+  function apply(overrides: Partial<EmployeeListFilters>) {
+    setFilters((current) => ({ ...current, ...overrides }));
     setPage(1);
   }
 
-  function selectFilter<K extends keyof Filters>(key: K, label: string, values: string[]) {
+  function textFilter(field: TextFilterField, column: string, context: string) {
     return (
-      <label className="min-w-36 space-y-1 text-xs text-muted-foreground">
-        <span>{label}</span>
-        <select
-          value={filters[key] as string}
-          onChange={(event) => update(key, event.target.value as Filters[K])}
-          className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
-        >
-          <option value="">Todos</option>
-          {values.map((value) => <option key={value} value={value}>{value}</option>)}
-        </select>
-      </label>
+      <TextColumnFilter
+        value={filters[field]}
+        column={column}
+        context={context}
+        onApply={(value) => apply({ [field]: value } as Partial<EmployeeListFilters>)}
+      />
     );
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">{filtered.length} de {employees.length} funcionário(s)</p>
+    <section className="flex min-h-0 flex-col gap-3 lg:flex-1">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-muted-foreground">{filtered.length} funcionário(s)</p>
+          {hasActiveFilters(filters) ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setFilters(EMPTY_FILTERS);
+                setPage(1);
+              }}
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden />Limpar filtros
+            </Button>
+          ) : null}
+        </div>
         {canManage ? (
           <div className="flex gap-2">
             <Button size="sm" variant="outline" asChild>
@@ -115,62 +201,103 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
         ) : null}
       </div>
 
-      <div className="space-y-3 rounded-lg border bg-card p-3">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="space-y-1 text-xs text-muted-foreground sm:col-span-2">
-            <span>Busca (matrícula, nome, empresa ou local)</span>
-            <span className="relative block">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4" aria-hidden />
-              <Input className="pl-9" value={filters.search} onChange={(event) => update("search", event.target.value)} placeholder="Buscar funcionário..." />
-            </span>
-          </label>
-          <label className="min-w-36 space-y-1 text-xs text-muted-foreground">
-            <span>Empresa</span>
-            <select
-              value={filters.company}
-              onChange={(event) => update("company", event.target.value)}
-              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
-            >
-              <option value="">Todas</option>
-              {[...new Map(employees.map((employee) => [employee.company_code, employee.company_name])).entries()].map(([code, name]) => (
-                <option key={code} value={code}>{code} — {name}</option>
-              ))}
-            </select>
-          </label>
-          {selectFilter("status", "Status", ["ATIVO", "INATIVO"])}
-          {selectFilter("location", "Local", distinct.locations)}
-          {selectFilter("shift", "Turno", distinct.shifts)}
-          {selectFilter("area", "Área", distinct.areas)}
-          {selectFilter("client", "Cliente", distinct.clients)}
-          {selectFilter("responsible1", "Responsável 1", distinct.responsible1)}
-          {selectFilter("responsible2", "Responsável 2", distinct.responsible2)}
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {([
-            ["admissionFrom", "Admissão a partir de"],
-            ["admissionTo", "Admissão até"],
-            ["dismissalFrom", "Demissão a partir de"],
-            ["dismissalTo", "Demissão até"],
-          ] as const).map(([key, label]) => (
-            <label key={key} className="space-y-1 text-xs text-muted-foreground">
-              <span>{label}</span>
-              <Input type="date" value={filters[key]} onChange={(event) => update(key, event.target.value)} />
-            </label>
-          ))}
-        </div>
-        <Button type="button" variant="ghost" size="sm" onClick={() => { setFilters(EMPTY_FILTERS); setPage(1); }}>
-          <RotateCcw className="h-3.5 w-3.5" aria-hidden />Limpar filtros
-        </Button>
-      </div>
-
-      <div className="overflow-hidden rounded-lg border bg-card">
+      <ListScroll>
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-20 bg-muted">
             <TableRow>
-              <TableHead>Matrícula</TableHead><TableHead>Nome</TableHead><TableHead>Empresa</TableHead>
-              <TableHead>Admissão</TableHead><TableHead>Demissão</TableHead><TableHead>Status</TableHead>
-              <TableHead>Local</TableHead><TableHead>Turno</TableHead><TableHead>Área</TableHead>
-              <TableHead>Cliente</TableHead><TableHead>Responsáveis</TableHead>
+              <TableHead>
+                <HeaderLabel label="Matrícula" filter={textFilter("registration", "Matrícula", "matrícula")} />
+              </TableHead>
+              <TableHead>
+                <HeaderLabel label="Nome" filter={textFilter("name", "Nome", "nome")} />
+              </TableHead>
+              <TableHead>
+                <HeaderLabel
+                  label="Empresa"
+                  filter={
+                    <FilterMenu
+                      context="empresa"
+                      value={filters.company}
+                      active={filters.company !== ""}
+                      options={[
+                        { value: "", label: "Todas as empresas" },
+                        ...companies.map(([code, name]) => ({ value: code, label: `${code} — ${name}` })),
+                      ]}
+                      onValueChange={(value) => apply({ company: value })}
+                    />
+                  }
+                />
+              </TableHead>
+              <TableHead>
+                <HeaderLabel
+                  label="Admissão"
+                  filter={
+                    <DeliveryPeriodPopover
+                      context="admissão"
+                      idPrefix="funcionarios-admissao"
+                      from={filters.admissionFrom}
+                      to={filters.admissionTo}
+                      active={filters.admissionFrom !== null || filters.admissionTo !== null}
+                      onApply={(from, to) => apply({ admissionFrom: from, admissionTo: to })}
+                    />
+                  }
+                />
+              </TableHead>
+              <TableHead>
+                <HeaderLabel
+                  label="Demissão"
+                  filter={
+                    <DeliveryPeriodPopover
+                      context="demissão"
+                      idPrefix="funcionarios-demissao"
+                      from={filters.dismissalFrom}
+                      to={filters.dismissalTo}
+                      active={filters.dismissalFrom !== null || filters.dismissalTo !== null}
+                      onApply={(from, to) => apply({ dismissalFrom: from, dismissalTo: to })}
+                    />
+                  }
+                />
+              </TableHead>
+              <TableHead>
+                <HeaderLabel
+                  label="Status"
+                  filter={
+                    <FilterMenu
+                      context="status do funcionário"
+                      value={filters.status}
+                      active={filters.status !== "ALL"}
+                      options={[
+                        { value: "ALL", label: "Todos os status" },
+                        { value: "ATIVO", label: "Ativo" },
+                        { value: "INATIVO", label: "Inativo" },
+                      ]}
+                      onValueChange={(value) => apply({ status: value })}
+                    />
+                  }
+                />
+              </TableHead>
+              <TableHead>
+                <HeaderLabel label="Local" filter={textFilter("location", "Local", "local")} />
+              </TableHead>
+              <TableHead>
+                <HeaderLabel label="Turno" filter={textFilter("shift", "Turno", "turno")} />
+              </TableHead>
+              <TableHead>
+                <HeaderLabel label="Área" filter={textFilter("area", "Área", "área")} />
+              </TableHead>
+              <TableHead>
+                <HeaderLabel label="Cliente" filter={textFilter("client", "Cliente", "cliente")} />
+              </TableHead>
+              <TableHead>
+                <HeaderLabel label="Lid." fullLabel="Líder" filter={textFilter("responsible1", "Líder", "líder")} />
+              </TableHead>
+              <TableHead>
+                <HeaderLabel
+                  label="Enc."
+                  fullLabel="Encarregado"
+                  filter={textFilter("responsible2", "Encarregado", "encarregado")}
+                />
+              </TableHead>
               {canManage ? <TableHead className="text-right">Ações</TableHead> : null}
             </TableRow>
           </TableHeader>
@@ -191,7 +318,8 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
                 <TableCell>{employee.shift ?? "—"}</TableCell>
                 <TableCell>{employee.area ?? "—"}</TableCell>
                 <TableCell>{employee.client ?? "—"}</TableCell>
-                <TableCell>{[employee.responsible_1, employee.responsible_2].filter(Boolean).join(" / ") || "—"}</TableCell>
+                <TableCell>{employee.responsible_1 ?? "—"}</TableCell>
+                <TableCell>{employee.responsible_2 ?? "—"}</TableCell>
                 {canManage ? (
                   <TableCell className="text-right">
                     <Button size="sm" variant="outline" asChild>
@@ -202,18 +330,22 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
               </TableRow>
             ))}
             {pageRows.length === 0 ? (
-              <TableRow><TableCell colSpan={canManage ? 12 : 11} className="py-8 text-center text-muted-foreground">Nenhum funcionário encontrado para os filtros informados.</TableCell></TableRow>
+              <TableRow>
+                <TableCell colSpan={canManage ? 13 : 12} className="py-8 text-center text-muted-foreground">
+                  Nenhum funcionário encontrado para os filtros informados.
+                </TableCell>
+              </TableRow>
             ) : null}
           </TableBody>
         </Table>
-      </div>
-      <div className="flex items-center justify-between">
+      </ListScroll>
+      <ListFooter className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">Página {page} de {pageCount}</span>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</Button>
           <Button variant="outline" size="sm" disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)}>Próxima</Button>
         </div>
-      </div>
+      </ListFooter>
     </section>
   );
 }

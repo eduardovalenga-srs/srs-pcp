@@ -511,13 +511,17 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
   });
 
   if (rows.length === 0) {
-    return <EmptyState title="Nenhum item encontrado" description="Ajuste os filtros ou importe uma planilha para começar." />;
+    return (
+      <div className="p-3">
+        <EmptyState title="Nenhum item encontrado" description="Ajuste os filtros ou importe uma planilha para começar." />
+      </div>
+    );
   }
 
   return (
     <>
-      {/* Desktop / tablet: tabela com rolagem própria e cabeçalho fixo */}
-      <div className="hidden max-h-[calc(100vh-5rem)] overflow-auto rounded border bg-card lg:block">
+      {/* Desktop / tablet: tabela (quadro e rolagem no ListScroll) */}
+      <div className="hidden lg:block">
         <table className="w-full caption-bottom text-[10px]">
           <caption className="sr-only">
             Fábrica 2 — acompanhamento por item, com uma coluna por processo do fluxo fabril.
@@ -585,7 +589,7 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
       </div>
 
       {/* Mobile: cards */}
-      <div className="space-y-2 lg:hidden">
+      <div className="space-y-2 p-3 lg:hidden">
         {rows.map((row) => (
           <article key={row.orderItemId} className="rounded border bg-card p-3">
             <header className="flex flex-wrap items-center justify-between gap-2">

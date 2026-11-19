@@ -26,7 +26,7 @@ export function MobileTopBar({ user }: MobileTopBarProps) {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-40 flex h-12 items-center gap-2 border-b bg-card px-3 lg:hidden">
+    <header className="z-40 flex h-12 shrink-0 items-center gap-2 border-b bg-card px-3 lg:hidden">
       <Sheet open={open} onOpenChange={setOpen}>
         <Button type="button" variant="ghost" size="icon" onClick={() => setOpen(true)} aria-label="Abrir menu">
           <Menu aria-hidden />

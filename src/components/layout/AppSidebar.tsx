@@ -43,7 +43,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
     <aside
       aria-label="Menu lateral"
       className={cn(
-        "sticky top-0 hidden h-screen shrink-0 flex-col border-r bg-card lg:flex",
+        "hidden h-full shrink-0 flex-col border-r bg-card lg:flex",
         collapsed ? WIDTH.collapsed : WIDTH.open,
       )}
     >

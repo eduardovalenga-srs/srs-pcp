@@ -105,11 +105,11 @@ export function EmployeeForm({ employee = null }: EmployeeFormProps) {
           <Input id="client" name="client" defaultValue={employee?.client ?? ""} maxLength={150} />
         </div>
         <div className={fieldClass}>
-          <Label htmlFor="responsible1">Responsável 1</Label>
+          <Label htmlFor="responsible1">Líder</Label>
           <Input id="responsible1" name="responsible1" defaultValue={employee?.responsible_1 ?? ""} maxLength={150} />
         </div>
         <div className={fieldClass}>
-          <Label htmlFor="responsible2">Responsável 2</Label>
+          <Label htmlFor="responsible2">Encarregado</Label>
           <Input id="responsible2" name="responsible2" defaultValue={employee?.responsible_2 ?? ""} maxLength={150} />
         </div>
         {employee ? (

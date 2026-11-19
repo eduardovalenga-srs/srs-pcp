@@ -24,21 +24,28 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     role: sessionUser.role,
   };
 
-  // 043: navegação lateral. No desktop a sidebar fixa ocupa a coluna da
-  // esquerda e o conteúdo fica ao lado; abaixo de lg a sidebar some e a
-  // MobileTopBar assume (botão de menu abre o mesmo itens num drawer).
+  // 084: shell de altura fixa. O documento não rola mais — a sidebar
+  // (desktop) e a barra superior (mobile) ficam sempre visíveis e só a
+  // área de conteúdo rola. As telas de lista usam `ListPage` para deixar
+  // filtros/resumo parados e rolar apenas o quadro da lista, com a
+  // paginação fixa no rodapé.
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-dvh overflow-hidden bg-background">
       <ForceReauth />
       <AppSidebar user={user} />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <MobileTopBar user={user} />
 
-        <main className="mx-auto w-full flex-1 p-3 sm:p-4 lg:p-5">
-          {sessionUser.profile.must_change_password ? <PasswordBanner /> : null}
-          {!adminExists ? <AdminClaimBanner /> : null}
-          {children}
+        <main className="flex min-h-0 flex-1 flex-col p-3 sm:p-4 lg:p-5">
+          {sessionUser.profile.must_change_password || !adminExists ? (
+            <div className="shrink-0">
+              {sessionUser.profile.must_change_password ? <PasswordBanner /> : null}
+              {!adminExists ? <AdminClaimBanner /> : null}
+            </div>
+          ) : null}
+
+          <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
         </main>
       </div>
     </div>

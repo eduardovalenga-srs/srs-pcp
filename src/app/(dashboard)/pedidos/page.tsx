@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { ExportButton } from "@/components/shared/ExportButton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
+import { ListFooter, ListPage, ListScroll, ListTop } from "@/components/layout/ListPage";
 import { Button } from "@/components/ui/button";
 import { OrderFilters } from "@/components/pedidos/OrderFilters";
 import { OrderList } from "@/components/pedidos/OrderList";
@@ -63,47 +64,55 @@ export default async function PedidosPage({ searchParams }: PageProps<"/pedidos"
     filters.deliveryTo !== null;
 
   return (
-    <>
+    <ListPage>
       <Header
         title="Pedidos"
         description={pluralize(total, "pedido")}
         actions={<ExportButton endpoint="/api/export/pedidos" fallbackFileName="export-pedidos.xlsx" />}
       />
 
-      <div className="space-y-3">
+      <ListTop>
         <OrderFilters filters={filters} />
+      </ListTop>
 
-        {orders.length === 0 ? (
-          <EmptyState
-            title="Nenhum pedido encontrado"
-            description={
-              hasFilters
-                ? "Ajuste os filtros para encontrar o pedido que você procura."
-                : "Crie o primeiro pedido para começar o planejamento da produção."
-            }
-            action={
-              canCreate && !hasFilters ? (
-                <Button type="button" size="sm" asChild>
-                  <Link href="/pedidos/novo">
-                    <Plus className="h-4 w-4" aria-hidden />
-                    Novo pedido
-                  </Link>
-                </Button>
-              ) : undefined
-            }
-          />
-        ) : (
-          <>
+      {orders.length === 0 ? (
+        <ListScroll>
+          <div className="p-3">
+            <EmptyState
+              title="Nenhum pedido encontrado"
+              description={
+                hasFilters
+                  ? "Ajuste os filtros para encontrar o pedido que você procura."
+                  : "Crie o primeiro pedido para começar o planejamento da produção."
+              }
+              action={
+                canCreate && !hasFilters ? (
+                  <Button type="button" size="sm" asChild>
+                    <Link href="/pedidos/novo">
+                      <Plus className="h-4 w-4" aria-hidden />
+                      Novo pedido
+                    </Link>
+                  </Button>
+                ) : undefined
+              }
+            />
+          </div>
+        </ListScroll>
+      ) : (
+        <>
+          <ListScroll>
             <OrderList
               orders={orders}
               canDelete={can(sessionUser.role, "orders.delete")}
               filters={filters}
               proposalByOrder={data.proposalByOrder}
             />
+          </ListScroll>
+          <ListFooter>
             <OrderPagination filters={filters} total={total} />
-          </>
-        )}
-      </div>
-    </>
+          </ListFooter>
+        </>
+      )}
+    </ListPage>
   );
 }

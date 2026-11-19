@@ -58,14 +58,14 @@ function RowActions({ order, canDelete }: { order: OrderSummary; canDelete: bool
 export function OrderList({ orders, canDelete, filters, proposalByOrder }: OrderListProps) {
   return (
     <>
-      {/* Desktop / tablet largo: tabela */}
-      <div className="hidden overflow-x-auto rounded border bg-card lg:block">
+      {/* Desktop / tablet largo: tabela (quadro e rolagem no ListScroll) */}
+      <div className="hidden lg:block">
         <table className="w-full caption-bottom text-sm">
           <caption className="sr-only">
             Pedidos cadastrados, com cliente, entrega, situação e quantidade de itens.
           </caption>
-          <thead>
-            <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+          <thead className="sticky top-0 z-20 bg-muted">
+            <tr className="border-b text-left text-[11px] uppercase tracking-wide text-muted-foreground">
               <th scope="col" className="px-3 py-2 font-semibold">
                 <HeaderLabel
                   label="Código"

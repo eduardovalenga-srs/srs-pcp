@@ -6,6 +6,7 @@ import { AlertTriangle, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveProcessScheduleAction } from "@/lib/actions/scheduling.actions";
+import { ListScroll } from "@/components/layout/ListPage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -102,8 +103,8 @@ export function ProcessScheduling({
     `${group.groupType} — ${group.familyDescription}`;
 
   return (
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-end gap-3 rounded border bg-card p-3">
+    <section className="flex min-h-0 flex-col gap-3 lg:flex-1">
+      <div className="flex shrink-0 flex-wrap items-end gap-3 rounded border bg-card p-3">
         <div className="space-y-1.5">
           <Label htmlFor="sequenciamento-processo">Processo</Label>
           <Select
@@ -193,7 +194,7 @@ export function ProcessScheduling({
       </div>
 
       {canEdit ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="shrink-0 text-xs text-muted-foreground">
           Ao salvar, as OFs exibidas assumem o início da sequência global. OFs já sequenciadas que
           ficaram fora dos filtros vão para o fim da fila. OFs com a expedição concluída não entram
           na fila e ficam no fim da Gestão de OF.
@@ -201,28 +202,30 @@ export function ProcessScheduling({
       ) : null}
 
       {!processId ? (
-        <p className="rounded border border-blue-500/30 bg-blue-50 px-3 py-2 text-xs text-blue-950 dark:bg-blue-950/20 dark:text-blue-100">
+        <p className="shrink-0 rounded border border-blue-500/30 bg-blue-50 px-3 py-2 text-xs text-blue-950 dark:bg-blue-950/20 dark:text-blue-100">
           Você pode salvar esta sequência global sem selecionar um processo. Selecione um processo
           para filtrar as OFs por etapa e calcular a capacidade.
         </p>
       ) : null}
 
       {scheduledRows.length === 0 ? (
-        <p className="rounded border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
-          {processId
-            ? "Nenhuma OF pendente para este processo. Ajuste o filtro de família ou confira as etapas cadastradas nas OFs."
-            : "Nenhuma OF ativa para exibir."}
-        </p>
+        <ListScroll>
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+            {processId
+              ? "Nenhuma OF pendente para este processo. Ajuste o filtro de família ou confira as etapas cadastradas nas OFs."
+              : "Nenhuma OF ativa para exibir."}
+          </p>
+        </ListScroll>
       ) : (
-        <div className="overflow-x-auto rounded border bg-card">
+        <ListScroll>
           <table className="w-full min-w-max border-separate border-spacing-0 text-sm">
             <caption className="sr-only">
               {processId
                 ? "Sequenciamento global das OFs pendentes para o processo selecionado"
                 : "Sequência global das OFs"}
             </caption>
-            <thead>
-              <tr className="bg-muted/50 text-left text-xs uppercase tracking-wide">
+            <thead className="sticky top-0 z-20">
+              <tr className="bg-muted text-left text-xs uppercase tracking-wide">
                 <th scope="col" className="min-w-20 border-b px-2 py-2">Seq.</th>
                 <th scope="col" className="min-w-28 border-b px-2 py-2">OF</th>
                 <th scope="col" className="min-w-40 border-b px-2 py-2">Cliente</th>
@@ -330,11 +333,11 @@ export function ProcessScheduling({
               ))}
             </tbody>
           </table>
-        </div>
+        </ListScroll>
       )}
 
       {processId && scheduledRows.some((row) => row.issue) ? (
-        <p className="rounded border border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
+        <p className="shrink-0 rounded border border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
           As OFs com alerta não entram no cálculo de datas. Confira a família/capacidade em{" "}
           <strong>Grupos de produtos</strong> e o peso dos itens.
         </p>

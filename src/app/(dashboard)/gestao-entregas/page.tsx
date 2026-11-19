@@ -11,6 +11,7 @@ import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { ExportButton } from "@/components/shared/ExportButton";
 import { Header } from "@/components/layout/Header";
+import { ListFooter, ListPage, ListScroll, ListTop } from "@/components/layout/ListPage";
 import { Button } from "@/components/ui/button";
 import { ActiveFilters } from "@/components/producao/ActiveFilters";
 import { ProductionFiltersBar } from "@/components/producao/ProductionFilters";
@@ -62,7 +63,7 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
   };
 
   return (
-    <>
+    <ListPage>
       <Header
         title="Gestão de OF"
         description="Uma linha por OF — quantidades e pesos somados, com uma coluna por processo. Clique numa célula para aplicar a situação a toda a OF."
@@ -89,7 +90,7 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
         }
       />
 
-      <div className="space-y-3">
+      <ListTop>
         {/* Mobile: barra de filtros (não há cabeçalho de coluna nos cards). */}
         <div className="lg:hidden">
           <ProductionFiltersBar filters={filters} processes={data.processes} />
@@ -106,7 +107,9 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
 
         {/* Chips de filtros ativos (todas as telas): removem um a um ou limpam tudo. */}
         <ActiveFilters filters={filters} />
+      </ListTop>
 
+      <ListScroll>
         <ProductionTable
           rows={data.rows}
           processes={data.processes}
@@ -114,9 +117,13 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
           capabilities={capabilities}
           today={data.today}
         />
+      </ListScroll>
 
-        <ProductionPagination filters={filters} total={data.total} />
-      </div>
-    </>
+      {data.total > 0 ? (
+        <ListFooter>
+          <ProductionPagination filters={filters} total={data.total} />
+        </ListFooter>
+      ) : null}
+    </ListPage>
   );
 }

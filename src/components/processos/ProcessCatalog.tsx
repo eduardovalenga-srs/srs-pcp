@@ -54,6 +54,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ListScroll } from "@/components/layout/ListPage";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -237,8 +238,8 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
   };
 
   return (
-    <>
-      <div className="mb-3 flex justify-end">
+    <div className="flex min-h-0 flex-col gap-3 lg:flex-1">
+      <div className="flex shrink-0 justify-end">
         <Button type="button" onClick={() => setCreateOpen(true)} disabled={!canManage} size="sm">
           <Plus className="h-4 w-4" aria-hidden />
           Novo processo
@@ -246,10 +247,14 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
       </div>
 
       {processes.length === 0 ? (
-        <EmptyState
-          title="Nenhum processo cadastrado"
-          description="Crie as etapas do seu fluxo fabril para que elas apareçam como colunas na gestão de OF."
-        />
+        <ListScroll>
+          <div className="p-3">
+            <EmptyState
+              title="Nenhum processo cadastrado"
+              description="Crie as etapas do seu fluxo fabril para que elas apareçam como colunas na gestão de OF."
+            />
+          </div>
+        </ListScroll>
       ) : (
         <>
           <DndContext
@@ -259,13 +264,13 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
             accessibility={{ announcements, screenReaderInstructions }}
             onDragEnd={(event) => void handleDragEnd(event)}
           >
-            <div className="overflow-x-auto rounded border bg-card">
+            <ListScroll>
               <table className="w-full text-sm">
                 <caption className="sr-only">
                   Catálogo de processos do fluxo fabril, da primeira à última etapa da cadeia
                 </caption>
-                <thead>
-                  <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                <thead className="sticky top-0 z-20 bg-muted">
+                  <tr className="border-b text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                     {canManage ? (
                       <th scope="col" className="px-2 py-2">
                         <span className="sr-only">Reordenar</span>
@@ -298,7 +303,7 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
                   </tbody>
                 </SortableContext>
               </table>
-            </div>
+            </ListScroll>
           </DndContext>
 
           {canManage ? (
@@ -527,7 +532,7 @@ export function ProcessCatalog({ processes, canManage }: ProcessCatalogProps) {
           </form>
         </DialogContent>
       </Dialog>
-    </>
+    </div>
   );
 }
 

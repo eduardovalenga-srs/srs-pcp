@@ -7,6 +7,7 @@ import { getEmployees } from "@/lib/repositories/employees.repository";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
+import { ListPage } from "@/components/layout/ListPage";
 import { EmployeesList } from "@/components/rh/EmployeesList";
 
 export const metadata = { title: "Funcionários" };
@@ -41,12 +42,12 @@ export default async function FuncionariosPage() {
   }
 
   return (
-    <>
+    <ListPage>
       <Header
         title="Funcionários"
-        description={`${employees.length} funcionário(s) cadastrado(s).`}
+        description="Cadastro e consulta de funcionários."
       />
       <EmployeesList employees={employees} canManage={can(sessionUser.role, "rh.manage")} />
-    </>
+    </ListPage>
   );
 }

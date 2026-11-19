@@ -11,6 +11,7 @@ import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { ExportButton } from "@/components/shared/ExportButton";
 import { Header } from "@/components/layout/Header";
+import { ListFooter, ListPage, ListScroll, ListTop } from "@/components/layout/ListPage";
 import { Fabrica1Filters } from "@/components/fabrica1/Fabrica1Filters";
 import { Fabrica1Summary } from "@/components/fabrica1/Fabrica1Summary";
 import { Fabrica1Table } from "@/components/fabrica1/Fabrica1Table";
@@ -75,14 +76,14 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
   };
 
   return (
-    <>
+    <ListPage>
       <Header
         title="Fábrica 1"
         description={`Itens filhos das OFs agrupados por código — ${pluralize(data.total, "linha")}.`}
         actions={<ExportButton endpoint="/api/export/fabrica-1" fallbackFileName="export-fabrica-1.xlsx" />}
       />
 
-      <div className="space-y-3">
+      <ListTop>
         {/* Mobile: barra de filtros (no desktop os filtros ficam nos cabeçalhos). */}
         <div className="lg:hidden">
           <Fabrica1Filters filters={filters} processes={data.processes} />
@@ -99,7 +100,9 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
 
         {/* Chips de filtros ativos: removem um a um ou limpam tudo. */}
         <Fabrica1ActiveFilters filters={filters} />
+      </ListTop>
 
+      <ListScroll>
         <Fabrica1Table
           items={data.items}
           processes={data.processes}
@@ -107,9 +110,13 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
           capabilities={capabilities}
           today={data.today}
         />
+      </ListScroll>
 
-        <ChildItemsPagination filters={filters} total={data.total} />
-      </div>
-    </>
+      {data.total > 0 ? (
+        <ListFooter>
+          <ChildItemsPagination filters={filters} total={data.total} />
+        </ListFooter>
+      ) : null}
+    </ListPage>
   );
 }

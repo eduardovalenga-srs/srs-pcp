@@ -125,15 +125,15 @@ export function RomaneioList({ romaneios, filters, canEdit }: RomaneioListProps)
 
   return (
     <>
-      {/* Desktop / tablet largo: tabela */}
-      <div className="hidden overflow-x-auto rounded border bg-card lg:block">
+      {/* Desktop / tablet largo: tabela (quadro e rolagem no ListScroll) */}
+      <div className="hidden lg:block">
         <table className="w-full caption-bottom text-sm">
           <caption className="sr-only">
             Romaneios de expedição, com número, situação, OF/OS, cliente, data de saída, peso e
             números de NF — cada coluna é ordenável e filtrável.
           </caption>
-          <thead>
-            <tr className="border-b bg-muted/40 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+          <thead className="sticky top-0 z-20 bg-muted">
+            <tr className="border-b text-left text-[11px] uppercase tracking-wide text-muted-foreground">
               <th scope="col" className="px-3 py-2 font-semibold" aria-sort={ariaSort("number")}>
                 <RomaneioColumnHeader
                   label="Nº"

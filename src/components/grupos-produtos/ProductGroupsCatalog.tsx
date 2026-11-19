@@ -9,6 +9,7 @@ import {
   saveProductGroupAction,
 } from "@/lib/actions/product-groups.actions";
 import { Button } from "@/components/ui/button";
+import { ListScroll } from "@/components/layout/ListPage";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -477,16 +478,16 @@ export function ProductGroupsCatalog({
   };
 
   return (
-    <section className="space-y-4">
+    <section className="flex min-h-0 flex-col gap-3 lg:flex-1">
       {canManage && unmappedProcesses.length > 0 ? (
-        <p className="rounded border border-amber-500/40 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
+        <p className="shrink-0 rounded border border-amber-500/40 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
           Associe todos os processos a uma fábrica antes de cadastrar capacidades:{" "}
           {unmappedProcesses.map((process) => process.code).join(", ")}.
         </p>
       ) : null}
 
       {canManage ? (
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
             Preencha a capacidade de <strong>todos</strong> os processos. O sequenciamento usa a
             capacidade em <strong>kg/dia</strong>.
@@ -499,17 +500,19 @@ export function ProductGroupsCatalog({
       ) : null}
 
       {drafts.length === 0 ? (
-        <p className="rounded border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
-          Nenhum grupo cadastrado. Use “Adicionar registro” para incluir o primeiro.
-        </p>
+        <ListScroll>
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+            Nenhum grupo cadastrado. Use “Adicionar registro” para incluir o primeiro.
+          </p>
+        </ListScroll>
       ) : (
-        <div className="overflow-x-auto rounded border bg-card">
+        <ListScroll>
           <table className="w-full min-w-max border-separate border-spacing-0 text-sm">
             <caption className="sr-only">
               Grupos de produto e capacidades por processo e fábrica
             </caption>
-            <thead>
-              <tr className="bg-muted/50 text-left text-xs uppercase tracking-wide">
+            <thead className="sticky top-0 z-20">
+              <tr className="bg-muted text-left text-xs uppercase tracking-wide">
                   <th scope="col" rowSpan={2} className="sticky left-0 z-20 min-w-32 max-w-32 border-b bg-muted/90 px-2 py-2">
                   Família
                 </th>
@@ -540,7 +543,7 @@ export function ProductGroupsCatalog({
                   </th>
                 ) : null}
               </tr>
-              <tr className="bg-muted/30 text-left text-xs">
+              <tr className="bg-muted text-left text-xs">
                 {allFactoryProcesses.map((process) => (
                   <th
                     scope="col"
@@ -693,7 +696,7 @@ export function ProductGroupsCatalog({
               ) : null}
             </tbody>
           </table>
-        </div>
+        </ListScroll>
       )}
     </section>
   );

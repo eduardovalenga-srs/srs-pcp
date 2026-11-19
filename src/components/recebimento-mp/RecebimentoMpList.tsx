@@ -13,6 +13,7 @@ import { formatWeight } from "@/lib/utils/formatting";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { DeliveryPeriodPopover, TextColumnFilter } from "@/components/shared/column-filters";
+import { ListScroll } from "@/components/layout/ListPage";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -202,8 +203,8 @@ export function RecebimentoMpList({ entries, canEdit }: RecebimentoMpListProps) 
   );
 
   return (
-    <section aria-label="Registros de recebimento" className="space-y-3">
-      <h2 className="text-sm font-semibold">
+    <section aria-label="Registros de recebimento" className="flex min-h-0 flex-col gap-3 lg:flex-1">
+      <h2 className="shrink-0 text-sm font-semibold">
         Recebimentos cadastrados
         {filteredEntries.length !== entries.length
           ? ` (${filteredEntries.length} de ${entries.length})`
@@ -211,14 +212,18 @@ export function RecebimentoMpList({ entries, canEdit }: RecebimentoMpListProps) 
       </h2>
 
       {entries.length === 0 ? (
-        <EmptyState
-          title="Nenhum recebimento cadastrado"
-          description="Os recebimentos registrados aparecerão nesta lista."
-        />
+        <ListScroll>
+          <div className="p-3">
+            <EmptyState
+              title="Nenhum recebimento cadastrado"
+              description="Os recebimentos registrados aparecerão nesta lista."
+            />
+          </div>
+        </ListScroll>
       ) : (
-        <div className="overflow-x-auto rounded border bg-card">
+        <ListScroll>
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-20 bg-muted">
               <tr className="border-b text-left text-xs text-muted-foreground">
                 <th scope="col" className="px-3 py-2 font-medium">
                   <div className="flex items-center gap-1">
@@ -309,7 +314,7 @@ export function RecebimentoMpList({ entries, canEdit }: RecebimentoMpListProps) 
               ) : null}
             </tbody>
           </table>
-        </div>
+        </ListScroll>
       )}
     </section>
   );

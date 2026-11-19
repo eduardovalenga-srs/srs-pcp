@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
+import { ListPage } from "@/components/layout/ListPage";
 import { ProcessScheduling } from "@/components/sequenciamento/ProcessScheduling";
 import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
@@ -86,7 +87,7 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
   }
 
   return (
-    <>
+    <ListPage>
       <Header
         title="Sequenciamento"
         description="Defina a prioridade global das OFs. Sem processo, veja todas; ao selecionar um processo, veja apenas OFs com essa etapa pendente e calcule a capacidade (peso ÷ kg/dia, em dias úteis). OFs com a expedição concluída saem da fila e ficam no fim da Gestão de OF."
@@ -108,6 +109,6 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
           canEdit={canEdit}
         />
       )}
-    </>
+    </ListPage>
   );
 }

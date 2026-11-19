@@ -11,6 +11,7 @@ import { AccessDenied } from "@/components/shared/AccessDenied";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
+import { ListPage, ListScroll } from "@/components/layout/ListPage";
 import { Button } from "@/components/ui/button";
 import { RecebimentoMpList } from "@/components/recebimento-mp/RecebimentoMpList";
 
@@ -64,7 +65,7 @@ export default async function RecebimentoMpPage() {
   }
 
   return (
-    <>
+    <ListPage>
       <Header
         title="Recebimento de MP"
         description={`${entries.length} ${entries.length === 1 ? "recebimento cadastrado" : "recebimentos cadastrados"}`}
@@ -84,27 +85,31 @@ export default async function RecebimentoMpPage() {
       />
 
       {entries.length === 0 ? (
-        <EmptyState
-          title="Nenhum recebimento cadastrado"
-          description={
-            canEdit
-              ? "Registre uma nova nota de entrada para começar."
-              : "Nenhuma nota de entrada foi registrada até o momento."
-          }
-          action={
-            canEdit ? (
-              <Button type="button" size="sm" asChild>
-                <Link href="/recebimento-mp/novo">
-                  <Plus className="h-4 w-4" aria-hidden />
-                  Nova nota de entrada
-                </Link>
-              </Button>
-            ) : undefined
-          }
-        />
+        <ListScroll>
+          <div className="p-3">
+            <EmptyState
+              title="Nenhum recebimento cadastrado"
+              description={
+                canEdit
+                  ? "Registre uma nova nota de entrada para começar."
+                  : "Nenhuma nota de entrada foi registrada até o momento."
+              }
+              action={
+                canEdit ? (
+                  <Button type="button" size="sm" asChild>
+                    <Link href="/recebimento-mp/novo">
+                      <Plus className="h-4 w-4" aria-hidden />
+                      Nova nota de entrada
+                    </Link>
+                  </Button>
+                ) : undefined
+              }
+            />
+          </div>
+        </ListScroll>
       ) : (
         <RecebimentoMpList entries={entries} canEdit={canEdit} />
       )}
-    </>
+    </ListPage>
   );
 }

@@ -131,9 +131,9 @@ export function ImportHistory({ initialBatches, initialError }: ImportHistoryPro
         </Button>
       </div>
 
-      <div className="overflow-auto rounded border bg-card">
+      <div className="overflow-auto rounded border bg-card lg:max-h-[calc(100dvh-20rem)]">
         <Table aria-label="Histórico de importações">
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-20 bg-muted">
             <TableRow>
               <TableHead>Arquivo</TableHead>
               <TableHead>Data</TableHead>
