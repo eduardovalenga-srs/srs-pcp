@@ -22,8 +22,6 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { MaterialsList } from "@/components/shared/MaterialsList";
-import { SeqCell } from "@/components/shared/SeqCell";
-import { updateItemsSeqAction } from "@/lib/actions/orders.actions";
 import {
   ProcessDetailsSheet,
   type ProcessSelection,
@@ -395,13 +393,14 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         ),
         cell: (info) => {
           const row = info.row.original;
+          // 036: sequência definida no Sequenciamento — somente leitura aqui.
           return (
-            <SeqCell
-              value={info.getValue()}
-              canEdit={capabilities.canEditSeq}
-              label={`${row.orderCode} — ${row.description}`}
-              onCommit={(seq) => updateItemsSeqAction(row.memberIds, seq)}
-            />
+            <span
+              className="block w-full text-center tabular-nums"
+              title={`Sequência de fabricação de ${row.orderCode} — ${row.description}`}
+            >
+              {info.getValue() ?? "—"}
+            </span>
           );
         },
       }),
@@ -639,7 +638,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         columns: helper.columns(processGroupColumns),
       }),
     ]);
-  }, [filters, processColumns, capabilities.canUpdateStatus, capabilities.canEditSeq, scheduleByItem, parentMpPlanByItem, today]);
+  }, [filters, processColumns, capabilities.canUpdateStatus, scheduleByItem, parentMpPlanByItem, today]);
 
   const table = useTable({
     features: coreFeatures,
@@ -784,13 +783,10 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
             <dl className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <div>
                 <dt className="inline">Seq.: </dt>
-                <dd className="inline">
-                  <SeqCell
-                    value={item.seq}
-                    canEdit={capabilities.canEditSeq}
-                    label={`${item.orderCode} — ${item.description}`}
-                    onCommit={(seq) => updateItemsSeqAction(item.memberIds, seq)}
-                  />
+                <dd className="inline tabular-nums text-foreground">
+                  <span title={`Sequência de fabricação de ${item.orderCode} — ${item.description}`}>
+                    {item.seq ?? "—"}
+                  </span>
                 </dd>
               </div>
               <div>

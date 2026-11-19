@@ -98,6 +98,7 @@ export async function updateProcessAction(input: {
       revalidatePath("/gestao-entregas");
       revalidatePath("/fabrica-1");
       revalidatePath("/fabrica-2");
+      revalidatePath("/sequenciamento");
       revalidatePath("/dashboard");
       revalidatePath("/(dashboard)/pedidos/[id]", "page");
     }
@@ -162,6 +163,7 @@ export async function updateProcessBatchAction(input: {
       revalidatePath("/gestao-entregas");
       revalidatePath("/fabrica-1");
       revalidatePath("/fabrica-2");
+      revalidatePath("/sequenciamento");
       revalidatePath("/dashboard");
       revalidatePath("/(dashboard)/pedidos/[id]", "page");
     }

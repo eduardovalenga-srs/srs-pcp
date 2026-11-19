@@ -49,8 +49,6 @@ export interface ProductionCapabilities {
   canUpdateStatus: boolean;
   /** Edição da entrega do PEDIDO (orders.edit) — recalcula as previsões. */
   canEditDelivery: boolean;
-  /** 036: mantém compatibilidade com as telas de fábrica; Gestão de OF é somente leitura. */
-  canEditSeq: boolean;
 }
 
 interface ProductionTableProps {

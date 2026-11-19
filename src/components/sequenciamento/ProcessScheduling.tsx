@@ -195,7 +195,8 @@ export function ProcessScheduling({
       {canEdit ? (
         <p className="text-xs text-muted-foreground">
           Ao salvar, as OFs exibidas assumem o início da sequência global. OFs já sequenciadas que
-          ficaram fora dos filtros vão para o fim da fila.
+          ficaram fora dos filtros vão para o fim da fila. OFs com a expedição concluída não entram
+          na fila e ficam no fim da Gestão de OF.
         </p>
       ) : null}
 

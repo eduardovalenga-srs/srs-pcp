@@ -315,7 +315,6 @@ const capabilities = {
   canEditQuantities: true,
   canViewHistory: true,
   canEditDelivery: false,
-  canEditSeq: false,
 };
 
 describe("tabela da Fábrica 1", () => {
@@ -338,6 +337,22 @@ describe("tabela da Fábrica 1", () => {
     // do mesmo markup ainda traz "Item pai: ..." — asserção escopada).
     const table = markup.slice(markup.indexOf("<table"), markup.indexOf("</table>"));
     expect(table).not.toContain("Item pai");
+  });
+
+  it("mostra a sequência como texto — somente leitura, definida no Sequenciamento", () => {
+    const markup = html(
+      createElement(Fabrica1Table, {
+        items: [item({ seq: 3 })],
+        processes: catalog,
+        filters: noFilters,
+        capabilities,
+        today: "2026-10-05",
+      }),
+    );
+    expect(markup).not.toContain('aria-label="Sequência de fabricação de');
+    expect(markup).not.toContain('inputMode="numeric"');
+    expect(markup).toContain('title="Sequência de fabricação de');
+    expect(markup).toContain(">3</span>");
   });
 
   it("mostra uma coluna por processo da cadeia Fábrica 1 e esconde o pós-KIT", () => {

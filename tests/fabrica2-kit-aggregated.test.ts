@@ -11,7 +11,7 @@ import type {
   ProductionRow,
 } from "@/lib/types/production";
 
-// A tabela puxa actions de servidor (updateItemsSeqAction) — server-only
+// A tabela puxa actions de servidor (detalhes do processo) — server-only
 // lança fora do RSC, então o mock deixa o import passar no node puro.
 vi.mock("server-only", () => ({}));
 
@@ -70,7 +70,6 @@ const capabilities = {
   canEditQuantities: true,
   canViewHistory: true,
   canEditDelivery: false,
-  canEditSeq: true,
 };
 
 const noFilters: ProductionFilters = parseProductionFilters({});

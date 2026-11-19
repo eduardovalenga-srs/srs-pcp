@@ -29,8 +29,7 @@ function toNumber(value: number | string | null): number | null {
 /**
  * Lotes para o `.in("id", …")` de LEITURA da página da Fábrica 1. Com
  * 1000 grupos por página a lista de ids passa de milhares de UUIDs e a
- * URL do PostgREST estoura o limite do proxy (414/431) — o próprio
- * updateItemsSeq impõe teto de 500 pelo mesmo motivo. Em lotes o total
+ * URL do PostgREST estoura o limite do proxy (414/431). Em lotes o total
  * de linhas lidas é o mesmo e as buscas rodam em paralelo (a latência
  * da página é a do pior lote, não a soma).
  */
@@ -212,59 +211,6 @@ export async function updateItemDeliveryDate(
   assertOk(error, "Não foi possível atualizar a data de entrega");
   if (!data || data.length === 0) {
     throw new Error("Item não encontrado ou sem permissão para editar a entrega.");
-  }
-}
-
-/**
- * Grava a sequência de fabricação (036) num lote de itens — o alvo da
- * edição inline da coluna "Seq." (linha da Fábrica 2 = 1 item; linha
- * agrupada da Fábrica 1 = todos os membros do grupo).
- *
- * O `.select()` existe para detectar 0 linhas afetadas: o action já
- * filtra por capacidade, aqui fica a defesa de "item não existe / RLS
- * negou". O teto de 500 espelha o lote da gestão de processos (não
- * estoura o `in (...)` do PostgREST).
- */
-export async function updateItemsSeq(
-  client: SupabaseServer,
-  itemIds: readonly string[],
-  seq: number | null,
-): Promise<void> {
-  if (itemIds.length === 0 || itemIds.length > 500) {
-    throw new Error("Escopo de itens inválido para a sequência.");
-  }
-
-  const { data, error } = await client
-    .from("order_items")
-    .update({ seq })
-    .in("id", itemIds)
-    .select("id");
-
-  assertOk(error, "Não foi possível atualizar a sequência");
-  if (!data || data.length === 0) {
-    throw new Error("Itens não encontrados ou sem permissão para editar a sequência.");
-  }
-}
-
-/**
- * Grava a sequência de fabricação (036) em TODOS os itens de uma OF —
- * edição no nível Gestão de OF: o número digitado na linha do pedido
- * propaga para pais e filhos (a Fábrica 1/2 pode refinar por item).
- */
-export async function updateOrderItemsSeq(
-  client: SupabaseServer,
-  orderId: string,
-  seq: number | null,
-): Promise<void> {
-  const { data, error } = await client
-    .from("order_items")
-    .update({ seq })
-    .eq("order_id", orderId)
-    .select("id");
-
-  assertOk(error, "Não foi possível atualizar a sequência da OF");
-  if (!data || data.length === 0) {
-    throw new Error("OF sem itens ou sem permissão para editar a sequência.");
   }
 }
 

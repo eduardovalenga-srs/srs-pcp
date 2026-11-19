@@ -89,7 +89,7 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
     <>
       <Header
         title="Sequenciamento"
-        description="Defina a prioridade global das OFs. Sem processo, veja todas; ao selecionar um processo, veja apenas OFs com essa etapa pendente e calcule a capacidade (peso ÷ kg/dia, em dias úteis)."
+        description="Defina a prioridade global das OFs. Sem processo, veja todas; ao selecionar um processo, veja apenas OFs com essa etapa pendente e calcule a capacidade (peso ÷ kg/dia, em dias úteis). OFs com a expedição concluída saem da fila e ficam no fim da Gestão de OF."
       />
 
       {!scheduling ? (

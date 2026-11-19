@@ -110,7 +110,6 @@ const f1Capabilities: ProductionCapabilities = {
   canEditQuantities: true,
   canViewHistory: true,
   canEditDelivery: false,
-  canEditSeq: false,
 };
 
 function f1Table(items: ChildItemGroup[]): ReactElement {
@@ -217,7 +216,6 @@ const f2Capabilities: Fabrica2Capabilities = {
   canEditQuantities: true,
   canViewHistory: true,
   canEditDelivery: false,
-  canEditSeq: true,
 };
 
 function f2Table(rows: ProductionRow[]): ReactElement {
@@ -278,7 +276,6 @@ const sheetCapabilities: ProductionCapabilities = {
   canEditQuantities: true,
   canViewHistory: false,
   canEditDelivery: true,
-  canEditSeq: true,
 };
 
 function processSelection() {

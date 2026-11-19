@@ -422,8 +422,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   insumos/compras: o mesmo componente repetido entre os pais da OF vira **UMA linha**
   (Σ de quantidade, peso total Σ, entrega = menor dos membros; peso unitário = **maior**
   entre os membros, e "—" só quando nenhum tem peso). Colunas, nesta ordem:
-  **Seq.** (036 — prioridade do planejamento: o MENOR seq dos membros; editar aplica o
-  número a TODO o grupo, `orders.edit`), OF (link para `/pedidos/[id]`),
+  **Seq.** (036 — prioridade do planejamento definida na tela de Sequenciamento: o MENOR
+  seq dos membros; somente leitura aqui), OF (link para `/pedidos/[id]`),
   **filho** (somente o **código** em badge — sem descrição e sem multiplicador `×N`,
   para não poluir a lista; código vazio cai para a descrição, que é a chave do grupo;
   a coluna **Item pai** foi ocultada da tabela do desktop — o código do pai continua no
@@ -514,8 +514,8 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   actions compartilhados (`parseProductionFilters`, actions de produção/pedidos/processos
   — que revalidam `/fabrica-2` junto de `/gestao-entregas`), então dados e regras de
   negócio seguem iguais; só a camada de tela é duplicada. A primeira coluna é a
-  **Seq.** (036): o número da prioridade do item, editável inline (Enter/blur grava,
-  Esc cancela, `orders.edit`) e ordenável pelo cabeçalho — é também o **default da
+  **Seq.** (036): o número da prioridade do item, definido na tela de Sequenciamento e
+  exibido somente para leitura, ordenável pelo cabeçalho — é também o **default da
   tela** (seq sem número por último, entrega como desempate). **Desde a consolidação da
   gestão por OF (025) as duas telas divergem de propósito na granularidade da leitura**:
   gestão usa a RPC nova `get_production_rows_by_order` (uma linha por pedido) e a
@@ -572,9 +572,9 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   mostra "Será salvo como: OF 1234" antes de salvar. Assim o código manual casa com a
   chave de dedupe da reimportação.
 - **Gestão de OF = uma linha por OF** (025): a tela consolidada mostra um registro
-  por pedido — colunas **Seq.** (036 — a prioridade do planejamento no nível OF: MENOR seq
-  entre os itens raiz; editar aplica o número a TODOS os itens da OF, pais e filhos,
-  capacidade `orders.edit`), **OF/OS** (link para `/pedidos/[id]`), **Cliente**, **Qtd. total**
+  por pedido — colunas **Seq.** (036 — a prioridade do planejamento no nível OF, definida
+  na tela de Sequenciamento: MENOR seq entre os itens raiz; somente leitura aqui),
+  **OF/OS** (link para `/pedidos/[id]`), **Cliente**, **Qtd. total**
   (soma das quantidades dos itens raiz), **Peso total** (soma do `total_weight_kg`) e
   **Entrega** (= data do PEDIDO, `orders.delivery_date`), seguidas de **TODAS as etapas
   do catálogo** em colunas próprias (a cadeia da Fábrica 1 — LASER…FICEP — que antes
@@ -594,23 +594,19 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   RPC nova `get_production_rows_by_order` (migração 025 — mesmos filtros, paginação e
   permissões da antiga); a Fábrica 2 continua na `get_production_rows`, por item.
 - **Sequência de fabricação** (`order_items.seq`, migração 036): número inteiro ≥ 1 (check
-  no banco; `null` = sem número) que define a prioridade da fabricação. As três telas de
-  produção ganham a coluna **Seq.** com edição INLINE (campo de TEXTO com
-  teclado numérico — Enter ou sair da célula grava, Esc cancela; capacidade
-  `orders.edit`, ADMIN/GESTOR) e o **seq vira o
-  default de ordenação** da Fábrica 2 e da Gestão: numeração ascendente com as linhas sem
-  número por último, entrega como desempate (sem número em lugar nenhum = ordem de
-  sempre). Semântica por tela: **F2** = seq do próprio item; **F1** = menor seq do grupo
-  (gravado em todos os membros); **Gestão** = menor seq da OF (gravado em TODOS os itens,
-  pais e filhos — pode ser refinado item a item nas Fábricas). A importação não toca na
-  coluna: a re-importação preserva o número e itens novos nascem sem seq. **Unicidade por
-  OF (038)**: o número é exclusivo ENTRE OFs — trigger em `order_items` (insert ou update
-  de seq) recusa seq em uso por outra OF com mensagem pt-BR; dentro da MESMA OF a
-  repetição segue permitida (F1 e Gestão regravam o mesmo número em vários itens por vez;
-  o agrupamento usa o menor). O campo perdeu as setinhas ▲▼ do `type="number"` (038 —
-  vira `type="text"` + `inputMode="numeric"`, validação de inteiro ≥ 1 no commit) e a
-  gravação rejeitada (ex.: número já em uso por outra OF) limpa o campo depois do toast
-  de erro — o valor não fica na célula como se tivesse sido salvo).
+  no banco; `null` = sem número) que define a prioridade da fabricação. A **tela de
+  Sequenciamento** é a única origem da gravação: `saveProcessScheduleAction` (capacidade
+  `production.edit`, ADMIN/GESTOR) salva a ordem global e grava o número em TODOS os itens
+  de cada OF. As três telas de produção (Fábrica 1, Fábrica 2 e Gestão de OF) exibem a
+  coluna **Seq.** **somente para leitura** — F2 mostra o seq do próprio item; F1, o menor
+  seq do grupo; Gestão, o menor seq da OF. O seq é o **default de ordenação** da Fábrica 1,
+  da Fábrica 2 e da Gestão: numeração ascendente com as linhas sem número por último,
+  entrega como desempate (sem número em lugar nenhum = ordem de sempre). A importação não
+  toca na coluna: a re-importação preserva o número e itens novos nascem sem seq.
+  **Unicidade por OF (038)**: o número é exclusivo ENTRE OFs — trigger em `order_items`
+  (insert ou update de seq) recusa seq em uso por outra OF com mensagem pt-BR; dentro da
+  MESMA OF a repetição segue permitida (o sequenciamento grava o mesmo número em todos os
+  itens da OF; o agrupamento usa o menor).
   Redefinidas
   pela 036 (e novamente pela **038**, acrescentando `p_seq`): `get_child_item_groups`, `get_production_rows` e `get_production_rows_by_order`.
 - **Quebra por família nos cards — removida da UI** (migração 037, saída na **038**):

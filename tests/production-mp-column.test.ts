@@ -89,7 +89,7 @@ function markup(mp: OrderProcessCell): string {
       rows: [row(mp)],
       processes: catalog,
       filters: parseProductionFilters({}),
-      capabilities: { canUpdateStatus: true, canEditDelivery: false, canEditSeq: false },
+      capabilities: { canUpdateStatus: true, canEditDelivery: false },
       today: TODAY,
     }),
   );

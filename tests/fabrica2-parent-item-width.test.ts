@@ -11,7 +11,7 @@ import type {
   ProductionRow,
 } from "@/lib/types/production";
 
-// A tabela puxa actions de servidor (updateItemsSeqAction) — server-only
+// A tabela puxa actions de servidor (detalhes do processo) — server-only
 // lança fora do RSC, então o mock deixa o import passar no node puro.
 vi.mock("server-only", () => ({}));
 
@@ -66,7 +66,6 @@ const capabilities = {
   canEditQuantities: true,
   canViewHistory: true,
   canEditDelivery: false,
-  canEditSeq: true,
 };
 
 const noFilters: ProductionFilters = parseProductionFilters({});
@@ -143,5 +142,16 @@ describe("coluna 'Item pai' da Fábrica 2 se redimensiona pelo código exibido",
     // Ambas as células usam a MESMA largura, calculada pelo maior código.
     const widths = [...markup.matchAll(/width:(\d+)ch/g)].map((m) => m[1]);
     expect(new Set(widths)).toEqual(new Set(["21"]));
+  });
+});
+
+describe("coluna 'Seq.' da Fábrica 2 é somente leitura", () => {
+  it("renderiza o número como texto, sem campo de edição", () => {
+    const markup = tableMarkup([{ ...row(""), seq: 3 }]);
+
+    expect(markup).toContain('title="Sequência de fabricação de OF-107482 — GUARDA CORPO"');
+    expect(markup).toContain(">3</span>");
+    expect(markup).not.toContain('aria-label="Sequência de fabricação de');
+    expect(markup).not.toContain('inputMode="numeric"');
   });
 });
