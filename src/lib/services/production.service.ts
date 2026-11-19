@@ -30,6 +30,7 @@ import {
   productionRowsTotals,
 } from "@/lib/utils/production";
 import { collectAllPages, EXPORT_PAGE_SIZE } from "@/lib/utils/collect-pages";
+import { mergeCompletedWeightStats } from "@/lib/utils/completed-weight";
 import { todayISODate } from "@/lib/utils/dates";
 import { processUpdateSchema, type ProcessUpdateInput } from "@/lib/validators/production.schema";
 import { firstZodMessage } from "@/lib/validators/common";
@@ -235,17 +236,35 @@ export async function getDashboardCompletedWeight(
   granularity: WeightGranularity,
   anchor: string,
   processCode: string | null = null,
-  productGroupId: number | null = null,
+  productGroupIds: readonly number[] = [],
   withoutProductGroup = false,
 ): Promise<CompletedWeightStats> {
-  return getCompletedWeightStatsFromRepository(
-    client,
-    granularity,
-    anchor,
-    processCode,
-    productGroupId,
-    withoutProductGroup,
+  if (productGroupIds.length === 0 && !withoutProductGroup) {
+    return getCompletedWeightStatsFromRepository(client, granularity, anchor, processCode);
+  }
+
+  const selectedGroups: Array<number | null> = [
+    ...productGroupIds,
+    ...(withoutProductGroup ? [null] : []),
+  ];
+  const results = await Promise.all(
+    selectedGroups.map((productGroupId) =>
+      getCompletedWeightStatsFromRepository(
+        client,
+        granularity,
+        anchor,
+        processCode,
+        productGroupId,
+        productGroupId === null,
+      ),
+    ),
   );
+  const merged = mergeCompletedWeightStats(results, productGroupIds, withoutProductGroup);
+  if (!merged) {
+    // Parser normalizes an empty selection to "all", so this is defensive.
+    return getCompletedWeightStatsFromRepository(client, granularity, anchor, processCode);
+  }
+  return merged;
 }
 
 /** Histórico de alterações de um item. */

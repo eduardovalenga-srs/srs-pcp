@@ -15,8 +15,8 @@ interface CreatedOrder {
 }
 
 /**
- * 083 — OFs com a expedição concluída saem do sequenciamento e vão para
- * o fim da Gestão de OF, com a fila ativa compactada.
+ * OFs com EXP concluído saem do sequenciamento, ficam sem seq na Gestão
+ * e deixam a fila ativa compactada.
  */
 async function createOrder(
   code: string,
@@ -75,15 +75,15 @@ async function schedulingCodes(): Promise<string[]> {
   return rows.map((row) => row.order_code);
 }
 
-async function sequenceByOrder(codes: string[]): Promise<[string, number][]> {
+async function sequenceByOrder(codes: string[]): Promise<[string, number | null][]> {
   await asSuperUser(db);
-  const { rows } = await db.query<{ order_code: string; position: number }>(
+  const { rows } = await db.query<{ order_code: string; position: number | null }>(
     `select o.code as order_code, min(oi.seq)::int as position
        from public.orders o
        join public.order_items oi on oi.order_id = o.id
       where o.code = any ($1::text[])
       group by o.code
-      order by position`,
+      order by position nulls last, o.code`,
     [codes],
   );
   return rows.map((row) => [row.order_code, row.position]);
@@ -115,8 +115,8 @@ afterAll(async () => {
   await close();
 });
 
-describe("083 — conclusão da expedição no sequenciamento", () => {
-  it("remove a OF do sequenciamento, compacta a fila e deixa a expedida no fim", async () => {
+describe("visibilidade da OF após concluir expedição", () => {
+  it("remove a OF do sequenciamento, apaga seu seq e compacta a fila ativa", async () => {
     const first = await createOrder("OF-EXP-A", 1, ["NAO_INICIADO"]);
     const second = await createOrder("OF-EXP-B", 2, ["NAO_INICIADO"]);
     const third = await createOrder("OF-EXP-C", 3, ["NAO_INICIADO"]);
@@ -130,7 +130,7 @@ describe("083 — conclusão da expedição no sequenciamento", () => {
     expect(await sequenceByOrder(["OF-EXP-A", "OF-EXP-B", "OF-EXP-C"])).toEqual([
       ["OF-EXP-B", 1],
       ["OF-EXP-C", 2],
-      ["OF-EXP-A", 3],
+      ["OF-EXP-A", null],
     ]);
 
     // A fila de um processo específico também deixa a OF expedida de fora.
@@ -160,12 +160,12 @@ describe("083 — conclusão da expedição no sequenciamento", () => {
     expect(await sequenceByOrder(["OF-EXP-A", "OF-EXP-B", "OF-EXP-C", "OF-EXP-D"])).toEqual([
       ["OF-EXP-B", 1],
       ["OF-EXP-C", 2],
-      ["OF-EXP-A", 3],
-      ["OF-EXP-D", 4],
+      ["OF-EXP-A", null],
+      ["OF-EXP-D", null],
     ]);
   });
 
-  it("ignora itens NAO_APLICAVEL e move a OF expedida para o fim", async () => {
+  it("ignora itens NAO_APLICAVEL e mantém a OF expedida sem sequência", async () => {
     const partial = await createOrder("OF-EXP-E", 5, ["CONCLUIDO", "NAO_APLICAVEL"]);
 
     expect(await expConcluded(partial.orderId)).toBe(true);
@@ -179,13 +179,13 @@ describe("083 — conclusão da expedição no sequenciamento", () => {
     ).toEqual([
       ["OF-EXP-B", 1],
       ["OF-EXP-C", 2],
-      ["OF-EXP-A", 3],
-      ["OF-EXP-D", 4],
-      ["OF-EXP-E", 5],
+      ["OF-EXP-A", null],
+      ["OF-EXP-D", null],
+      ["OF-EXP-E", null],
     ]);
   });
 
-  it("salvar o sequenciamento mantém a expedida no fim e recusa recolocá-la na fila", async () => {
+  it("salvar o sequenciamento mantém expedidas sem seq e recusa recolocá-las na fila", async () => {
     await asSuperUser(db);
     const { rows } = await db.query<{ id: string; code: string }>(
       `select id, code from public.orders where code in ('OF-EXP-B', 'OF-EXP-C', 'OF-EXP-A')`,
@@ -210,9 +210,9 @@ describe("083 — conclusão da expedição no sequenciamento", () => {
     ).toEqual([
       ["OF-EXP-C", 1],
       ["OF-EXP-B", 2],
-      ["OF-EXP-A", 3],
-      ["OF-EXP-D", 4],
-      ["OF-EXP-E", 5],
+      ["OF-EXP-A", null],
+      ["OF-EXP-D", null],
+      ["OF-EXP-E", null],
     ]);
 
     await asUser(db, "authenticated", adminId);

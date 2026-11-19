@@ -35,7 +35,9 @@ export type Capability =
   // 043: módulo RH (sidebar agrupada).
   | "menu.rh"
   | "rh.view"
-  | "rh.manage";
+  | "rh.manage"
+  | "rh.allocation.view"
+  | "rh.allocation.manage";
 
 const CAPABILITIES: Record<Role, readonly Capability[]> = {
   ADMIN: [
@@ -73,6 +75,8 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "menu.rh",
     "rh.view",
     "rh.manage",
+    "rh.allocation.view",
+    "rh.allocation.manage",
   ],
   GESTOR: [
     "production.view",
@@ -99,6 +103,10 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "mp_receipt.edit",
     // 070: sequenciamento (leitura + gravação da fila).
     "menu.sequenciamento",
+    // Gestão de alocações do RH, sem acesso ao cadastro completo de pessoal.
+    "menu.rh",
+    "rh.allocation.view",
+    "rh.allocation.manage",
   ],
   // OPERADOR_F1 (era OPERADOR): não vê a gestão de entregas (menu nem
   // página) — o trabalho dele entra pela Fábrica 1 → link da OF → folha do

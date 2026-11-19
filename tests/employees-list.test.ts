@@ -50,6 +50,7 @@ function employee(overrides: Partial<EmployeeRow> = {}): EmployeeRow {
     updated_at: "2026-01-01T00:00:00Z",
     created_by: null,
     updated_by: null,
+    allocation_position_id: null,
     ...overrides,
   };
 }

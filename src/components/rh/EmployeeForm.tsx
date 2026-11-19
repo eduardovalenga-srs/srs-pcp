@@ -33,10 +33,6 @@ export function EmployeeForm({ employee = null }: EmployeeFormProps) {
         name: String(formData.get("name") ?? ""),
         admissionDate: String(formData.get("admissionDate") ?? "") || null,
         dismissalDate: String(formData.get("dismissalDate") ?? "") || null,
-        location: String(formData.get("location") ?? "") || null,
-        shift: String(formData.get("shift") ?? "") || null,
-        area: String(formData.get("area") ?? "") || null,
-        client: String(formData.get("client") ?? "") || null,
         responsible1: String(formData.get("responsible1") ?? "") || null,
         responsible2: String(formData.get("responsible2") ?? "") || null,
       });
@@ -89,22 +85,6 @@ export function EmployeeForm({ employee = null }: EmployeeFormProps) {
           <Input id="dismissalDate" name="dismissalDate" type="date" defaultValue={employee?.dismissal_date ?? ""} />
         </div>
         <div className={fieldClass}>
-          <Label htmlFor="location">Local de alocação</Label>
-          <Input id="location" name="location" defaultValue={employee?.location ?? ""} maxLength={180} />
-        </div>
-        <div className={fieldClass}>
-          <Label htmlFor="shift">Turno</Label>
-          <Input id="shift" name="shift" defaultValue={employee?.shift ?? ""} maxLength={80} />
-        </div>
-        <div className={fieldClass}>
-          <Label htmlFor="area">Área</Label>
-          <Input id="area" name="area" defaultValue={employee?.area ?? ""} maxLength={120} />
-        </div>
-        <div className={fieldClass}>
-          <Label htmlFor="client">Cliente</Label>
-          <Input id="client" name="client" defaultValue={employee?.client ?? ""} maxLength={150} />
-        </div>
-        <div className={fieldClass}>
           <Label htmlFor="responsible1">Líder</Label>
           <Input id="responsible1" name="responsible1" defaultValue={employee?.responsible_1 ?? ""} maxLength={150} />
         </div>
@@ -121,6 +101,9 @@ export function EmployeeForm({ employee = null }: EmployeeFormProps) {
           </div>
         ) : null}
       </div>
+      <p className="text-sm text-muted-foreground">
+        A alocação em cliente, local, área, turno e posição é gerenciada na árvore de alocações.
+      </p>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={pending}>

@@ -21,7 +21,7 @@ function single(value: string | string[] | undefined): string {
  * GET /api/export/dashboard — .xlsx do painel "Peso concluído por processo".
  *
  * A planilha espelha o recorte VIGENTE na tela (granularidade, âncora,
- * processo e família), com a lista Dia × processo e abas de apoio:
+ * processo e famílias), com a lista Dia × processo e abas de apoio:
  * totais por processo, famílias, evolução e resumo dos filtros.
  *
  * Os parâmetros vêm por query string porque o painel mantém os filtros em
@@ -39,20 +39,23 @@ export async function GET(request: Request) {
     }
 
     const params = searchParamsRecord(request);
-    const family = single(params.familia);
+    const families = single(params.familias);
+    const legacyFamily = single(params.familia);
     const parsed = parseWeightSelection({
       granularity: single(params.granularidade),
       anchor: single(params.ancora),
       processCode: single(params.processo),
-      productGroupId: family === "sem-familia" ? null : family,
-      withoutProductGroup: family === "sem-familia",
+      families: families || null,
+      productGroupId:
+        !families && legacyFamily !== "sem-familia" ? legacyFamily || null : null,
+      withoutProductGroup: !families && legacyFamily === "sem-familia",
       fallbackAnchor: todayISODate(),
     });
     if (!parsed.success) {
       return Response.json({ error: parsed.message }, { status: 400 });
     }
 
-    const { granularity, anchor, processCode, productGroupId, withoutProductGroup } = parsed.selection;
+    const { granularity, anchor, processCode, productGroupIds, withoutProductGroup } = parsed.selection;
     const client = await createClient();
     const [stats, processes, groups] = await Promise.all([
       getDashboardCompletedWeight(
@@ -60,7 +63,7 @@ export async function GET(request: Request) {
         granularity,
         anchor,
         processCode,
-        productGroupId,
+        productGroupIds,
         withoutProductGroup,
       ),
       getActiveProcesses(client),
@@ -71,20 +74,19 @@ export async function GET(request: Request) {
     const selectedProcess = processCode
       ? processes.find((process) => process.code === processCode)
       : undefined;
-    const selectedGroup =
-      productGroupId === null
-        ? undefined
-        : groups.find((group) => group.id === productGroupId);
+    const selectedGroups = groups.filter((group) => productGroupIds.includes(group.id));
 
     const labels = {
       process: selectedProcess?.name ?? processCode ?? "Todos os processos",
-      family: withoutProductGroup
-        ? "Sem família"
-        : selectedGroup
-          ? `${selectedGroup.familyDescription} (${selectedGroup.familyAbbreviation})`
-          : productGroupId === null
-            ? "Todas as famílias"
-            : `Família #${productGroupId}`,
+      family:
+        productGroupIds.length === 0 && !withoutProductGroup
+          ? "Todas as famílias"
+          : [
+              ...selectedGroups.map(
+                (group) => `${group.familyDescription} (${group.familyAbbreviation})`,
+              ),
+              ...(withoutProductGroup ? ["Sem família"] : []),
+            ].join(", "),
     };
 
     return workbookResponseSheets(

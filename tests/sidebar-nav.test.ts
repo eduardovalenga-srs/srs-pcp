@@ -158,6 +158,7 @@ describe("filtragem por papel (capabilities da sidebar)", () => {
     expect(markup).not.toContain('href="/sequenciamento"');
     expect(markup).not.toContain('href="/dashboard"');
     expect(markup).not.toContain('href="/rh/funcionarios"');
+    expect(markup).not.toContain('href="/rh/alocacoes"');
   });
 
   it("VISUALIZADOR vê Gestão de OF, Fábrica 1 e Romaneio — sem RH", () => {
@@ -172,13 +173,18 @@ describe("filtragem por papel (capabilities da sidebar)", () => {
     expect(markup).not.toContain('href="/processos"');
     expect(markup).not.toContain('href="/grupos-produtos"');
     expect(markup).not.toContain('href="/rh/funcionarios"');
+    expect(markup).not.toContain('href="/rh/alocacoes"');
   });
 
-  it("ADMIN e OPERADOR_F1 veem o grupo RH", () => {
+  it("ADMIN e OPERADOR_F1 veem RH; GESTOR vê apenas alocações", () => {
     for (const role of ["ADMIN", "OPERADOR_F1"] as const) {
       const markup = renderSidebar(role);
       expect(markup, `grupo RH para ${role}`).toContain('href="/rh/funcionarios"');
     }
+    const managerMarkup = renderSidebar("GESTOR");
+    expect(managerMarkup).toContain('href="/rh/alocacoes"');
+    expect(managerMarkup).not.toContain('href="/rh/funcionarios"');
+    expect(managerMarkup).not.toContain('href="/rh/funcionarios/importacao"');
   });
 });
 

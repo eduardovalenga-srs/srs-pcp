@@ -524,12 +524,16 @@ export function dashboardWeightFamiliesSheet(stats: CompletedWeightStats): Expor
 
 /** Aba "Evolução": dados do gráfico de barras (mesma janela da tela). */
 export function dashboardWeightSeriesSheet(stats: CompletedWeightStats): ExportSheet {
-  const rows: ExportCell[][] = stats.series.map((bucket) => [
-    dateCell(bucket.bucket),
-    bucket.weightKg,
-    bucket.quantity,
-  ]);
-  return { headers: ["Período", "Peso (kg)", "Peças"], rows, dateColumns: [0] };
+  const processCode = stats.processCode ?? "EXP";
+  const rows: ExportCell[][] = stats.series.map((bucket) => {
+    const process = bucket.processes.find((entry) => entry.code === processCode);
+    return [dateCell(bucket.bucket), process?.weightKg ?? 0, process?.quantity ?? 0];
+  });
+  return {
+    headers: ["Período", `Peso ${processCode} (kg)`, `Peças ${processCode}`],
+    rows,
+    dateColumns: [0],
+  };
 }
 
 /** Aba "Resumo": período, filtros aplicados e totais do recorte. */

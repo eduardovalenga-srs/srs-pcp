@@ -325,9 +325,9 @@ export interface CompletedWeightStats {
   periodStart: string;
   periodEnd: string;
   processCode: string | null;
-  /** Família filtrada; null = todas (ou "sem família", conforme a flag). */
+  /** Família única selecionada; null quando são todas ou há múltiplas famílias. */
   productGroupId: number | null;
-  /** true quando o recorte são apenas OFs sem família (079). */
+  /** true quando o recorte inclui OFs sem família, possivelmente com outros grupos. */
   withoutProductGroup: boolean;
   processes: CompletedWeightProcessStat[];
   /**

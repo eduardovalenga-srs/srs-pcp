@@ -28,6 +28,7 @@ export async function getCompletedWeightStatsAction(input: {
   granularity: string;
   anchor: string;
   processCode?: string | null;
+  productGroupIds?: readonly (number | string)[] | string | null;
   productGroupId?: number | string | null;
   withoutProductGroup?: boolean;
 }): Promise<{ success: true; data: CompletedWeightStats } | { success: false; message: string }> {
@@ -37,11 +38,12 @@ export async function getCompletedWeightStatsAction(input: {
       granularity: input.granularity,
       anchor: input.anchor,
       processCode: input.processCode,
+      productGroupIds: input.productGroupIds,
       productGroupId: input.productGroupId,
       withoutProductGroup: input.withoutProductGroup,
     });
     if (!parsed.success) return parsed;
-    const { granularity, anchor, processCode, productGroupId, withoutProductGroup } = parsed.selection;
+    const { granularity, anchor, processCode, productGroupIds, withoutProductGroup } = parsed.selection;
 
     const client = await createClient();
     const data = await getDashboardCompletedWeight(
@@ -49,7 +51,7 @@ export async function getCompletedWeightStatsAction(input: {
       granularity,
       anchor,
       processCode,
-      productGroupId,
+      productGroupIds,
       withoutProductGroup,
     );
     return { success: true, data };

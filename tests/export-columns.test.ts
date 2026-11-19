@@ -673,9 +673,12 @@ function weightStats(overrides: Partial<CompletedWeightStats> = {}): CompletedWe
     series: [
       {
         bucket: "2026-11-02",
-        weightKg: 20,
-        quantity: 2,
-        processes: [{ code: "MP", weightKg: 20, quantity: 0, cells: 1 }],
+        weightKg: 25,
+        quantity: 3,
+        processes: [
+          { code: "MP", weightKg: 20, quantity: 0, cells: 1 },
+          { code: "EXP", weightKg: 5, quantity: 1, cells: 1 },
+        ],
       },
       {
         bucket: "2026-11-03",
@@ -814,9 +817,9 @@ describe("abas de apoio do dashboard", () => {
 
   it("evolução sai com data tipada e os mesmos valores do gráfico", () => {
     const sheet = dashboardWeightSeriesSheet(weightStats());
-    expect(sheet.headers).toEqual(["Período", "Peso (kg)", "Peças"]);
+    expect(sheet.headers).toEqual(["Período", "Peso EXP (kg)", "Peças EXP"]);
     expect(sheet.dateColumns).toEqual([0]);
-    expect(sheet.rows[0]).toEqual([new Date(2026, 10, 2), 20, 2]);
+    expect(sheet.rows[0]).toEqual([new Date(2026, 10, 2), 5, 1]);
   });
 
   it("resumo descreve filtros, comparação e dias úteis", () => {

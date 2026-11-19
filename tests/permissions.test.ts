@@ -34,6 +34,8 @@ const ALL_CAPABILITIES: Capability[] = [
   "menu.rh",
   "rh.view",
   "rh.manage",
+  "rh.allocation.view",
+  "rh.allocation.manage",
 ];
 
 describe("página inicial por papel (homePathFor)", () => {
@@ -86,6 +88,9 @@ describe("matriz de permissões (item 40)", () => {
       "menu.romaneio",
       // 070: sequenciamento é de ADMIN/GESTOR (gravação pelo production.edit).
       "menu.sequenciamento",
+      "menu.rh",
+      "rh.allocation.view",
+      "rh.allocation.manage",
     ];
     const denied: Capability[] = [
       "processes.manage",
@@ -133,6 +138,8 @@ describe("matriz de permissões (item 40)", () => {
       "menu.sequenciamento",
       // 043: RH agora é de ADMIN e operadores (grupo + item).
       "rh.manage",
+      "rh.allocation.view",
+      "rh.allocation.manage",
     ];
 
     for (const capability of allowed) expect(can("OPERADOR_F1", capability), capability).toBe(true);
@@ -166,6 +173,8 @@ describe("matriz de permissões (item 40)", () => {
       "menu.rh",
       "rh.view",
       "rh.manage",
+      "rh.allocation.view",
+      "rh.allocation.manage",
     ];
 
     for (const capability of allowed) expect(can("OPERADOR_F2", capability), capability).toBe(true);
@@ -203,6 +212,8 @@ describe("matriz de permissões (item 40)", () => {
       "menu.rh",
       "rh.view",
       "rh.manage",
+      "rh.allocation.view",
+      "rh.allocation.manage",
     ];
 
     for (const capability of allowed) expect(can("VISUALIZADOR", capability), capability).toBe(true);
@@ -280,11 +291,11 @@ describe("matriz de permissões (item 40)", () => {
     expect(can("OPERADOR_F1", "romaneio.view")).toBe(true);
     expect(can("OPERADOR_F2", "romaneio.view")).toBe(false);
 
-    // 043: RH (grupo + item) é de ADMIN e OPERADOR_F1; o cadastro é do ADMIN.
+    // RH de funcionários é de ADMIN/OPERADOR_F1; alocações também são de GESTOR.
     expect(can("ADMIN", "menu.rh")).toBe(true);
     expect(can("OPERADOR_F1", "menu.rh")).toBe(true);
     expect(can("OPERADOR_F2", "menu.rh")).toBe(false);
-    expect(can("GESTOR", "menu.rh")).toBe(false);
+    expect(can("GESTOR", "menu.rh")).toBe(true);
     expect(can("VISUALIZADOR", "menu.rh")).toBe(false);
     expect(can("ADMIN", "rh.view")).toBe(true);
     expect(can("OPERADOR_F1", "rh.view")).toBe(true);
@@ -293,6 +304,11 @@ describe("matriz de permissões (item 40)", () => {
     expect(can("VISUALIZADOR", "rh.view")).toBe(false);
     expect(can("ADMIN", "rh.manage")).toBe(true);
     expect(can("GESTOR", "rh.manage")).toBe(false);
+    expect(can("ADMIN", "rh.allocation.view")).toBe(true);
+    expect(can("ADMIN", "rh.allocation.manage")).toBe(true);
+    expect(can("GESTOR", "rh.allocation.view")).toBe(true);
+    expect(can("GESTOR", "rh.allocation.manage")).toBe(true);
+    expect(can("OPERADOR_F1", "rh.allocation.view")).toBe(false);
   });
 
   it("perfil desconhecido/nulo não tem acesso a nada", () => {

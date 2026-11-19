@@ -1,7 +1,16 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Download, LoaderCircle, Scale } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ChevronDown,
+  Download,
+  LoaderCircle,
+  Scale,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Bar,
@@ -29,12 +38,15 @@ import type { ProductGroupOption } from "@/lib/types/product-group";
 import { formatWeight } from "@/lib/utils/formatting";
 import { parseISODateToLocal, toISODate } from "@/lib/utils/dates";
 import { countBusinessDays, isWeekendISO, sumCompletedWeightBefore } from "@/lib/utils/weight-period";
+import { completedWeightEvolutionSeries } from "@/lib/utils/completed-weight";
 import { weightProcessColumns } from "@/lib/utils/weight-columns";
 import { downloadChartPng } from "@/lib/utils/chart-image";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ExportButton } from "@/components/shared/ExportButton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -44,15 +56,7 @@ import {
 } from "@/components/ui/select";
 
 const ALL_PROCESSES = "__all__";
-const ALL_FAMILIES = "__all_families__";
 const NO_FAMILY = "__no_family__";
-
-/** Valor do seletor que representa o recorte devolvido pela RPC. */
-function familySelection(data: CompletedWeightStats | null): string {
-  if (!data) return ALL_FAMILIES;
-  if (data.withoutProductGroup) return NO_FAMILY;
-  return data.productGroupId === null ? ALL_FAMILIES : String(data.productGroupId);
-}
 
 interface CompletedWeightPanelProps {
   initialData: CompletedWeightStats | null;
@@ -136,7 +140,8 @@ export function CompletedWeightPanel({
   const [granularity, setGranularity] = useState<WeightGranularity>(initialData?.granularity ?? "month");
   const [anchor, setAnchor] = useState(initialData?.anchor ?? today);
   const [selectedProcess, setSelectedProcess] = useState(initialData?.processCode ?? ALL_PROCESSES);
-  const [selectedFamily, setSelectedFamily] = useState(familySelection(initialData));
+  const [selectedFamilyIds, setSelectedFamilyIds] = useState<number[]>([]);
+  const [includeWithoutFamily, setIncludeWithoutFamily] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError ?? "");
   const [chartBusy, setChartBusy] = useState<"evolution" | "process" | null>(null);
@@ -147,7 +152,8 @@ export function CompletedWeightPanel({
     nextGranularity: WeightGranularity,
     nextAnchor: string,
     nextProcess: string = selectedProcess,
-    nextFamily: string = selectedFamily,
+    nextFamilyIds: readonly number[] = selectedFamilyIds,
+    nextWithoutFamily: boolean = includeWithoutFamily,
   ) {
     setLoading(true);
     setError("");
@@ -155,16 +161,14 @@ export function CompletedWeightPanel({
       granularity: nextGranularity,
       anchor: nextAnchor,
       processCode: nextProcess === ALL_PROCESSES ? null : nextProcess,
-      productGroupId:
-        nextFamily === ALL_FAMILIES || nextFamily === NO_FAMILY ? null : Number(nextFamily),
-      withoutProductGroup: nextFamily === NO_FAMILY,
+      productGroupIds: nextFamilyIds,
+      withoutProductGroup: nextWithoutFamily,
     });
     if (result.success) {
       setData(result.data);
       setGranularity(nextGranularity);
       setAnchor(nextAnchor);
       setSelectedProcess(result.data.processCode ?? ALL_PROCESSES);
-      setSelectedFamily(familySelection(result.data));
     } else {
       setError(result.message);
     }
@@ -182,9 +186,29 @@ export function CompletedWeightPanel({
     void load(granularity, anchor, value);
   }
 
-  function selectFamily(value: string) {
-    setSelectedFamily(value);
-    void load(granularity, anchor, selectedProcess, value);
+  function selectAllFamilies() {
+    setSelectedFamilyIds([]);
+    setIncludeWithoutFamily(false);
+    void load(granularity, anchor, selectedProcess, [], false);
+  }
+
+  function toggleFamily(familyId: number | typeof NO_FAMILY) {
+    let nextIds = selectedFamilyIds;
+    let nextWithoutFamily = includeWithoutFamily;
+    if (familyId === NO_FAMILY) {
+      nextWithoutFamily = !includeWithoutFamily;
+    } else if (selectedFamilyIds.length === 0 && !includeWithoutFamily) {
+      // Partindo de "Todas", marcar uma opção inicia um recorte explícito.
+      nextIds = [familyId];
+    } else {
+      nextIds = selectedFamilyIds.includes(familyId)
+        ? selectedFamilyIds.filter((id) => id !== familyId)
+        : [...selectedFamilyIds, familyId];
+    }
+
+    setSelectedFamilyIds(nextIds);
+    setIncludeWithoutFamily(nextWithoutFamily);
+    void load(granularity, anchor, selectedProcess, nextIds, nextWithoutFamily);
   }
 
   function navigate(direction: -1 | 1) {
@@ -202,21 +226,29 @@ export function CompletedWeightPanel({
 
     const processLabel =
       selectedProcess === ALL_PROCESSES
-        ? "Todos os processos"
+        ? kind === "evolution"
+          ? "EXP"
+          : "Todos os processos"
         : processes.find((process) => process.code === selectedProcess)?.name ?? selectedProcess;
     const familyLabel =
-      selectedFamily === ALL_FAMILIES
+      selectedFamilyIds.length === 0 && !includeWithoutFamily
         ? "Todas as famílias"
-        : selectedFamily === NO_FAMILY
-          ? "Sem família"
-          : families.find((family) => String(family.id) === selectedFamily)?.familyDescription ??
-            `Família ${selectedFamily}`;
+        : [
+            ...selectedFamilyIds.map(
+              (id) =>
+                families.find((family) => family.id === id)?.familyDescription ?? `Família ${id}`,
+            ),
+            ...(includeWithoutFamily ? ["Sem família"] : []),
+          ].join(", ");
 
     setChartBusy(kind);
     try {
       await downloadChartPng(container, {
         fileName: `${kind === "evolution" ? "grafico-evolucao-peso" : "grafico-peso-por-processo"}-${data.periodStart}.png`,
-        title: kind === "evolution" ? "Evolução do peso concluído" : "Peso por processo",
+        title:
+          kind === "evolution"
+            ? `Evolução do peso concluído${selectedProcess === ALL_PROCESSES ? " — EXP" : ""}`
+            : "Peso por processo",
         subtitle: `${periodLabel(data)} · ${processLabel} · ${familyLabel}`,
       });
       toast.success("Imagem exportada.");
@@ -256,6 +288,18 @@ export function CompletedWeightPanel({
     });
   }
   const noFamilyTotal = groupsById.get(null)?.weightKg ?? null;
+  const familyFilterLabel =
+    selectedFamilyIds.length === 0 && !includeWithoutFamily
+      ? "Todas as famílias"
+      : selectedFamilyIds.length + (includeWithoutFamily ? 1 : 0) === 1
+        ? selectedFamilyIds.length === 1
+          ? familyOptions.find((option) => option.value === String(selectedFamilyIds[0]))?.label ??
+            `Família ${selectedFamilyIds[0]}`
+          : "Sem família"
+        : `${selectedFamilyIds.length + (includeWithoutFamily ? 1 : 0)} famílias selecionadas`;
+
+  const evolutionProcessCode = selectedProcess === ALL_PROCESSES ? "EXP" : selectedProcess;
+  const evolutionSeries = completedWeightEvolutionSeries(data?.series ?? [], evolutionProcessCode);
 
   // Média por dia útil encerrado (seg–sex). O dia atual fica fora do
   // divisor E do numerador: a produção de hoje ainda está em andamento.
@@ -286,12 +330,14 @@ export function CompletedWeightPanel({
               granularidade: granularity,
               ancora: anchor,
               processo: selectedProcess === ALL_PROCESSES ? null : selectedProcess,
-              familia:
-                selectedFamily === ALL_FAMILIES
+              familias:
+                selectedFamilyIds.length === 0 && !includeWithoutFamily
                   ? null
-                  : selectedFamily === NO_FAMILY
-                    ? "sem-familia"
-                    : selectedFamily,
+                  : [
+                      ...selectedFamilyIds,
+                      ...(includeWithoutFamily ? ["sem-familia"] : []),
+                    ].join(","),
+              familia: null,
             }}
           />
           <Tabs value={granularity} onValueChange={selectGranularity}>
@@ -344,25 +390,60 @@ export function CompletedWeightPanel({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={selectedFamily} onValueChange={selectFamily} disabled={loading}>
-              <SelectTrigger className="h-8 w-64" aria-label="Filtrar por família de produto">
-                <SelectValue placeholder="Todas as famílias" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_FAMILIES}>Todas as famílias</SelectItem>
-                {familyOptions.map((family) => (
-                  <SelectItem key={family.value} value={family.value}>
-                    {family.label}
-                    {family.total !== null ? ` · ${formatWeight(family.total)} kg` : ""}
-                  </SelectItem>
-                ))}
-                {noFamilyTotal !== null ? (
-                  <SelectItem value={NO_FAMILY}>
-                    Sem família · {formatWeight(noFamilyTotal)} kg
-                  </SelectItem>
-                ) : null}
-              </SelectContent>
-            </Select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-64 justify-between text-xs"
+                  aria-label="Filtrar por família de produto"
+                  disabled={loading}
+                >
+                  <span className="truncate">{familyFilterLabel}</span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 space-y-1 p-2">
+                <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted">
+                  <Checkbox
+                    checked={selectedFamilyIds.length === 0 && !includeWithoutFamily}
+                    onCheckedChange={selectAllFamilies}
+                    aria-label="Todas as famílias"
+                  />
+                  <span>Todas as famílias</span>
+                </label>
+                <div className="max-h-64 space-y-1 overflow-y-auto">
+                  {familyOptions.map((family) => (
+                    <label
+                      key={family.value}
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted"
+                    >
+                      <Checkbox
+                        checked={selectedFamilyIds.includes(Number(family.value))}
+                        onCheckedChange={() => toggleFamily(Number(family.value))}
+                        aria-label={family.label}
+                      />
+                      <span className="min-w-0 flex-1 truncate">{family.label}</span>
+                      {family.total !== null ? (
+                        <span className="text-muted-foreground">{formatWeight(family.total)} kg</span>
+                      ) : null}
+                    </label>
+                  ))}
+                  {noFamilyTotal !== null ? (
+                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted">
+                      <Checkbox
+                        checked={includeWithoutFamily}
+                        onCheckedChange={() => toggleFamily(NO_FAMILY)}
+                        aria-label="Sem família"
+                      />
+                      <span className="min-w-0 flex-1">Sem família</span>
+                      <span className="text-muted-foreground">{formatWeight(noFamilyTotal)} kg</span>
+                    </label>
+                  ) : null}
+                </div>
+              </PopoverContent>
+            </Popover>
             <Select value={selectedProcess} onValueChange={selectProcess} disabled={loading}>
               <SelectTrigger className="h-8 w-48" aria-label="Filtrar por processo">
                 <SelectValue placeholder="Todos os processos" />
@@ -542,7 +623,9 @@ export function CompletedWeightPanel({
                 <div className="min-w-0 rounded border p-2">
                   <div className="mb-1 flex items-start justify-between gap-2">
                     <div>
-                      <h3 className="text-xs font-semibold">Evolução do peso concluído</h3>
+                      <h3 className="text-xs font-semibold">
+                        Evolução do peso concluído{selectedProcess === ALL_PROCESSES ? " — EXP" : ""}
+                      </h3>
                       <p className="mt-0.5 mb-1 text-[11px] text-muted-foreground">
                         Selecione uma barra para abrir o período.
                       </p>
@@ -565,7 +648,7 @@ export function CompletedWeightPanel({
                   </div>
                   <div ref={evolutionChartRef} className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={data.series} margin={{ top: 4, right: 8, left: -18, bottom: 2 }}>
+                      <BarChart data={evolutionSeries} margin={{ top: 4, right: 8, left: -18, bottom: 2 }}>
                         <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
                         <XAxis
                           dataKey="bucket"
@@ -587,7 +670,13 @@ export function CompletedWeightPanel({
                               ? `Semana de ${displayDate(String(value), { day: "2-digit", month: "long", year: "numeric" })}`
                               : displayDate(String(value), { day: "2-digit", month: "long", year: "numeric" })
                           }
-                          formatter={(value) => [`${formatWeight(Number(value))} kg`, "Concluído"]}
+                          formatter={(value) => [
+                            `${formatWeight(Number(value))} kg`,
+                            selectedProcess === ALL_PROCESSES
+                              ? "EXP concluído"
+                              : processes.find((process) => process.code === selectedProcess)?.name ??
+                                "Concluído",
+                          ]}
                         />
                         <Bar
                           dataKey="weightKg"
@@ -599,7 +688,7 @@ export function CompletedWeightPanel({
                             if (payload?.bucket) selectBucket(payload.bucket);
                           }}
                         >
-                          {data.series.map((point) => (
+                          {evolutionSeries.map((point) => (
                             <Cell
                               key={point.bucket}
                               fill={

@@ -4,7 +4,7 @@ import type { SaveEmployeeOutput } from "@/lib/validators/employee.schema";
 import { assertOk } from "@/lib/utils/supabase-result";
 
 const EMPLOYEE_COLUMNS =
-  "id, company_code, company_name, registration, name, admission_date, dismissal_date, location, status, shift, area, client, responsible_1, responsible_2, created_at, updated_at, created_by, updated_by";
+  "id, company_code, company_name, registration, name, admission_date, dismissal_date, location, status, shift, area, client, responsible_1, responsible_2, allocation_position_id, created_at, updated_at, created_by, updated_by";
 
 export async function getEmployees(client: SupabaseServer): Promise<EmployeeRow[]> {
   const { data, error } = await client
@@ -43,13 +43,13 @@ export async function saveEmployee(
     name: input.name,
     admission_date: input.admissionDate || null,
     dismissal_date: input.dismissalDate || null,
-    location: input.location || null,
-    shift: input.shift || null,
-    area: input.area || null,
-    client: input.client || null,
     responsible_1: input.responsible1 || null,
     responsible_2: input.responsible2 || null,
     updated_by: userId,
+    ...(input.location !== undefined ? { location: input.location || null } : {}),
+    ...(input.shift !== undefined ? { shift: input.shift || null } : {}),
+    ...(input.area !== undefined ? { area: input.area || null } : {}),
+    ...(input.client !== undefined ? { client: input.client || null } : {}),
   };
 
   const query = input.id

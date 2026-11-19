@@ -20,7 +20,7 @@ describe("parseWeightSelection", () => {
         granularity: "week",
         anchor: "2026-11-13",
         processCode: "LASER",
-        productGroupId: 7,
+        productGroupIds: [7],
         withoutProductGroup: false,
       },
     });
@@ -67,31 +67,49 @@ describe("parseWeightSelection", () => {
     ).toEqual({ success: false, message: "Processo inválido." });
   });
 
-  it("converte o id da família e ignora valores vazios", () => {
+  it("converte os ids de família e ignora valores vazios", () => {
     const selected = parseWeightSelection({
       granularity: "month",
       productGroupId: 12,
       fallbackAnchor: TODAY,
     });
-    expect(selected.success && selected.selection.productGroupId).toBe(12);
+    expect(selected.success && selected.selection.productGroupIds).toEqual([12]);
 
     const none = parseWeightSelection({
       granularity: "month",
       productGroupId: "  ",
       fallbackAnchor: TODAY,
     });
-    expect(none.success && none.selection.productGroupId).toBeNull();
+    expect(none.success && none.selection.productGroupIds).toEqual([]);
+  });
+
+  it("aceita várias famílias e remove ids repetidos", () => {
+    const result = parseWeightSelection({
+      granularity: "month",
+      families: "3, 7,3,sem-familia",
+      fallbackAnchor: TODAY,
+    });
+    expect(result).toEqual({
+      success: true,
+      selection: {
+        granularity: "month",
+        anchor: TODAY,
+        processCode: null,
+        productGroupIds: [3, 7],
+        withoutProductGroup: true,
+      },
+    });
   });
 
   it("rejeita família não inteira, zero ou negativa", () => {
     for (const productGroupId of ["0", "-1", "1.5", "abc"]) {
       expect(
-        parseWeightSelection({ granularity: "month", productGroupId, fallbackAnchor: TODAY }),
+        parseWeightSelection({ granularity: "month", productGroupIds: [productGroupId], fallbackAnchor: TODAY }),
       ).toEqual({ success: false, message: "Família inválida." });
     }
   });
 
-  it("só marca 'sem família' quando nenhum grupo foi escolhido", () => {
+  it("permite combinar 'sem família' com outras famílias", () => {
     const semFamilia = parseWeightSelection({
       granularity: "month",
       withoutProductGroup: "true",
@@ -99,13 +117,15 @@ describe("parseWeightSelection", () => {
     });
     expect(semFamilia.success && semFamilia.selection.withoutProductGroup).toBe(true);
 
-    // Com grupo escolhido, a flag é ignorada (o grupo vence).
     const comGrupo = parseWeightSelection({
       granularity: "month",
-      productGroupId: "3",
+      productGroupIds: ["3"],
       withoutProductGroup: true,
       fallbackAnchor: TODAY,
     });
-    expect(comGrupo.success && comGrupo.selection.withoutProductGroup).toBe(false);
+    expect(comGrupo.success && comGrupo.selection).toMatchObject({
+      productGroupIds: [3],
+      withoutProductGroup: true,
+    });
   });
 });

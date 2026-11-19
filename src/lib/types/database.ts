@@ -40,6 +40,30 @@ export type EmployeeRow = {
   updated_at: string;
   created_by: string | null;
   updated_by: string | null;
+  allocation_position_id: string | null;
+};
+
+export type EmployeeAllocationNodeType =
+  | "COMPANY"
+  | "CLIENT"
+  | "LOCATION"
+  | "AREA"
+  | "SHIFT"
+  | "POSITION";
+
+export type EmployeeAllocationNodeRow = {
+  id: string;
+  company_code: string;
+  company_name: string;
+  parent_id: string | null;
+  node_type: EmployeeAllocationNodeType;
+  name: string;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
 };
 
 export type ProfileRow = {
@@ -549,6 +573,54 @@ export type MpReceiptCustomerRow = {
 export type Database = {
   public: {
     Tables: {
+      employee_allocation_nodes: {
+        Row: EmployeeAllocationNodeRow;
+        Insert: {
+          id?: string;
+          company_code: string;
+          company_name: string;
+          parent_id?: string | null;
+          node_type: EmployeeAllocationNodeType;
+          name: string;
+          active?: boolean;
+          sort_order?: number;
+          created_by?: string | null;
+          updated_by?: string | null;
+        };
+        Update: Partial<{
+          company_code: string;
+          company_name: string;
+          parent_id: string | null;
+          node_type: EmployeeAllocationNodeType;
+          name: string;
+          active: boolean;
+          sort_order: number;
+          updated_by: string | null;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "employee_allocation_nodes_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "employee_allocation_nodes_parent_id_fkey";
+            columns: ["parent_id"];
+            isOneToOne: false;
+            referencedRelation: "employee_allocation_nodes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "employee_allocation_nodes_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       employees: {
         Row: EmployeeRow;
         Insert: {
@@ -560,6 +632,7 @@ export type Database = {
           admission_date?: string | null;
           dismissal_date?: string | null;
           location?: string | null;
+          allocation_position_id?: string | null;
           shift?: string | null;
           area?: string | null;
           client?: string | null;
@@ -576,6 +649,7 @@ export type Database = {
           admission_date: string | null;
           dismissal_date: string | null;
           location: string | null;
+          allocation_position_id: string | null;
           shift: string | null;
           area: string | null;
           client: string | null;
@@ -596,6 +670,13 @@ export type Database = {
             columns: ["updated_by"];
             isOneToOne: false;
             referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "employees_allocation_position_fkey";
+            columns: ["allocation_position_id"];
+            isOneToOne: true;
+            referencedRelation: "employee_allocation_nodes";
             referencedColumns: ["id"];
           },
         ];
@@ -1201,6 +1282,10 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      assign_employee_allocation: {
+        Args: { p_employee_id: string; p_position_id: string | null };
+        Returns: undefined;
+      };
       import_employees: {
         Args: { p_rows: Json };
         Returns: number;

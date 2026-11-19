@@ -8,10 +8,9 @@ import { asSuperUser, asUser, createTestDatabase, createUser } from "./helpers/t
  * 054 — Baixa derivada da expedição nos TOTAIS das RPCs de produção.
  *
  * Cenário: OF-054 com um item raiz 100 × 2 kg (total 200 kg) e um filho
- * 10 × 1 kg (total 10 kg), EXPEDIÇÃO concluída. Emitir a nota de uma carga
- * de 40 muda o exibido para o SALDO (60 / 120 kg; filho proporcional 6/6)
- * sem tocar em `order_items.quantity`; uma segunda carga de 60 zera o
- * saldo e tira o item dos cards; cancelar restaura.
+ * 10 × 1 kg (total 10 kg), EXPEDIÇÃO concluída. Como EXP está concluído,
+ * a OF não aparece na Fábrica 2; Gestão e Fábrica 1 continuam calculando
+ * o saldo a partir dos romaneios confirmados.
  */
 
 let db: PGlite;
@@ -191,12 +190,9 @@ afterAll(async () => {
 });
 
 describe("054 — saldo derivado da expedição nos totais", () => {
-  it("sem expedição os totais são o planejado (raiz e filho)", async () => {
+  it("EXP concluído remove a OF da F2, sem romaneio a Gestão mostra o planejado", async () => {
     const f2 = await f2Rows("OF-054");
-    expect(f2).toHaveLength(1);
-    expect(Number(f2[0]?.qty_total)).toBe(100);
-    expect(Number(f2[0]?.weight_total)).toBe(200);
-    expect(Number(f2[0]?.quantity)).toBe(100);
+    expect(f2).toHaveLength(0);
 
     const management = await managementRows("OF-054");
     expect(management).toHaveLength(1);
@@ -217,10 +213,7 @@ describe("054 — saldo derivado da expedição nos totais", () => {
     await ship(orderId, 40, "54001");
 
     const f2 = await f2Rows("OF-054");
-    expect(f2).toHaveLength(1);
-    expect(Number(f2[0]?.qty_total)).toBe(60);
-    expect(Number(f2[0]?.weight_total)).toBe(120);
-    expect(Number(f2[0]?.quantity)).toBe(60);
+    expect(f2).toHaveLength(0);
 
     const management = await managementRows("OF-054");
     expect(management).toHaveLength(1);
@@ -239,8 +232,8 @@ describe("054 — saldo derivado da expedição nos totais", () => {
 
   it("filtro de Qtd. da F2 vale sobre o SALDO (70 fica vazio)", async () => {
     expect(await f2Rows("OF-054", 70)).toHaveLength(0);
-    // Abaixo do saldo continua listando (60 >= 50).
-    expect(await f2Rows("OF-054", 50)).toHaveLength(1);
+    // Mesmo abaixo do saldo, a OF não volta à F2 após concluir EXP.
+    expect(await f2Rows("OF-054", 50)).toHaveLength(0);
   });
 
   it("filho baixa proporcional à fração expedida do pai (6 / 6 kg)", async () => {
@@ -283,11 +276,7 @@ describe("054 — saldo derivado da expedição nos totais", () => {
     await ship(orderId, 60, "54002");
 
     const f2 = await f2Rows("OF-054");
-    // A listagem continua mostrando a linha (saldo 0), só os cards filtram.
-    expect(f2).toHaveLength(1);
-    expect(Number(f2[0]?.qty_total)).toBe(0);
-    expect(Number(f2[0]?.weight_total)).toBe(0);
-    expect(Number(f2[0]?.quantity)).toBe(0);
+    expect(f2).toHaveLength(0);
 
     const totals = await childTotals("OF-054");
     expect(Number(totals.qtyTotal)).toBe(0);
@@ -309,8 +298,7 @@ describe("054 — saldo derivado da expedição nos totais", () => {
     await cancelRomaneio(rows[0]!.id);
 
     const f2 = await f2Rows("OF-054");
-    expect(Number(f2[0]?.qty_total)).toBe(60);
-    expect(Number(f2[0]?.weight_total)).toBe(120);
+    expect(f2).toHaveLength(0);
 
     const totals = await childTotals("OF-054");
     expect(Number(totals.qtyTotal)).toBe(6);
