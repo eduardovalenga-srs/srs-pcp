@@ -77,6 +77,7 @@ describe("migrations", () => {
       active: number;
       inactive: number;
       with_location: number;
+      with_registered_client: number;
       missing_admission: number;
       manual_fields_empty: number;
       unique_keys: number;
@@ -86,6 +87,7 @@ describe("migrations", () => {
         count(*) filter (where status = 'ATIVO')::int as active,
         count(*) filter (where status = 'INATIVO')::int as inactive,
         count(*) filter (where location is not null)::int as with_location,
+        count(*) filter (where registered_client is not null)::int as with_registered_client,
         count(*) filter (where admission_date is null)::int as missing_admission,
         count(*) filter (
           where shift is null and area is null and client is null
@@ -98,7 +100,8 @@ describe("migrations", () => {
       total: 633,
       active: 310,
       inactive: 323,
-      with_location: 303,
+      with_location: 0,
+      with_registered_client: 303,
       missing_admission: 91,
       manual_fields_empty: 633,
       unique_keys: 633,
@@ -119,7 +122,8 @@ describe("migrations", () => {
     await asSuperUser(db);
     await db.query(
       `update public.employees
-       set shift = 'Noturno', area = 'Solda', location = 'GERAL/BRAFER'
+       set shift = 'Noturno', area = 'Solda', location = 'LOCAL DE ALOCAÇÃO',
+           registered_client = 'CENTRO DE CUSTO ANTIGO'
        where company_code = '752' and registration = '2'`,
     );
     const adminId = await createUser(db, "rh-import-admin@test.local", "ADMIN");
@@ -133,7 +137,7 @@ describe("migrations", () => {
         name: "ADRIANO CARDOSO DE OLIVEIRA",
         admission_date: "2023-04-13",
         dismissal_date: null,
-        location: null,
+        registered_client: "GERAL/BRAFER",
       }])],
     );
     expect(Number(rows[0]?.imported)).toBe(1);
@@ -143,52 +147,70 @@ describe("migrations", () => {
       shift: string | null;
       area: string | null;
       location: string | null;
+      registered_client: string | null;
     }>(
-      `select shift, area, location from public.employees
+      `select shift, area, location, registered_client from public.employees
        where company_code = '752' and registration = '2'`,
     );
-    expect(saved[0]).toEqual({ shift: "Noturno", area: "Solda", location: "GERAL/BRAFER" });
+    expect(saved[0]).toEqual({
+      shift: "Noturno",
+      area: "Solda",
+      location: "LOCAL DE ALOCAÇÃO",
+      registered_client: "GERAL/BRAFER",
+    });
   });
 
   it("a árvore aloca uma pessoa por posição e libera a posição anterior na transferência", async () => {
     await asSuperUser(db);
-    const { rows: roots } = await db.query<{ id: string }>(
-      `select id from public.employee_allocation_nodes
-       where company_code = '752' and node_type = 'COMPANY'`,
+    const { rows: companyRoots } = await db.query<{ count: number }>(
+      `select count(*)::int as count
+         from public.employee_allocation_nodes
+        where node_type = 'COMPANY'`,
     );
-    const companyId = roots[0]?.id as string;
+    expect(companyRoots[0]?.count).toBe(0);
     const insertNode = async (
-      parentId: string,
+      parentId: string | null,
       type: string,
       name: string,
     ): Promise<string> => {
       const { rows } = await db.query<{ id: string }>(
         `insert into public.employee_allocation_nodes (
            company_code, company_name, parent_id, node_type, name
-         ) values ('752', 'SRS DESENVOLVIMENTO LTDA', $1, $2, $3)
+         ) values ('CLIENTES', 'Clientes', $1, $2, $3)
          returning id`,
         [parentId, type, name],
       );
       return rows[0]?.id as string;
     };
-    const clientId = await insertNode(companyId, "CLIENT", "Cliente teste alocação");
+    const clientId = await insertNode(null, "CLIENT", "Cliente teste alocação");
     const locationId = await insertNode(clientId, "LOCATION", "Unidade teste");
+    await db.query(
+      `update public.employee_allocation_nodes
+          set location_leader = 'Líder do local',
+              location_supervisor = 'Encarregado do local'
+        where id = $1`,
+      [locationId],
+    );
     const shiftId = await insertNode(locationId, "SHIFT", "1º turno");
     const areaId = await insertNode(shiftId, "AREA", "Solda");
     const firstPosition = await insertNode(areaId, "POSITION", "Posição 1");
     const secondPosition = await insertNode(areaId, "POSITION", "Posição 2");
+    const duplicatePosition = await insertNode(areaId, "POSITION", "Posição 2");
     await expect(insertNode(locationId, "AREA", "Área fora da ordem")).rejects.toThrow(
       /nível informado não pode ser criado/i,
     );
+    await expect(insertNode(shiftId, "AREA", "Solda")).rejects.toThrow(
+      /employee_allocation_nodes_unique_sibling/i,
+    );
 
     const { rows: employees } = await db.query<{ id: string }>(
-      `insert into public.employees (
-         company_code, company_name, registration, name
-       ) values
-         ('752', 'SRS DESENVOLVIMENTO LTDA', 'ALOC-085-1', 'Funcionário Alocação Um'),
-         ('752', 'SRS DESENVOLVIMENTO LTDA', 'ALOC-085-2', 'Funcionário Alocação Dois')
-       returning id`,
-    );
+        `insert into public.employees (
+          company_code, company_name, registration, name
+        ) values
+          ('752', 'SRS DESENVOLVIMENTO LTDA', 'ALOC-085-1', 'Funcionário Alocação Um'),
+          ('750', 'SRS PROJETOS E DESENVOLVIMENTOS LTDA', 'ALOC-085-2', 'Funcionário Alocação Dois')
+        returning id`,
+      );
     const firstEmployee = employees[0]?.id as string;
     const secondEmployee = employees[1]?.id as string;
     const gestorId = await createUser(db, "rh-allocation-manager@test.local", "GESTOR");
@@ -208,16 +230,29 @@ describe("migrations", () => {
         [secondEmployee, secondPosition],
       ),
     ).rejects.toThrow(/posição já está ocupada/i);
+    await db.query(
+      `select public.assign_employee_allocation($1::uuid, $2::uuid)`,
+      [secondEmployee, duplicatePosition],
+    );
 
     await asSuperUser(db);
+    const { rows: sameNamedPositions } = await db.query<{ count: number }>(
+      `select count(*)::int as count
+         from public.employee_allocation_nodes
+        where parent_id = $1 and node_type = 'POSITION' and name = 'Posição 2'`,
+      [areaId],
+    );
+    expect(sameNamedPositions[0]?.count).toBe(2);
     const { rows: saved } = await db.query<{
       allocation_position_id: string | null;
       client: string | null;
       location: string | null;
       area: string | null;
       shift: string | null;
+      responsible_1: string | null;
+      responsible_2: string | null;
     }>(
-      `select allocation_position_id, client, location, area, shift
+      `select allocation_position_id, client, location, area, shift, responsible_1, responsible_2
          from public.employees where id = $1`,
       [firstEmployee],
     );
@@ -227,6 +262,8 @@ describe("migrations", () => {
       location: "Unidade teste",
       area: "Solda",
       shift: "1º turno",
+      responsible_1: "Líder do local",
+      responsible_2: "Encarregado do local",
     });
 
     const { rows: previousPositionOccupants } = await db.query<{ count: number }>(
@@ -248,6 +285,24 @@ describe("migrations", () => {
       [firstEmployee],
     );
     expect(renamedSnapshot[0]?.client).toBe("Cliente atualizado");
+    await db.query(
+      `update public.employee_allocation_nodes
+          set location_leader = 'Líder atualizado',
+              location_supervisor = 'Encarregado atualizado'
+        where id = $1`,
+      [locationId],
+    );
+    const { rows: leadershipSnapshot } = await db.query<{
+      responsible_1: string | null;
+      responsible_2: string | null;
+    }>(
+      `select responsible_1, responsible_2 from public.employees where id = $1`,
+      [firstEmployee],
+    );
+    expect(leadershipSnapshot[0]).toEqual({
+      responsible_1: "Líder atualizado",
+      responsible_2: "Encarregado atualizado",
+    });
 
     await asSuperUser(db);
     await db.exec(`
@@ -256,13 +311,19 @@ describe("migrations", () => {
       update public.employee_allocation_nodes set parent_id = '${locationId}' where id = '${areaId}';
       update public.employee_allocation_nodes set parent_id = '${areaId}' where id = '${shiftId}';
       update public.employee_allocation_nodes set parent_id = '${shiftId}'
-       where id in ('${firstPosition}', '${secondPosition}');
+       where id in ('${firstPosition}', '${secondPosition}', '${duplicatePosition}');
       alter table public.employee_allocation_nodes
         enable trigger employee_allocation_nodes_validate;
     `);
     await db.exec(
       readFileSync(
         path.join(process.cwd(), "supabase", "migrations", "086_employee_allocation_shift_before_area.sql"),
+        "utf8",
+      ),
+    );
+    await db.exec(
+      readFileSync(
+        path.join(process.cwd(), "supabase", "migrations", "091_employee_allocation_clients_root.sql"),
         "utf8",
       ),
     );
@@ -282,7 +343,7 @@ describe("migrations", () => {
        join public.employee_allocation_nodes position on position.id = $2
        join public.employees employee on employee.id = $3
        where shift.id = $4`,
-      [areaId, secondPosition, firstEmployee, shiftId],
+       [areaId, secondPosition, firstEmployee, shiftId],
     );
     expect(migratedTree[0]).toEqual({
       location_parent: locationId,
@@ -300,12 +361,6 @@ describe("migrations", () => {
     ).rejects.toThrow(/desaloque ou transfira/i);
     await expect(
       db.query(
-        `select public.delete_employee_allocation_subtree($1::uuid)`,
-        [companyId],
-      ),
-    ).rejects.toThrow(/empresa empregadora fixa/i);
-    await expect(
-      db.query(
         `update public.employee_allocation_nodes set active = false where id = $1`,
         [clientId],
       ),
@@ -313,6 +368,10 @@ describe("migrations", () => {
     await db.query(
       `select public.assign_employee_allocation($1::uuid, null)`,
       [firstEmployee],
+    );
+    await db.query(
+      `select public.assign_employee_allocation($1::uuid, null)`,
+      [secondEmployee],
     );
     await db.query(
       `update public.employee_allocation_nodes set active = false where id = $1`,
@@ -328,14 +387,22 @@ describe("migrations", () => {
       `select count(*)::int as count
          from public.employee_allocation_nodes
         where id = any($1::uuid[])`,
-      [[clientId, locationId, shiftId, areaId, firstPosition, secondPosition]],
+      [[clientId, locationId, shiftId, areaId, firstPosition, secondPosition, duplicatePosition]],
     );
     expect(deletedSubtree[0]?.count).toBe(0);
-    const { rows: synchronized } = await db.query<{ client: string | null }>(
-      `select client from public.employees where id = $1`,
+    const { rows: synchronized } = await db.query<{
+      client: string | null;
+      responsible_1: string | null;
+      responsible_2: string | null;
+    }>(
+      `select client, responsible_1, responsible_2 from public.employees where id = $1`,
       [firstEmployee],
     );
-    expect(synchronized[0]?.client).toBeNull();
+    expect(synchronized[0]).toEqual({
+      client: null,
+      responsible_1: null,
+      responsible_2: null,
+    });
   });
 
   it("065 escala filhos, materiais e espelho MP uma vez, sem alterar pesos recebidos", async () => {

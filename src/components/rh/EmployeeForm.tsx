@@ -33,8 +33,6 @@ export function EmployeeForm({ employee = null }: EmployeeFormProps) {
         name: String(formData.get("name") ?? ""),
         admissionDate: String(formData.get("admissionDate") ?? "") || null,
         dismissalDate: String(formData.get("dismissalDate") ?? "") || null,
-        responsible1: String(formData.get("responsible1") ?? "") || null,
-        responsible2: String(formData.get("responsible2") ?? "") || null,
       });
       if (!result.success) {
         setError(result.message);
@@ -84,14 +82,6 @@ export function EmployeeForm({ employee = null }: EmployeeFormProps) {
           <Label htmlFor="dismissalDate">Data de demissão</Label>
           <Input id="dismissalDate" name="dismissalDate" type="date" defaultValue={employee?.dismissal_date ?? ""} />
         </div>
-        <div className={fieldClass}>
-          <Label htmlFor="responsible1">Líder</Label>
-          <Input id="responsible1" name="responsible1" defaultValue={employee?.responsible_1 ?? ""} maxLength={150} />
-        </div>
-        <div className={fieldClass}>
-          <Label htmlFor="responsible2">Encarregado</Label>
-          <Input id="responsible2" name="responsible2" defaultValue={employee?.responsible_2 ?? ""} maxLength={150} />
-        </div>
         {employee ? (
           <div className={`${fieldClass} justify-self-start`}>
             <Label>Status (automático)</Label>
@@ -102,7 +92,7 @@ export function EmployeeForm({ employee = null }: EmployeeFormProps) {
         ) : null}
       </div>
       <p className="text-sm text-muted-foreground">
-        A alocação em cliente, local, área, turno e posição é gerenciada na árvore de alocações.
+        A alocação em cliente, local, área e turno, bem como o líder e o encarregado do local, é gerenciada na árvore de alocações.
       </p>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       <div className="flex flex-wrap gap-2">

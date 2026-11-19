@@ -8,7 +8,6 @@ export type EmployeeAllocationKind = Exclude<EmployeeAllocationNodeType, "COMPAN
 
 export type AllocationEmployee = {
   id: string;
-  company_code: string;
   registration: string;
   name: string;
   status: "ATIVO" | "INATIVO";
@@ -19,7 +18,7 @@ export const ALLOCATION_CHILD_KIND: Record<
   EmployeeAllocationNodeType,
   EmployeeAllocationKind | null
 > = {
-  COMPANY: "CLIENT",
+  COMPANY: null,
   CLIENT: "LOCATION",
   LOCATION: "SHIFT",
   SHIFT: "AREA",

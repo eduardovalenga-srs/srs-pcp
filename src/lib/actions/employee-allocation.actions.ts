@@ -9,7 +9,7 @@ import {
   deleteEmployeeAllocationSubtree,
   getEmployeeAllocationNodeById,
   setEmployeeAllocationNodeActive,
-  updateEmployeeAllocationNodeName,
+  updateEmployeeAllocationNode,
 } from "@/lib/repositories/employee-allocation.repository";
 import { createClient } from "@/lib/supabase/server";
 import { ALLOCATION_CHILD_KIND } from "@/lib/types/employee-allocation";
@@ -44,22 +44,31 @@ export async function createEmployeeAllocationNodeAction(
     if (!parsed.success) return { success: false, message: firstZodMessage(parsed.error) };
 
     const client = await createClient();
-    const parent = await getEmployeeAllocationNodeById(client, parsed.data.parentId);
-    if (!parent) return { success: false, message: "Item superior não encontrado." };
-    if (!parent.active) {
+    const parent = parsed.data.parentId
+      ? await getEmployeeAllocationNodeById(client, parsed.data.parentId)
+      : null;
+    if (parsed.data.parentId && !parent) {
+      return { success: false, message: "Item superior não encontrado." };
+    }
+    if (parent && !parent.active) {
       return { success: false, message: "Não é possível adicionar itens abaixo de uma estrutura inativa." };
     }
-    const nodeType = ALLOCATION_CHILD_KIND[parent.node_type];
+    const nodeType = parent ? ALLOCATION_CHILD_KIND[parent.node_type] : "CLIENT";
     if (!nodeType) {
       return { success: false, message: "Uma posição não pode receber novos níveis." };
     }
+    if (!parent && nodeType !== "CLIENT") {
+      return { success: false, message: "Somente clientes podem ser criados na raiz da árvore." };
+    }
 
     await createEmployeeAllocationNode(client, {
-      companyCode: parent.company_code,
-      companyName: parent.company_name,
-      parentId: parent.id,
+      companyCode: parent?.company_code ?? "CLIENTES",
+      companyName: parent?.company_name ?? "Clientes",
+      parentId: parent?.id ?? null,
       nodeType,
       name: parsed.data.name,
+      locationLeader: nodeType === "LOCATION" ? parsed.data.locationLeader : undefined,
+      locationSupervisor: nodeType === "LOCATION" ? parsed.data.locationSupervisor : undefined,
       userId: user.id,
     });
     revalidateAllocationViews();
@@ -84,7 +93,14 @@ export async function updateEmployeeAllocationNodeAction(
       return { success: false, message: "O nome da empresa é mantido no cadastro de empresas." };
     }
 
-    await updateEmployeeAllocationNodeName(client, node.id, parsed.data.name, user.id);
+    await updateEmployeeAllocationNode(
+      client,
+      node.id,
+      parsed.data.name,
+      user.id,
+      node.node_type === "LOCATION" ? parsed.data.locationLeader : undefined,
+      node.node_type === "LOCATION" ? parsed.data.locationSupervisor : undefined,
+    );
     revalidateAllocationViews();
     return { success: true, message: "Item atualizado com sucesso." };
   } catch (error) {

@@ -1,13 +1,17 @@
 import { z } from "zod";
 
 export const createEmployeeAllocationNodeSchema = z.object({
-  parentId: z.string().uuid("Item superior inválido"),
+  parentId: z.string().uuid("Item superior inválido").nullable(),
   name: z.string().trim().min(1, "Informe o nome").max(120, "Máximo de 120 caracteres"),
+  locationLeader: z.string().trim().max(150, "Máximo de 150 caracteres").optional(),
+  locationSupervisor: z.string().trim().max(150, "Máximo de 150 caracteres").optional(),
 });
 
 export const updateEmployeeAllocationNodeSchema = z.object({
   id: z.string().uuid("Item inválido"),
   name: z.string().trim().min(1, "Informe o nome").max(120, "Máximo de 120 caracteres"),
+  locationLeader: z.string().trim().max(150, "Máximo de 150 caracteres").optional(),
+  locationSupervisor: z.string().trim().max(150, "Máximo de 150 caracteres").optional(),
 });
 
 export const setEmployeeAllocationActiveSchema = z.object({

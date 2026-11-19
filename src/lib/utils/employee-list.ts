@@ -5,6 +5,7 @@ export interface EmployeeListFilters {
   name: string;
   company: string;
   status: string;
+  registeredClient: string;
   location: string;
   shift: string;
   area: string;
@@ -22,6 +23,7 @@ export const EMPTY_EMPLOYEE_FILTERS: EmployeeListFilters = {
   name: "",
   company: "",
   status: "ALL",
+  registeredClient: "",
   location: "",
   shift: "",
   area: "",
@@ -47,10 +49,11 @@ export const EMPLOYEE_SORT_KEYS = [
   "admission_date",
   "dismissal_date",
   "status",
+  "registered_client",
+  "client",
   "location",
   "shift",
   "area",
-  "client",
   "responsible_1",
   "responsible_2",
 ] as const satisfies readonly (keyof EmployeeRow)[];
@@ -89,6 +92,7 @@ export function filterEmployees(
     if (!matchesText(employee.name, filters.name)) return false;
     if (filters.company && employee.company_code !== filters.company) return false;
     if (filters.status !== "ALL" && employee.status !== filters.status) return false;
+    if (!matchesText(employee.registered_client, filters.registeredClient)) return false;
     if (!matchesText(employee.location, filters.location)) return false;
     if (!matchesText(employee.shift, filters.shift)) return false;
     if (!matchesText(employee.area, filters.area)) return false;
@@ -148,6 +152,7 @@ export function parseEmployeeListFilters(params: EmployeeSearchParams): Employee
     name: paramValue(params, "name").trim(),
     company: paramValue(params, "company").trim(),
     status: ["ATIVO", "INATIVO", "ALL"].includes(status) ? status : "ATIVO",
+    registeredClient: paramValue(params, "registeredClient").trim(),
     location: paramValue(params, "location").trim(),
     shift: paramValue(params, "shift").trim(),
     area: paramValue(params, "area").trim(),

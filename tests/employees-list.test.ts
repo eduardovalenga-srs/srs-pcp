@@ -24,6 +24,7 @@ const emptyFilters: EmployeeListFilters = {
   name: "",
   company: "",
   status: "ALL",
+  registeredClient: "",
   location: "",
   shift: "",
   area: "",
@@ -45,7 +46,8 @@ function employee(overrides: Partial<EmployeeRow> = {}): EmployeeRow {
     name: "ADRIANO CARDOSO DE OLIVEIRA",
     admission_date: "2023-04-13",
     dismissal_date: null,
-    location: "GERAL/BRAFER",
+    registered_client: "GERAL/BRAFER",
+    location: "UNIDADE A",
     status: "ATIVO",
     shift: "1º TURNO",
     area: "ESTRUTURAS",
@@ -69,7 +71,8 @@ const second = employee({
   name: "JOAREZ DE OLIVEIRA",
   admission_date: "2024-01-10",
   dismissal_date: "2024-06-01",
-  location: "GERAL/FABRICA SRS",
+  registered_client: "GERAL/FABRICA SRS",
+  location: "FÁBRICA SRS",
   status: "INATIVO",
   shift: "2º TURNO",
   area: "CALDEIRARIA",
@@ -95,8 +98,9 @@ describe("filterEmployees", () => {
     expect(filterEmployees(employees, { ...emptyFilters, status: "ALL" })).toHaveLength(2);
   });
 
-  it("filtra local, turno, área, cliente, líder e encarregado por conteúdo", () => {
-    expect(filterEmployees(employees, { ...emptyFilters, location: "brafer" })).toEqual([employees[0]]);
+  it("filtra cliente cadastrado, local, turno, área, cliente, líder e encarregado", () => {
+    expect(filterEmployees(employees, { ...emptyFilters, registeredClient: "brafer" })).toEqual([employees[0]]);
+    expect(filterEmployees(employees, { ...emptyFilters, location: "unidade" })).toEqual([employees[0]]);
     expect(filterEmployees(employees, { ...emptyFilters, shift: "2º" })).toEqual([second]);
     expect(filterEmployees(employees, { ...emptyFilters, area: "caldeiraria" })).toEqual([second]);
     expect(filterEmployees(employees, { ...emptyFilters, client: "cliente b" })).toEqual([second]);
@@ -160,14 +164,18 @@ describe("employeesSheet", () => {
       "Admissão",
       "Demissão",
       "Status",
+      "Cliente Cadastrado",
+      "Cliente",
       "Local",
       "Turno",
       "Área",
-      "Cliente",
       "Líder",
       "Encarregado",
     ]);
     expect(sheet.rows[0]?.[5]).toBe("Ativo");
+    expect(sheet.rows[0]?.[6]).toBe("GERAL/BRAFER");
+    expect(sheet.rows[0]?.[7]).toBe("CLIENTE A");
+    expect(sheet.rows[0]?.[8]).toBe("UNIDADE A");
     expect(sheet.rows[0]?.[3]).toBeInstanceOf(Date);
     expect(sheet.rows[0]?.[4]).toBe("—");
     expect(sheet.dateColumns).toEqual([3, 4]);

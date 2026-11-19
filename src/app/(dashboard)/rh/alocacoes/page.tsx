@@ -55,7 +55,6 @@ export default async function EmployeeAllocationsPage() {
 
   const employees = employeeRows.map((employee) => ({
     id: employee.id,
-    company_code: employee.company_code,
     registration: employee.registration,
     name: employee.name,
     status: employee.status,

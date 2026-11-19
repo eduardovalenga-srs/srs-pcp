@@ -12,7 +12,7 @@ export type EmployeeImportPreview = {
   rows: EmployeeImportRow[];
   spreadsheetRows: number;
   pdfRows: number;
-  matchedLocations: number;
+  matchedRegisteredClients: number;
   pdfOnlyRows: number;
   warnings: string[];
 };
@@ -93,7 +93,7 @@ function parseSpreadsheet(buffer: ArrayBuffer): EmployeeImportRow[] {
       name,
       admission_date: parseExcelDate(row[5]),
       dismissal_date: parseExcelDate(row[6]),
-      location: null,
+      registered_client: null,
       source: "PLANILHA",
     });
   }
@@ -146,7 +146,7 @@ function parsePdf(buffer: ArrayBuffer): Promise<EmployeeImportRow[]> {
         const registration = codeItem?.str.match(/^\s*(\d{1,4})\b/)?.[1];
         if (!registration) continue;
 
-        let location: string | null = null;
+        let registeredClient: string | null = null;
         const locationItems = [
           ...line.filter((item) => item.x >= 290 && item.x < 510),
           ...(codeItem ? [codeItem] : []),
@@ -163,7 +163,7 @@ function parsePdf(buffer: ArrayBuffer): Promise<EmployeeImportRow[]> {
             if (suffix >= 0) value = value.slice(0, suffix).trim();
           }
           if (value.length > 6) {
-            location = value.replace(/\s+/g, " ");
+            registeredClient = value.replace(/\s+/g, " ");
             break;
           }
         }
@@ -175,7 +175,7 @@ function parsePdf(buffer: ArrayBuffer): Promise<EmployeeImportRow[]> {
           name,
           admission_date: null,
           dismissal_date: null,
-          location,
+          registered_client: registeredClient,
           source: "PDF",
         });
       }
@@ -197,7 +197,7 @@ export async function parseEmployeeImportFiles(
     merged.set(`${row.company_code}:${row.registration}`, row);
   }
 
-  let matchedLocations = 0;
+  let matchedRegisteredClients = 0;
   let pdfOnlyRows = 0;
   for (const pdfRow of pdfRows) {
     const key = `${pdfRow.company_code}:${pdfRow.registration}`;
@@ -209,23 +209,23 @@ export async function parseEmployeeImportFiles(
     }
     if (normalizeText(existing.name) !== normalizeText(pdfRow.name)) {
       warnings.push(
-        `Matrícula ${pdfRow.registration} da empresa ${pdfRow.company_code}: os nomes divergem entre os arquivos; a alocação do PDF não foi aplicada.`,
+        `Matrícula ${pdfRow.registration} da empresa ${pdfRow.company_code}: os nomes divergem entre os arquivos; o Cliente Cadastrado do PDF não foi aplicado.`,
       );
       continue;
     }
-    if (pdfRow.location) {
-      existing.location = pdfRow.location;
-      matchedLocations += 1;
+    if (pdfRow.registered_client) {
+      existing.registered_client = pdfRow.registered_client;
+      matchedRegisteredClients += 1;
     }
   }
 
-  const activeWithoutLocation = spreadsheetRows.filter((row) => {
+  const activeWithoutRegisteredClient = spreadsheetRows.filter((row) => {
     const imported = merged.get(`${row.company_code}:${row.registration}`);
-    return !row.dismissal_date && !imported?.location;
+    return !row.dismissal_date && !imported?.registered_client;
   }).length;
-  if (activeWithoutLocation > 0) {
+  if (activeWithoutRegisteredClient > 0) {
     warnings.push(
-      `${activeWithoutLocation} funcionário(s) ativo(s) da planilha não aparecem no PDF; o local de alocação ficará vazio.`,
+      `${activeWithoutRegisteredClient} funcionário(s) ativo(s) da planilha não aparecem no PDF; Cliente Cadastrado ficará vazio.`,
     );
   }
 
@@ -237,7 +237,7 @@ export async function parseEmployeeImportFiles(
     rows: [...merged.values()],
     spreadsheetRows: spreadsheetRows.length,
     pdfRows: pdfRows.length,
-    matchedLocations,
+    matchedRegisteredClients,
     pdfOnlyRows,
     warnings,
   };

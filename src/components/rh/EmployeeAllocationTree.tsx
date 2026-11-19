@@ -44,6 +44,7 @@ import {
 
 type TreeDialog =
   | { kind: "create"; parent: EmployeeAllocationNode }
+  | { kind: "create-client" }
   | { kind: "edit"; node: EmployeeAllocationNode }
   | { kind: "assign"; position: EmployeeAllocationNode };
 
@@ -115,13 +116,20 @@ export function EmployeeAllocationTree({
       return summary;
     };
 
-    for (const root of nodes.filter((node) => !node.parent_id)) summarize(root);
+    for (const root of nodes.filter((node) => node.node_type === "CLIENT" && !node.parent_id)) {
+      summarize(root);
+    }
     return summaries;
   }, [childrenByParent, employeeByPosition, nodes]);
 
   const openCreate = (parent: EmployeeAllocationNode) => {
     setFormError("");
     setDialog({ kind: "create", parent });
+  };
+
+  const openCreateClient = () => {
+    setFormError("");
+    setDialog({ kind: "create-client" });
   };
 
   const openEdit = (node: EmployeeAllocationNode) => {
@@ -149,14 +157,18 @@ export function EmployeeAllocationTree({
     setPending(true);
     setFormError("");
     try {
-      const result = dialog.kind === "create"
+      const result = dialog.kind === "create" || dialog.kind === "create-client"
         ? await createEmployeeAllocationNodeAction({
-            parentId: dialog.parent.id,
+            parentId: dialog.kind === "create" ? dialog.parent.id : null,
             name: String(formData.get("name") ?? ""),
+            locationLeader: String(formData.get("locationLeader") ?? ""),
+            locationSupervisor: String(formData.get("locationSupervisor") ?? ""),
           })
         : await updateEmployeeAllocationNodeAction({
             id: dialog.node.id,
             name: String(formData.get("name") ?? ""),
+            locationLeader: String(formData.get("locationLeader") ?? ""),
+            locationSupervisor: String(formData.get("locationSupervisor") ?? ""),
           });
       if (!result.success) {
         setFormError(result.message);
@@ -307,6 +319,16 @@ export function EmployeeAllocationTree({
     const occupant = employeeByPosition.get(node.id);
     const childKind = ALLOCATION_CHILD_KIND[node.node_type];
     const isPosition = node.node_type === "POSITION";
+    const sameNamePositions = isPosition && node.parent_id
+      ? (childrenByParent.get(node.parent_id) ?? []).filter(
+          (sibling) =>
+            sibling.node_type === "POSITION" &&
+            sibling.name.trim().toLocaleLowerCase("pt-BR") === node.name.trim().toLocaleLowerCase("pt-BR"),
+        )
+      : [];
+    const duplicatePositionNumber = sameNamePositions.length > 1
+      ? sameNamePositions.findIndex((sibling) => sibling.id === node.id) + 1
+      : null;
 
     return (
       <li key={node.id} className="min-w-0">
@@ -337,9 +359,22 @@ export function EmployeeAllocationTree({
           )}
           <span className="min-w-0 flex-1">
             <span className="font-medium">{node.name}</span>
+            {duplicatePositionNumber ? (
+              <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                Vaga {duplicatePositionNumber}
+              </span>
+            ) : null}
             <span className="ml-2 text-xs text-muted-foreground">
               {ALLOCATION_KIND_LABEL[node.node_type]}
             </span>
+            {node.node_type === "LOCATION" &&
+            (node.location_leader || node.location_supervisor) ? (
+              <span className="block text-xs text-muted-foreground">
+                {node.location_leader ? `Líder: ${node.location_leader}` : null}
+                {node.location_leader && node.location_supervisor ? " · " : null}
+                {node.location_supervisor ? `Encarregado: ${node.location_supervisor}` : null}
+              </span>
+            ) : null}
             {isPosition && occupant ? (
               <span className="ml-2 text-sm text-muted-foreground">
                 — {occupant.name} ({occupant.registration})
@@ -466,7 +501,7 @@ export function EmployeeAllocationTree({
     );
   };
 
-  const roots = nodes.filter((node) => !node.parent_id);
+  const roots = nodes.filter((node) => node.node_type === "CLIENT" && !node.parent_id);
   const totals = roots.reduce<AllocationSummary>((total, root) => {
     const summary = summaryByNode.get(root.id) ?? EMPTY_SUMMARY;
     return {
@@ -476,10 +511,16 @@ export function EmployeeAllocationTree({
   }, EMPTY_SUMMARY);
   const assignableEmployees = dialog?.kind === "assign"
     ? employees.filter((employee) =>
-        employee.company_code === dialog.position.company_code &&
         (employee.status === "ATIVO" || employee.id === selectedEmployeeId),
       )
     : [];
+  const dialogNodeType = dialog?.kind === "create-client"
+    ? "CLIENT"
+    : dialog?.kind === "create"
+      ? ALLOCATION_CHILD_KIND[dialog.parent.node_type]
+    : dialog?.kind === "edit"
+      ? dialog.node.node_type
+      : null;
 
   return (
     <section className="space-y-4">
@@ -490,16 +531,26 @@ export function EmployeeAllocationTree({
             Atribua cada funcionário a uma posição individual. Uma transferência libera automaticamente a posição anterior.
           </p>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => setExpanded((current) =>
-            current.size === nodes.length ? new Set() : new Set(nodes.map((node) => node.id)),
-          )}
-        >
-          {expanded.size === nodes.length ? "Recolher árvore" : "Expandir árvore"}
-        </Button>
+        <div className="flex gap-2">
+          {canManage ? (
+            <Button type="button" size="sm" variant="outline" onClick={openCreateClient} disabled={pending}>
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              Adicionar cliente
+            </Button>
+          ) : null}
+          {nodes.length > 0 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setExpanded((current) =>
+                current.size === nodes.length ? new Set() : new Set(nodes.map((node) => node.id)),
+              )}
+            >
+              {expanded.size === nodes.length ? "Recolher árvore" : "Expandir árvore"}
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {roots.length > 0 ? (
@@ -508,7 +559,7 @@ export function EmployeeAllocationTree({
         </ul>
       ) : (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          Nenhuma empresa empregadora foi encontrada para iniciar a árvore.
+          Nenhum cliente cadastrado para iniciar a árvore.
         </div>
       )}
 
@@ -522,17 +573,21 @@ export function EmployeeAllocationTree({
         }}
       >
         <DialogContent className="sm:max-w-md">
-          {dialog?.kind === "create" || dialog?.kind === "edit" ? (
+          {dialog?.kind === "create" || dialog?.kind === "create-client" || dialog?.kind === "edit" ? (
             <form action={submitTreeEdit} className="space-y-4">
               <DialogHeader>
                 <DialogTitle>
-                  {dialog.kind === "create"
-                    ? `Adicionar ${ALLOCATION_KIND_LABEL[ALLOCATION_CHILD_KIND[dialog.parent.node_type]!] .toLowerCase()}`
+                  {dialog.kind === "create-client"
+                    ? "Adicionar cliente"
+                    : dialog.kind === "create"
+                      ? `Adicionar ${ALLOCATION_KIND_LABEL[ALLOCATION_CHILD_KIND[dialog.parent.node_type]!].toLowerCase()}`
                     : `Editar ${ALLOCATION_KIND_LABEL[dialog.node.node_type].toLowerCase()}`}
                 </DialogTitle>
                 <DialogDescription>
-                  {dialog.kind === "create"
-                    ? `Novo item abaixo de ${dialog.parent.name}.`
+                  {dialog.kind === "create-client"
+                    ? "Novo cliente na raiz da árvore de alocações."
+                    : dialog.kind === "create"
+                      ? `Novo item abaixo de ${dialog.parent.name}.`
                     : "A alteração também atualiza os dados de alocação dos funcionários vinculados."}
                 </DialogDescription>
               </DialogHeader>
@@ -547,6 +602,28 @@ export function EmployeeAllocationTree({
                   autoFocus
                 />
               </div>
+              {dialogNodeType === "LOCATION" ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="allocation-location-leader">Líder do local de trabalho</Label>
+                    <Input
+                      id="allocation-location-leader"
+                      name="locationLeader"
+                      defaultValue={dialog.kind === "edit" ? dialog.node.location_leader ?? "" : ""}
+                      maxLength={150}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="allocation-location-supervisor">Encarregado do local de trabalho</Label>
+                    <Input
+                      id="allocation-location-supervisor"
+                      name="locationSupervisor"
+                      defaultValue={dialog.kind === "edit" ? dialog.node.location_supervisor ?? "" : ""}
+                      maxLength={150}
+                    />
+                  </div>
+                </div>
+              ) : null}
               {formError ? <p role="alert" className="text-sm text-destructive">{formError}</p> : null}
               <DialogFooter>
                 <Button type="submit" disabled={pending}>
@@ -560,7 +637,7 @@ export function EmployeeAllocationTree({
               <DialogHeader>
                 <DialogTitle>{employeeByPosition.has(dialog.position.id) ? "Transferir funcionário" : "Alocar funcionário"}</DialogTitle>
                 <DialogDescription>
-                  Posição: {dialog.position.name}. Só são exibidos funcionários ativos da empresa empregadora correspondente.
+                  Posição: {dialog.position.name}. São exibidos funcionários ativos de todas as empresas.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-1.5">

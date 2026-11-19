@@ -60,8 +60,8 @@ export function EmployeeImport() {
         <div>
           <h2 className="font-semibold">Arquivos de origem</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            A planilha é a fonte principal. O PDF é opcional e complementa o local de alocação.
-            Funcionários existentes apenas no PDF serão incluídos sem datas para preenchimento posterior.
+            A planilha é a fonte principal. O PDF é opcional e complementa Cliente Cadastrado com o centro de custo.
+                Funcionários existentes apenas no PDF serão incluídos sem datas para preenchimento posterior.
             Datas em branco no arquivo não apagam as datas já cadastradas.
           </p>
         </div>
@@ -95,7 +95,7 @@ export function EmployeeImport() {
               <h2 className="font-semibold">Prévia dos registros</h2>
               <p className="text-sm text-muted-foreground">
                 {preview.rows.length} funcionários considerados: {preview.spreadsheetRows} da planilha,
-                {" "}{preview.pdfRows} do PDF, {preview.matchedLocations} alocações correspondidas e
+                {" "}{preview.pdfRows} do PDF, {preview.matchedRegisteredClients} centros de custo correspondidos e
                 {" "}{preview.pdfOnlyRows} somente no PDF.
               </p>
             </div>
@@ -114,7 +114,7 @@ export function EmployeeImport() {
               <thead className="sticky top-0 bg-muted">
                 <tr>
                   <th className="p-2">Origem</th><th className="p-2">Empresa</th><th className="p-2">Matrícula</th>
-                  <th className="p-2">Nome</th><th className="p-2">Admissão</th><th className="p-2">Demissão</th><th className="p-2">Alocação</th>
+                  <th className="p-2">Nome</th><th className="p-2">Admissão</th><th className="p-2">Demissão</th><th className="p-2">Cliente Cadastrado</th>
                 </tr>
               </thead>
               <tbody>
@@ -126,7 +126,7 @@ export function EmployeeImport() {
                     <td className="p-2">{row.name}</td>
                     <td className="p-2">{row.admission_date ?? "—"}</td>
                     <td className="p-2">{row.dismissal_date ?? "—"}</td>
-                    <td className="p-2">{row.location ?? "—"}</td>
+                    <td className="p-2">{row.registered_client ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>

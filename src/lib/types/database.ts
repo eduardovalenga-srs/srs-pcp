@@ -29,6 +29,7 @@ export type EmployeeRow = {
   name: string;
   admission_date: string | null;
   dismissal_date: string | null;
+  registered_client: string | null;
   location: string | null;
   status: EmployeeStatusValue;
   shift: string | null;
@@ -58,6 +59,8 @@ export type EmployeeAllocationNodeRow = {
   parent_id: string | null;
   node_type: EmployeeAllocationNodeType;
   name: string;
+  location_leader: string | null;
+  location_supervisor: string | null;
   active: boolean;
   sort_order: number;
   created_at: string;
@@ -582,6 +585,8 @@ export type Database = {
           parent_id?: string | null;
           node_type: EmployeeAllocationNodeType;
           name: string;
+          location_leader?: string | null;
+          location_supervisor?: string | null;
           active?: boolean;
           sort_order?: number;
           created_by?: string | null;
@@ -593,6 +598,8 @@ export type Database = {
           parent_id: string | null;
           node_type: EmployeeAllocationNodeType;
           name: string;
+          location_leader: string | null;
+          location_supervisor: string | null;
           active: boolean;
           sort_order: number;
           updated_by: string | null;
@@ -631,6 +638,7 @@ export type Database = {
           name: string;
           admission_date?: string | null;
           dismissal_date?: string | null;
+          registered_client?: string | null;
           location?: string | null;
           allocation_position_id?: string | null;
           shift?: string | null;
@@ -648,6 +656,7 @@ export type Database = {
           name: string;
           admission_date: string | null;
           dismissal_date: string | null;
+          registered_client: string | null;
           location: string | null;
           allocation_position_id: string | null;
           shift: string | null;

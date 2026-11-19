@@ -31,6 +31,7 @@ export type { EmployeeListFilters } from "@/lib/utils/employee-list";
 type TextFilterField =
   | "registration"
   | "name"
+  | "registeredClient"
   | "location"
   | "shift"
   | "area"
@@ -50,6 +51,7 @@ function hasActiveFilters(filters: EmployeeListFilters): boolean {
     filters.name !== "" ||
     filters.company !== "" ||
     filters.status !== "ATIVO" ||
+    filters.registeredClient !== "" ||
     filters.location !== "" ||
     filters.shift !== "" ||
     filters.area !== "" ||
@@ -170,6 +172,7 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
               name: filters.name,
               company: filters.company,
               status: filters.status,
+              registeredClient: filters.registeredClient,
               location: filters.location,
               shift: filters.shift,
               area: filters.area,
@@ -272,6 +275,15 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
                   }
                 />
               </TableHead>
+              <TableHead aria-sort={ariaSort(sort, "registered_client")}>
+                <HeaderLabel
+                  sort={sortHeader("registered_client", "Cliente Cadastrado")}
+                  filter={textFilter("registeredClient", "Cliente Cadastrado", "cliente cadastrado")}
+                />
+              </TableHead>
+              <TableHead aria-sort={ariaSort(sort, "client")}>
+                <HeaderLabel sort={sortHeader("client", "Cliente")} filter={textFilter("client", "Cliente", "cliente")} />
+              </TableHead>
               <TableHead aria-sort={ariaSort(sort, "location")}>
                 <HeaderLabel sort={sortHeader("location", "Local")} filter={textFilter("location", "Local", "local")} />
               </TableHead>
@@ -280,9 +292,6 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
               </TableHead>
               <TableHead aria-sort={ariaSort(sort, "area")}>
                 <HeaderLabel sort={sortHeader("area", "Área")} filter={textFilter("area", "Área", "área")} />
-              </TableHead>
-              <TableHead aria-sort={ariaSort(sort, "client")}>
-                <HeaderLabel sort={sortHeader("client", "Cliente")} filter={textFilter("client", "Cliente", "cliente")} />
               </TableHead>
               <TableHead aria-sort={ariaSort(sort, "responsible_1")}>
                 <HeaderLabel sort={sortHeader("responsible_1", "Lid.", "Líder")} filter={textFilter("responsible1", "Líder", "líder")} />
@@ -309,10 +318,11 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
                     {employee.status === "ATIVO" ? "Ativo" : "Inativo"}
                   </span>
                 </TableCell>
+                <TableCell>{employee.registered_client ?? "—"}</TableCell>
+                <TableCell>{employee.client ?? "—"}</TableCell>
                 <TableCell>{employee.location ?? "—"}</TableCell>
                 <TableCell>{employee.shift ?? "—"}</TableCell>
                 <TableCell>{employee.area ?? "—"}</TableCell>
-                <TableCell>{employee.client ?? "—"}</TableCell>
                 <TableCell>{employee.responsible_1 ?? "—"}</TableCell>
                 <TableCell>{employee.responsible_2 ?? "—"}</TableCell>
                 {canManage ? (
@@ -326,7 +336,7 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
             ))}
             {pageRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={canManage ? 13 : 12} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={canManage ? 14 : 13} className="py-8 text-center text-muted-foreground">
                   Nenhum funcionário encontrado para os filtros informados.
                 </TableCell>
               </TableRow>

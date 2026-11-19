@@ -28,7 +28,7 @@ export const importEmployeeRowsSchema = z
       name: z.string().trim().min(1).max(180),
       admission_date: z.string().date().nullable(),
       dismissal_date: z.string().date().nullable(),
-      location: z.string().trim().max(180).nullable(),
+      registered_client: z.string().trim().max(180).nullable(),
     }),
   )
   .min(1, "Nenhum funcionário válido para importar.")

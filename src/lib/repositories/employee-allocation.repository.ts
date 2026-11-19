@@ -3,7 +3,7 @@ import type { EmployeeAllocationNodeRow } from "@/lib/types/database";
 import { assertOk } from "@/lib/utils/supabase-result";
 
 const NODE_COLUMNS =
-  "id, company_code, company_name, parent_id, node_type, name, active, sort_order, created_at, updated_at, created_by, updated_by";
+  "id, company_code, company_name, parent_id, node_type, name, location_leader, location_supervisor, active, sort_order, created_at, updated_at, created_by, updated_by";
 
 export async function getEmployeeAllocationNodes(
   client: SupabaseServer,
@@ -11,9 +11,10 @@ export async function getEmployeeAllocationNodes(
   const { data, error } = await client
     .from("employee_allocation_nodes")
     .select(NODE_COLUMNS)
-    .order("company_code", { ascending: true })
     .order("sort_order", { ascending: true })
-    .order("name", { ascending: true });
+    .order("name", { ascending: true })
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
 
   assertOk(error, "Não foi possível carregar a árvore de alocações");
   return (data ?? []) as unknown as EmployeeAllocationNodeRow[];
@@ -38,9 +39,11 @@ export async function createEmployeeAllocationNode(
   input: {
     companyCode: string;
     companyName: string;
-    parentId: string;
+    parentId: string | null;
     nodeType: Exclude<EmployeeAllocationNodeRow["node_type"], "COMPANY">;
     name: string;
+    locationLeader?: string | null;
+    locationSupervisor?: string | null;
     userId: string;
   },
 ): Promise<void> {
@@ -50,21 +53,31 @@ export async function createEmployeeAllocationNode(
     parent_id: input.parentId,
     node_type: input.nodeType,
     name: input.name,
+    location_leader: input.nodeType === "LOCATION" ? input.locationLeader || null : null,
+    location_supervisor: input.nodeType === "LOCATION" ? input.locationSupervisor || null : null,
     created_by: input.userId,
     updated_by: input.userId,
   });
   assertOk(error, "Não foi possível criar o item da árvore");
 }
 
-export async function updateEmployeeAllocationNodeName(
+export async function updateEmployeeAllocationNode(
   client: SupabaseServer,
   id: string,
   name: string,
   userId: string,
+  locationLeader?: string | null,
+  locationSupervisor?: string | null,
 ): Promise<void> {
+  const values = {
+    name,
+    updated_by: userId,
+    ...(locationLeader !== undefined ? { location_leader: locationLeader || null } : {}),
+    ...(locationSupervisor !== undefined ? { location_supervisor: locationSupervisor || null } : {}),
+  };
   const { error } = await client
     .from("employee_allocation_nodes")
-    .update({ name, updated_by: userId })
+    .update(values)
     .eq("id", id);
   assertOk(error, "Não foi possível atualizar o item da árvore");
 }

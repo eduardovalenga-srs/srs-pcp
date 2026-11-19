@@ -1,5 +1,13 @@
 import * as XLSX from "xlsx";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const { extractPdfTextMock } = vi.hoisted(() => ({
+  extractPdfTextMock: vi.fn(),
+}));
+
+vi.mock("@/lib/import/pdf-text", () => ({
+  extractPdfText: extractPdfTextMock,
+}));
 
 import { parseEmployeeImportFiles } from "@/lib/import/employee-files";
 
@@ -30,13 +38,36 @@ describe("employee import parser", () => {
       name: "ADRIANO BERNARDO DA SILVA",
       admission_date: "2023-06-29",
       dismissal_date: null,
-      location: null,
+      registered_client: null,
       source: "PLANILHA",
     });
+    expect(preview.matchedRegisteredClients).toBe(0);
     expect(preview.rows[1]).toMatchObject({
       registration: "42",
       admission_date: "2020-02-10",
       dismissal_date: "2024-04-20",
     });
+  });
+
+  it("stores the PDF cost center as Cliente Cadastrado, not as allocation local", async () => {
+    extractPdfTextMock.mockResolvedValueOnce([{
+      page: 1,
+      items: [
+        { str: "752 SRS DESENVOLVIMENTO", x: 10, y: 900 },
+        { str: "22", x: 10, y: 700 },
+        { str: "ADRIANO BERNARDO DA SILVA", x: 80, y: 700 },
+        { str: "GERAL/BRAFER", x: 320, y: 700 },
+      ],
+    }]);
+
+    const preview = await parseEmployeeImportFiles(employeeSheet(), new ArrayBuffer(0));
+    const row = preview.rows.find((item) => item.registration === "22");
+
+    expect(row).toMatchObject({
+      registered_client: "GERAL/BRAFER",
+      source: "PLANILHA",
+    });
+    expect(row).not.toHaveProperty("location");
+    expect(preview.matchedRegisteredClients).toBe(1);
   });
 });

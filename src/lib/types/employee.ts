@@ -18,7 +18,7 @@ export type EmployeeImportRow = Pick<
   | "name"
   | "admission_date"
   | "dismissal_date"
-  | "location"
+  | "registered_client"
 > & {
   source: "PLANILHA" | "PDF";
   warning?: string;
@@ -28,6 +28,7 @@ export type EmployeeFilters = {
   search: string;
   company: string;
   status: string;
+  registeredClient: string;
   location: string;
   shift: string;
   area: string;
