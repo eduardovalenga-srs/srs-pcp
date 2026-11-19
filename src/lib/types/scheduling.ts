@@ -2,9 +2,10 @@
  * Sequenciamento de produção (070).
  *
  * A prioridade é GLOBAL e compartilhada com order_items.seq. O processo
- * selecionado filtra OFs pendentes e fornece a capacidade para o cálculo
- * de carga em dias úteis. As situações do processo e da MP por OF vêm
- * agregadas do banco (078).
+ * selecionado filtra OFs aplicáveis; as já concluídas aparecem com peso
+ * considerado igual a zero. A capacidade é usada no cálculo de carga em
+ * dias úteis. As situações do processo e da MP por OF vêm agregadas do
+ * banco (078).
  */
 
 import type { ProcessStatus } from "@/lib/constants/production";

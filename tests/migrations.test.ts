@@ -294,6 +294,18 @@ describe("migrations", () => {
     await asUser(db, "authenticated", gestorId);
     await expect(
       db.query(
+        `select public.delete_employee_allocation_subtree($1::uuid)`,
+        [clientId],
+      ),
+    ).rejects.toThrow(/desaloque ou transfira/i);
+    await expect(
+      db.query(
+        `select public.delete_employee_allocation_subtree($1::uuid)`,
+        [companyId],
+      ),
+    ).rejects.toThrow(/empresa empregadora fixa/i);
+    await expect(
+      db.query(
         `update public.employee_allocation_nodes set active = false where id = $1`,
         [clientId],
       ),
@@ -306,8 +318,19 @@ describe("migrations", () => {
       `update public.employee_allocation_nodes set active = false where id = $1`,
       [clientId],
     );
+    await db.query(
+      `select public.delete_employee_allocation_subtree($1::uuid)`,
+      [clientId],
+    );
 
     await asSuperUser(db);
+    const { rows: deletedSubtree } = await db.query<{ count: number }>(
+      `select count(*)::int as count
+         from public.employee_allocation_nodes
+        where id = any($1::uuid[])`,
+      [[clientId, locationId, shiftId, areaId, firstPosition, secondPosition]],
+    );
+    expect(deletedSubtree[0]?.count).toBe(0);
     const { rows: synchronized } = await db.query<{ client: string | null }>(
       `select client from public.employees where id = $1`,
       [firstEmployee],

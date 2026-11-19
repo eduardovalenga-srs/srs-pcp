@@ -8,6 +8,7 @@ import {
 import { PROCESS_STATUS_SYMBOLS, WEIGHT_GRANULARITY_LABELS, type ProcessStatus } from "@/lib/constants/production";
 import type { ChildItemGroup, OrderSummary } from "@/lib/types/order";
 import type { RomaneioSummary, RomaneioView } from "@/lib/types/romaneio";
+import type { EmployeeRow } from "@/lib/types/database";
 import type {
   CompletedWeightCell,
   CompletedWeightColumn,
@@ -45,6 +46,41 @@ export interface ExportSheet {
   rows: ExportCell[][];
   /** Índices (0-based) de colunas de data — recebem formato dd/MM/yyyy. */
   dateColumns: number[];
+}
+
+/** Cadastro RH: mesmas colunas de dados exibidas na lista (sem ações). */
+export function employeesSheet(employees: readonly EmployeeRow[]): ExportSheet {
+  return {
+    headers: [
+      "Matrícula",
+      "Nome",
+      "Empresa",
+      "Admissão",
+      "Demissão",
+      "Status",
+      "Local",
+      "Turno",
+      "Área",
+      "Cliente",
+      "Líder",
+      "Encarregado",
+    ],
+    rows: employees.map((employee) => [
+      employee.registration,
+      employee.name,
+      employee.company_name,
+      dateCell(employee.admission_date),
+      dateCell(employee.dismissal_date),
+      employee.status === "ATIVO" ? "Ativo" : "Inativo",
+      text(employee.location),
+      text(employee.shift),
+      text(employee.area),
+      text(employee.client),
+      text(employee.responsible_1),
+      text(employee.responsible_2),
+    ]),
+    dateColumns: [3, 4],
+  };
 }
 
 /**

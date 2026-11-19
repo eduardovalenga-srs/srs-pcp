@@ -6,6 +6,7 @@ import { requireCapability } from "@/lib/auth/guards";
 import {
   assignEmployeeToPosition,
   createEmployeeAllocationNode,
+  deleteEmployeeAllocationSubtree,
   getEmployeeAllocationNodeById,
   setEmployeeAllocationNodeActive,
   updateEmployeeAllocationNodeName,
@@ -17,10 +18,12 @@ import { firstZodMessage } from "@/lib/validators/common";
 import {
   assignEmployeeAllocationSchema,
   createEmployeeAllocationNodeSchema,
+  deleteEmployeeAllocationNodeSchema,
   setEmployeeAllocationActiveSchema,
   updateEmployeeAllocationNodeSchema,
   type AssignEmployeeAllocationInput,
   type CreateEmployeeAllocationNodeInput,
+  type DeleteEmployeeAllocationNodeInput,
   type SetEmployeeAllocationActiveInput,
   type UpdateEmployeeAllocationNodeInput,
 } from "@/lib/validators/employee-allocation.schema";
@@ -110,6 +113,23 @@ export async function setEmployeeAllocationNodeActiveAction(
       success: true,
       message: parsed.data.active ? "Item reativado com sucesso." : "Item inativado com sucesso.",
     };
+  } catch (error) {
+    return { success: false, message: errorMessage(error) };
+  }
+}
+
+export async function deleteEmployeeAllocationNodeAction(
+  input: DeleteEmployeeAllocationNodeInput,
+): Promise<EmployeeAllocationActionResult> {
+  try {
+    await requireCapability("rh.allocation.manage");
+    const parsed = deleteEmployeeAllocationNodeSchema.safeParse(input);
+    if (!parsed.success) return { success: false, message: firstZodMessage(parsed.error) };
+
+    const client = await createClient();
+    await deleteEmployeeAllocationSubtree(client, parsed.data.id);
+    revalidateAllocationViews();
+    return { success: true, message: "Item e estrutura abaixo excluídos com sucesso." };
   } catch (error) {
     return { success: false, message: errorMessage(error) };
   }

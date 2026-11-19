@@ -212,7 +212,7 @@ export function ProcessScheduling({
         <ListScroll>
           <p className="px-4 py-8 text-center text-sm text-muted-foreground">
             {processId
-              ? "Nenhuma OF pendente para este processo. Ajuste o filtro de família ou confira as etapas cadastradas nas OFs."
+              ? "Nenhuma OF com este processo aplicável. Ajuste o filtro de família ou confira as etapas cadastradas nas OFs."
               : "Nenhuma OF ativa para exibir."}
           </p>
         </ListScroll>
@@ -221,7 +221,7 @@ export function ProcessScheduling({
           <table className="w-full min-w-max border-separate border-spacing-0 text-sm">
             <caption className="sr-only">
               {processId
-                ? "Sequenciamento global das OFs pendentes para o processo selecionado"
+                ? "Sequenciamento global das OFs aplicáveis ao processo selecionado"
                 : "Sequência global das OFs"}
             </caption>
             <thead className="sticky top-0 z-20">
@@ -270,7 +270,14 @@ export function ProcessScheduling({
                   <td className="border-b px-2 py-1.5 text-right tabular-nums">
                     {formatQuantity(row.quantity)}
                   </td>
-                  <td className="border-b px-2 py-1.5 text-right tabular-nums">
+                  <td
+                    className="border-b px-2 py-1.5 text-right tabular-nums"
+                    title={
+                      row.processStatus === "CONCLUIDO"
+                        ? "Processo concluído; peso considerado zero nesta fila."
+                        : undefined
+                    }
+                  >
                     {formatWeight(row.weightKg)}
                   </td>
                   <td className="border-b px-2 py-1.5 tabular-nums">{formatDate(row.deliveryDate)}</td>

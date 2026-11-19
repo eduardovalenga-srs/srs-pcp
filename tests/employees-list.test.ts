@@ -7,6 +7,12 @@ import {
   filterEmployees,
   type EmployeeListFilters,
 } from "@/components/rh/EmployeesList";
+import { employeesSheet } from "@/lib/export/columns";
+import {
+  DEFAULT_EMPLOYEE_FILTERS,
+  parseEmployeeListFilters,
+  sortEmployees,
+} from "@/lib/utils/employee-list";
 import type { EmployeeRow } from "@/lib/types/database";
 
 function html(node: ReactElement): string {
@@ -121,15 +127,65 @@ describe("filterEmployees", () => {
   });
 });
 
+describe("sortEmployees", () => {
+  it("ordena colunas nos dois sentidos e mantém valores vazios no fim", () => {
+    expect(
+      sortEmployees(employees, { key: "registration", direction: "asc" }),
+    ).toEqual([employees[0], second]);
+    expect(
+      sortEmployees(employees, { key: "registration", direction: "desc" }),
+    ).toEqual([second, employees[0]]);
+    expect(
+      sortEmployees(employees, { key: "dismissal_date", direction: "desc" }),
+    ).toEqual([second, employees[0]]);
+  });
+});
+
+describe("parseEmployeeListFilters", () => {
+  it("usa somente ativos como status padrão e aceita o recorte de todos", () => {
+    expect(parseEmployeeListFilters({})).toEqual(DEFAULT_EMPLOYEE_FILTERS);
+    expect(parseEmployeeListFilters({ status: "ALL" }).status).toBe("ALL");
+    expect(parseEmployeeListFilters({ status: "invalid" }).status).toBe("ATIVO");
+  });
+});
+
+describe("employeesSheet", () => {
+  it("monta a planilha com todas as colunas de dados e datas tipadas", () => {
+    const sheet = employeesSheet(employees);
+
+    expect(sheet.headers).toEqual([
+      "Matrícula",
+      "Nome",
+      "Empresa",
+      "Admissão",
+      "Demissão",
+      "Status",
+      "Local",
+      "Turno",
+      "Área",
+      "Cliente",
+      "Líder",
+      "Encarregado",
+    ]);
+    expect(sheet.rows[0]?.[5]).toBe("Ativo");
+    expect(sheet.rows[0]?.[3]).toBeInstanceOf(Date);
+    expect(sheet.rows[0]?.[4]).toBe("—");
+    expect(sheet.dateColumns).toEqual([3, 4]);
+  });
+});
+
 describe("EmployeesList", () => {
-  it("mostra filtros nas colunas e apenas o total respeitando os filtros", () => {
+  it("inicia mostrando ativos, disponibiliza ordenação e exporta para Excel", () => {
     const markup = html(createElement(EmployeesList, { employees, canManage: false }));
 
     expect(markup).toContain("Lid.");
     expect(markup).toContain("Enc.");
     expect(markup).toContain("Líder");
     expect(markup).toContain("Encarregado");
-    expect(markup).toContain("2 funcionário(s)");
-    expect(markup).not.toContain("de 2 funcionário(s)");
+    expect(markup).toContain("1 funcionário(s)");
+    expect(markup).not.toContain("JOAREZ DE OLIVEIRA");
+    expect(markup).toContain("Exportar Excel");
+    expect(markup).toContain("Ordenar por Matrícula");
+    expect(markup).toContain('aria-sort="ascending"');
   });
 });

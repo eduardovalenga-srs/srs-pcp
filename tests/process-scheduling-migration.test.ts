@@ -329,7 +329,7 @@ describe("migration 078 — situação do processo e da MP por OF", () => {
     }>(`select order_code, process_status from public.get_process_scheduling($1, null)`, [
       processId,
     ]);
-    // O filtro só devolve OFs com a etapa pendente: nunca CONCLUIDO aqui.
+    // Neste cenário, todas as OFs retornadas ainda têm a etapa pendente.
     expect(filtered).toHaveLength(3);
     expect(filtered.every((row) => row.process_status === "NAO_INICIADO")).toBe(true);
 
@@ -337,6 +337,48 @@ describe("migration 078 — situação do processo e da MP por OF", () => {
       `select process_status from public.get_process_scheduling(null, null)`,
     );
     expect(global.every((row) => row.process_status === null)).toBe(true);
+  });
+
+  it("inclui OF com processo concluído e retorna peso zero", async () => {
+    await asSuperUser(db);
+    await db.query(
+      `update public.production_processes pp
+          set status = 'CONCLUIDO'
+         from public.order_items oi
+        where oi.id = pp.order_item_id
+          and oi.order_id = $1
+          and pp.process_id = $2`,
+      [activeOrderId, processId],
+    );
+
+    await asUser(db, "authenticated", adminId);
+    const { rows } = await db.query<{
+      order_code: string;
+      weight_kg: string;
+      process_status: string;
+    }>(
+      `select order_code, weight_kg, process_status
+         from public.get_process_scheduling($1, null)`,
+      [processId],
+    );
+
+    const completed = rows.find((row) => row.order_code === "OF-SEQ-1");
+    expect(completed).toMatchObject({
+      weight_kg: "0",
+      process_status: "CONCLUIDO",
+    });
+    expect(rows.find((row) => row.order_code === "OF-SEQ-2")?.weight_kg).toBe("120");
+
+    await asSuperUser(db);
+    await db.query(
+      `update public.production_processes pp
+          set status = 'NAO_INICIADO'
+         from public.order_items oi
+        where oi.id = pp.order_item_id
+          and oi.order_id = $1
+          and pp.process_id = $2`,
+      [activeOrderId, processId],
+    );
   });
 });
 

@@ -123,6 +123,25 @@ describe("computeScheduleRows — carga e datas em dias úteis", () => {
     expect(rows[1]?.startDate).toBe("2026-10-05");
   });
 
+  it("OF com processo concluído e peso zero não gera alerta nem desloca a fila", () => {
+    const rows = computeScheduleRows(
+      [
+        makeRow({ orderCode: "OF concluída", weightKg: 0, capacityKg: null }),
+        makeRow({ orderCode: "OF pendente", weightKg: 500, capacityKg: 500 }),
+      ],
+      ANCHOR,
+    );
+
+    expect(rows[0]).toMatchObject({
+      loadDays: 0,
+      startDate: null,
+      endDate: null,
+      issue: null,
+    });
+    expect(rows[1]?.startDate).toBe(ANCHOR);
+    expect(rows[1]?.endDate).toBe(ANCHOR);
+  });
+
   it("OF sem família é sinalizada, mesmo com peso e capacidade", () => {
     const rows = computeScheduleRows(
       [

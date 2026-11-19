@@ -17,6 +17,32 @@ export async function getEmployees(client: SupabaseServer): Promise<EmployeeRow[
   return (data ?? []) as unknown as EmployeeRow[];
 }
 
+/** Carrega todas as páginas para exportação, sem o limite da lista na tela. */
+export async function getAllEmployees(client: SupabaseServer): Promise<EmployeeRow[]> {
+  const pageSize = 1000;
+  const employees: EmployeeRow[] = [];
+  let from = 0;
+  let total = 0;
+
+  do {
+    const { data, error, count } = await client
+      .from("employees")
+      .select(EMPLOYEE_COLUMNS, { count: "exact" })
+      .order("name", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    assertOk(error, "Não foi possível carregar os funcionários");
+    const page = (data ?? []) as unknown as EmployeeRow[];
+    employees.push(...page);
+    total = count ?? employees.length;
+    from += page.length;
+
+    if (page.length === 0) break;
+  } while (from < total);
+
+  return employees;
+}
+
 export async function getEmployeeById(
   client: SupabaseServer,
   id: string,

@@ -22,6 +22,10 @@ export function computeScheduleRows(
       return { ...row, loadDays: null, startDate: null, endDate: null, issue: "Data de início inválida" };
     }
 
+    if (row.weightKg === 0) {
+      return { ...row, loadDays: 0, startDate: null, endDate: null, issue: null };
+    }
+
     if (row.weightKg === null || row.weightKg <= 0) {
       return { ...row, loadDays: null, startDate: null, endDate: null, issue: "OF sem peso calculado" };
     }

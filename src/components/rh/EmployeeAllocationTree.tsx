@@ -11,6 +11,7 @@ import {
   Minus,
   Pencil,
   Plus,
+  Trash2,
   UserRoundPlus,
   UserRoundX,
 } from "lucide-react";
@@ -20,6 +21,7 @@ import {
   assignEmployeeToPositionAction,
   createEmployeeAllocationNodeAction,
   setEmployeeAllocationNodeActiveAction,
+  deleteEmployeeAllocationNodeAction,
   updateEmployeeAllocationNodeAction,
 } from "@/lib/actions/employee-allocation.actions";
 import { Button } from "@/components/ui/button";
@@ -190,6 +192,41 @@ export function EmployeeAllocationTree({
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível alterar o status.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function deleteNode(node: EmployeeAllocationNode) {
+    if (pending || node.node_type === "COMPANY") return;
+    const countDescendants = (nodeId: string): number =>
+      (childrenByParent.get(nodeId) ?? []).reduce(
+        (count, child) => count + 1 + countDescendants(child.id),
+        0,
+      );
+    const descendants = countDescendants(node.id);
+    const impact = descendants > 0
+      ? ` A exclusão também removerá permanentemente ${descendants} item(ns) abaixo deste nível.`
+      : "";
+    if (
+      !window.confirm(
+        `Excluir "${node.name}" permanentemente? Funcionários alocados impedem a exclusão.${impact}`,
+      )
+    ) {
+      return;
+    }
+
+    setPending(true);
+    try {
+      const result = await deleteEmployeeAllocationNodeAction({ id: node.id });
+      if (!result.success) {
+        toast.error(result.message);
+        return;
+      }
+      toast.success(result.message);
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível excluir o item.");
     } finally {
       setPending(false);
     }
@@ -366,6 +403,18 @@ export function EmployeeAllocationTree({
               >
                 {node.active ? <Minus className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
                 <span className="hidden sm:inline">{node.active ? "Inativar" : "Reativar"}</span>
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 text-destructive hover:text-destructive"
+                onClick={() => void deleteNode(node)}
+                disabled={pending}
+                aria-label={`Excluir ${node.name}`}
+                title="Excluir este nível e toda a estrutura abaixo"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
               </Button>
             </>
           ) : null}

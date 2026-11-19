@@ -82,6 +82,16 @@ export async function setEmployeeAllocationNodeActive(
   assertOk(error, "Não foi possível atualizar o status do item");
 }
 
+export async function deleteEmployeeAllocationSubtree(
+  client: SupabaseServer,
+  id: string,
+): Promise<void> {
+  const { error } = await client.rpc("delete_employee_allocation_subtree", {
+    p_node_id: id,
+  });
+  assertOk(error, "Não foi possível excluir o item da árvore");
+}
+
 export async function assignEmployeeToPosition(
   client: SupabaseServer,
   employeeId: string,

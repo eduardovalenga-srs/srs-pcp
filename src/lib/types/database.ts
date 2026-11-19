@@ -197,7 +197,7 @@ export type ProcessScheduleSettingsRow = {
   updated_at: string;
 };
 
-/** Linha retornada pela RPC get_process_scheduling (070/077/078). */
+/** Linha retornada pela RPC get_process_scheduling (070/077/078/087). */
 export type ProcessSchedulingRowRecord = {
   order_id: string;
   order_code: string;
@@ -1286,6 +1286,10 @@ export type Database = {
         Args: { p_employee_id: string; p_position_id: string | null };
         Returns: undefined;
       };
+      delete_employee_allocation_subtree: {
+        Args: { p_node_id: string };
+        Returns: undefined;
+      };
       import_employees: {
         Args: { p_rows: Json };
         Returns: number;
@@ -1500,7 +1504,7 @@ export type Database = {
         Returns: undefined;
       };
       get_process_scheduling: {
-        // OFs pendentes de um processo (ou todas quando null), com sequência global (077)
+        // OFs aplicáveis ao processo (concluídas com peso zero), ou todas quando null (087)
         Args: {
           p_process_id: string | null;
           p_family_group_id?: number | null;

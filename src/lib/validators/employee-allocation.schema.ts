@@ -15,6 +15,10 @@ export const setEmployeeAllocationActiveSchema = z.object({
   active: z.boolean(),
 });
 
+export const deleteEmployeeAllocationNodeSchema = z.object({
+  id: z.string().uuid("Item inválido"),
+});
+
 export const assignEmployeeAllocationSchema = z.object({
   employeeId: z.string().uuid("Funcionário inválido"),
   positionId: z.string().uuid("Posição inválida").nullable(),
@@ -28,5 +32,8 @@ export type UpdateEmployeeAllocationNodeInput = z.input<
 >;
 export type SetEmployeeAllocationActiveInput = z.input<
   typeof setEmployeeAllocationActiveSchema
+>;
+export type DeleteEmployeeAllocationNodeInput = z.input<
+  typeof deleteEmployeeAllocationNodeSchema
 >;
 export type AssignEmployeeAllocationInput = z.input<typeof assignEmployeeAllocationSchema>;
