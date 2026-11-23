@@ -66,7 +66,7 @@ export function EmployeeAllocationTree({
   canManage: boolean;
 }) {
   const router = useRouter();
-  const [expanded, setExpanded] = useState(() => new Set(nodes.map((node) => node.id)));
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [dialog, setDialog] = useState<TreeDialog | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [pending, setPending] = useState(false);

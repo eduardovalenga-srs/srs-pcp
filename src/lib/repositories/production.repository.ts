@@ -584,32 +584,95 @@ export async function updateProductionProcess(
   assertOk(error, "Não foi possível salvar o processo");
 }
 
+/**
+ * Lotes de escrita: o filtro `id=in.(…)` viaja na URL do PostgREST e o
+ * proxy corta URLs muito longas. 100 UUIDs (~3,7 KB) é seguro e mantém a
+ * edição em lote de uma OF inteira em poucas requisições.
+ */
+const PROCESS_WRITE_CHUNK_SIZE = 100;
+
+/** Lote do INSERT de histórico (payload JSON, não URL). */
+const EVENT_INSERT_CHUNK_SIZE = 500;
+
+/**
+ * Atualiza a situação de VÁRIOS processos de uma vez (092 — cascata em
+ * lote). Todos recebem o mesmo status; `started_at`/`completed_at` seguem a
+ * mesma semântica de `updateProductionProcess`.
+ *
+ * A edição em lote sempre termina em um único status (CONCLUIDO no forward,
+ * NAO_INICIADO no backward ou o status escolhido pelo usuário), então um
+ * UPDATE por lote substitui N chamadas individuais.
+ */
+export async function updateProductionProcessesStatus(
+  client: SupabaseServer,
+  productionProcessIds: readonly string[],
+  status: ProcessStatus,
+): Promise<void> {
+  const ids = [...new Set(productionProcessIds)];
+  if (ids.length === 0) return;
+
+  const now = new Date().toISOString();
+  const startedAt = status === "NAO_INICIADO" || status === "NAO_APLICAVEL" ? null : now;
+  const completedAt = status === "CONCLUIDO" ? now : null;
+
+  for (let index = 0; index < ids.length; index += PROCESS_WRITE_CHUNK_SIZE) {
+    const chunk = ids.slice(index, index + PROCESS_WRITE_CHUNK_SIZE);
+    const { error } = await client
+      .from("production_processes")
+      .update({
+        status,
+        started_at: startedAt,
+        completed_at: completedAt,
+      })
+      .in("id", chunk);
+
+    assertOk(error, "Não foi possível salvar os processos");
+  }
+}
+
+export interface ProductionEventInput {
+  productionProcessId: string;
+  userId: string;
+  eventType: string;
+  oldStatus: ProcessStatus | null;
+  newStatus: ProcessStatus | null;
+  oldQuantity: number | null;
+  newQuantity: number | null;
+  notes: string | null;
+}
+
+/** Registra VÁRIAS alterações no histórico em um INSERT por lote (092). */
+export async function insertProductionEvents(
+  client: SupabaseServer,
+  events: readonly ProductionEventInput[],
+): Promise<void> {
+  if (events.length === 0) return;
+
+  for (let index = 0; index < events.length; index += EVENT_INSERT_CHUNK_SIZE) {
+    const chunk = events.slice(index, index + EVENT_INSERT_CHUNK_SIZE);
+    const { error } = await client.from("production_events").insert(
+      chunk.map((event) => ({
+        production_process_id: event.productionProcessId,
+        user_id: event.userId,
+        event_type: event.eventType,
+        old_status: event.oldStatus,
+        new_status: event.newStatus,
+        old_quantity: event.oldQuantity,
+        new_quantity: event.newQuantity,
+        notes: event.notes,
+      })),
+    );
+
+    assertOk(error, "Não foi possível registrar o histórico");
+  }
+}
+
 /** Registra uma alteração relevante no histórico (quem, quando, o que). */
 export async function insertProductionEvent(
   client: SupabaseServer,
-  event: {
-    productionProcessId: string;
-    userId: string;
-    eventType: string;
-    oldStatus: ProcessStatus | null;
-    newStatus: ProcessStatus | null;
-    oldQuantity: number | null;
-    newQuantity: number | null;
-    notes: string | null;
-  },
+  event: ProductionEventInput,
 ): Promise<void> {
-  const { error } = await client.from("production_events").insert({
-    production_process_id: event.productionProcessId,
-    user_id: event.userId,
-    event_type: event.eventType,
-    old_status: event.oldStatus,
-    new_status: event.newStatus,
-    old_quantity: event.oldQuantity,
-    new_quantity: event.newQuantity,
-    notes: event.notes,
-  });
-
-  assertOk(error, "Não foi possível registrar o histórico");
+  await insertProductionEvents(client, [event]);
 }
 
 /** Histórico de alterações de um item. */

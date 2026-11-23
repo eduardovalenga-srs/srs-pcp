@@ -1584,6 +1584,12 @@ export type Database = {
         Args: { p_item_id: string; p_item_status: string };
         Returns: undefined;
       };
+      refresh_order_statuses_bulk: {
+        // 092: grava o status derivado de VÁRIOS itens e re-deriva cada OF
+        // afetada uma única vez (lote de processos)
+        Args: { p_items: Json };
+        Returns: undefined;
+      };
       apply_import: {
         Args: { p_plan: Json };
         Returns: { created: number; updated: number; skipped: number; ordersCreated: number };

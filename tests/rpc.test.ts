@@ -978,6 +978,140 @@ describe("refresh_order_statuses (013)", () => {
   });
 });
 
+describe("refresh_order_statuses_bulk (092 — lote de processos)", () => {
+  /** Cria uma OF com N itens simples e devolve os ids. */
+  async function createOrderWithItems(
+    code: string,
+    count: number,
+  ): Promise<{ orderId: string; itemIds: string[] }> {
+    const { rows: orderRows } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type) values ($1, 'OF') returning id`,
+      [code],
+    );
+    const orderId = orderRows[0]?.id as string;
+    const itemIds: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.order_items (order_id, description, quantity, status)
+         values ($1, $2, 1, 'EM_PRODUCAO') returning id`,
+        [orderId, `Item ${code} ${index + 1}`],
+      );
+      itemIds.push(rows[0]?.id as string);
+    }
+    return { orderId, itemIds };
+  }
+
+  async function itemStatuses(itemIds: string[]): Promise<string[]> {
+    const { rows } = await db.query<{ status: string }>(
+      `select status from public.order_items where id = any ($1::uuid[]) order by id`,
+      [itemIds],
+    );
+    return rows.map((row) => row.status);
+  }
+
+  async function orderStatus(orderId: string): Promise<string> {
+    const { rows } = await db.query<{ status: string }>(
+      `select status from public.orders where id = $1`,
+      [orderId],
+    );
+    return rows[0]?.status as string;
+  }
+
+  it("grava vários itens em uma chamada e re-deriva cada OF uma única vez", async () => {
+    await asSuperUser(db);
+    const first = await createOrderWithItems("OF-092-A", 2);
+    const second = await createOrderWithItems("OF-092-B", 1);
+    const operadorId = await createUser(db, "op.bulk@serralheria.com", "OPERADOR_F1");
+
+    await asUser(db, "authenticated", operadorId);
+    await db.query("select public.refresh_order_statuses_bulk($1::jsonb)", [
+      JSON.stringify([
+        { item_id: first.itemIds[0], status: "CONCLUIDO" },
+        { item_id: first.itemIds[1], status: "CONCLUIDO" },
+        { item_id: second.itemIds[0], status: "CONCLUIDO" },
+      ]),
+    ]);
+
+    expect(await itemStatuses(first.itemIds)).toEqual(["CONCLUIDO", "CONCLUIDO"]);
+    expect(await itemStatuses(second.itemIds)).toEqual(["CONCLUIDO"]);
+    // Todos os itens concluídos: cada OF fecha uma única vez.
+    expect(await orderStatus(first.orderId)).toBe("CONCLUIDO");
+    expect(await orderStatus(second.orderId)).toBe("CONCLUIDO");
+
+    await asSuperUser(db);
+  });
+
+  it("mantém a OF em produção enquanto algum item não concluiu", async () => {
+    await asSuperUser(db);
+    const order = await createOrderWithItems("OF-092-C", 3);
+    const operadorId = (await db.query<{ id: string }>(
+      `select id from public.profiles where email = 'op.bulk@serralheria.com'`,
+    )).rows[0]?.id as string;
+
+    await asUser(db, "authenticated", operadorId);
+    await db.query("select public.refresh_order_statuses_bulk($1::jsonb)", [
+      JSON.stringify([
+        { item_id: order.itemIds[0], status: "CONCLUIDO" },
+        { item_id: order.itemIds[1], status: "CONCLUIDO" },
+      ]),
+    ]);
+
+    expect(await orderStatus(order.orderId)).toBe("EM_PRODUCAO");
+
+    await asSuperUser(db);
+  });
+
+  it("nunca sobrescreve uma OF cancelada", async () => {
+    await asSuperUser(db);
+    const order = await createOrderWithItems("OF-092-D", 1);
+    await db.query(`update public.orders set status = 'CANCELADO' where id = $1`, [
+      order.orderId,
+    ]);
+    const operadorId = (await db.query<{ id: string }>(
+      `select id from public.profiles where email = 'op.bulk@serralheria.com'`,
+    )).rows[0]?.id as string;
+
+    await asUser(db, "authenticated", operadorId);
+    await db.query("select public.refresh_order_statuses_bulk($1::jsonb)", [
+      JSON.stringify([{ item_id: order.itemIds[0], status: "CONCLUIDO" }]),
+    ]);
+
+    expect(await itemStatuses(order.itemIds)).toEqual(["CONCLUIDO"]); // item muda…
+    expect(await orderStatus(order.orderId)).toBe("CANCELADO"); // …OF não
+
+    await asSuperUser(db);
+  });
+
+  it("barra quem não tem permissão, status inválido e item inexistente", async () => {
+    await asSuperUser(db);
+    const order = await createOrderWithItems("OF-092-E", 1);
+    const visualizadorId = await createUser(db, "viz.bulk@serralheria.com", "VISUALIZADOR");
+    const payload = JSON.stringify([{ item_id: order.itemIds[0], status: "CONCLUIDO" }]);
+
+    await asUser(db, "authenticated", visualizadorId);
+    await expect(
+      db.query("select public.refresh_order_statuses_bulk($1::jsonb)", [payload]),
+    ).rejects.toThrow(/Sem permissão/);
+
+    const operadorId = (await db.query<{ id: string }>(
+      `select id from public.profiles where email = 'op.bulk@serralheria.com'`,
+    )).rows[0]?.id as string;
+    await asUser(db, "authenticated", operadorId);
+    await expect(
+      db.query("select public.refresh_order_statuses_bulk($1::jsonb)", [
+        JSON.stringify([{ item_id: order.itemIds[0], status: "QUALQUER" }]),
+      ]),
+    ).rejects.toThrow(/Status de item inválido/);
+    await expect(
+      db.query("select public.refresh_order_statuses_bulk($1::jsonb)", [
+        JSON.stringify([{ item_id: "00000000-0000-0000-0000-000000000001", status: "CONCLUIDO" }]),
+      ]),
+    ).rejects.toThrow(/não encontrado/);
+
+    await asSuperUser(db);
+  });
+});
+
 describe("apply_of_import (016)", () => {
   async function callApplyOfPlan(plan: unknown): Promise<Record<string, number>> {
     const { rows } = await db.query<{ result: Record<string, number> }>(

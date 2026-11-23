@@ -285,16 +285,20 @@ function itemTimeline<
 }
 
 /**
- * Predecessores a concluir quando `afterCode` vira CONCLUIDO (cascata para
- * frente): os que vêm antes dele na linha do tempo e estão NAO_INICIADO.
- * Já concluídos e não aplicáveis não são tocados; alvo fora da linha do
- * tempo não dispara nada.
+ * Predecessores a concluir quando o processo `targetId` vira CONCLUIDO
+ * (cascata para frente): os que vêm antes dele na linha do tempo e estão
+ * NAO_INICIADO.
+ *
+ * O alvo é localizado pelo ID da linha de processo (não pelo código): a
+ * lista pode ser a cadeia CONJUNTA de um item RAIZ e seus FILHOS (090), em
+ * que cada fábrica guarda a sua parte da timeline. Já concluídos e não
+ * aplicáveis não são tocados; alvo fora da linha do tempo não dispara nada.
  */
 export function predecessorsToComplete<
-  T extends { code: string; displayOrder: number; status: ProcessStatus },
->(processes: readonly T[], afterCode: string): T[] {
+  T extends { id: string; code: string; displayOrder: number; status: ProcessStatus },
+>(processes: readonly T[], targetId: string): T[] {
   const timeline = itemTimeline(processes);
-  const index = timeline.findIndex((process) => process.code === afterCode);
+  const index = timeline.findIndex((process) => process.id === targetId);
   if (index < 0) return [];
   return timeline.slice(0, index).filter((process) => process.status === "NAO_INICIADO");
 }

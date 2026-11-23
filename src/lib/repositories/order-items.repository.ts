@@ -190,6 +190,27 @@ export async function refreshOrderStatuses(
 }
 
 /**
+ * Grava o status derivado de VÁRIOS itens em uma única RPC (092) e re-deriva
+ * cada OF afetada uma única vez. É o caminho da edição em lote: uma chamada
+ * por operação, não uma por item.
+ */
+export async function refreshOrderStatusesBulk(
+  client: SupabaseServer,
+  updates: readonly { itemId: string; status: OrderStatus }[],
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  const { error } = await client.rpc("refresh_order_statuses_bulk", {
+    p_items: updates.map((update) => ({
+      item_id: update.itemId,
+      status: update.status,
+    })),
+  });
+
+  assertOk(error, "Não foi possível atualizar o status do item");
+}
+
+/**
  * Atualiza a data de entrega de um item (edição manual na gestão de
  * entregas). As previsões dos processos são derivadas desta data em toda
  * leitura — nada de janela é gravado; a troca recalcula tudo sozinha.
@@ -215,26 +236,198 @@ export async function updateItemDeliveryDate(
 }
 
 /** Status do item, OP e status de cada processo (para derivar o status agregado). */
+export interface ItemAggregate {
+  status: OrderStatus;
+  op: string | null;
+  processStatuses: ProcessStatus[];
+}
+
+/**
+ * Status agregado de VÁRIOS itens em uma consulta (092 — lote de processos).
+ * Evita uma ida ao banco por item depois da cascata.
+ */
+export async function getItemAggregates(
+  client: SupabaseServer,
+  orderItemIds: readonly string[],
+): Promise<Map<string, ItemAggregate>> {
+  const ids = [...new Set(orderItemIds)];
+  const result = new Map<string, ItemAggregate>();
+  if (ids.length === 0) return result;
+
+  type Raw = {
+    id: string;
+    status: OrderStatus;
+    op: string | null;
+    production_processes: { status: ProcessStatus }[] | null;
+  };
+
+  for (const chunk of chunkIds(ids)) {
+    const { data, error } = await client
+      .from("order_items")
+      .select("id, status, op, production_processes(status)")
+      .in("id", chunk);
+
+    assertOk(error, "Não foi possível carregar os processos do item");
+    for (const row of (data ?? []) as unknown as Raw[]) {
+      result.set(row.id, {
+        status: row.status,
+        op: row.op ?? null,
+        processStatuses: (row.production_processes ?? []).map((process) => process.status),
+      });
+    }
+  }
+
+  return result;
+}
+
+/** Status do item, OP e status de cada processo (para derivar o status agregado). */
 export async function getItemAggregate(
   client: SupabaseServer,
   orderItemId: string,
-): Promise<{ status: OrderStatus; op: string | null; processStatuses: ProcessStatus[] } | null> {
-  const { data, error } = await client
-    .from("order_items")
-    .select("status, op, production_processes(status)")
-    .eq("id", orderItemId)
-    .maybeSingle();
+): Promise<ItemAggregate | null> {
+  const aggregates = await getItemAggregates(client, [orderItemId]);
+  return aggregates.get(orderItemId) ?? null;
+}
 
-  assertOk(error, "Não foi possível carregar os processos do item");
-  if (!data) return null;
+/**
+ * Linha da cadeia de processos de um item — entrada da cascata da linha do
+ * tempo. `orderItemId` diz de onde veio a linha: na cadeia CONJUNTA
+ * (raiz + filhos) cada processo é gravado no item de origem.
+ */
+export interface ItemProcessChainEntry {
+  id: string;
+  orderItemId: string;
+  status: ProcessStatus;
+  code: string;
+  displayOrder: number;
+  quantityPlanned: number | null;
+  quantityCompleted: number | null;
+  notes: string | null;
+}
 
-  return {
-    status: data.status as OrderStatus,
-    op: (data.op as string | null) ?? null,
-    processStatuses: (data.production_processes ?? []).map(
-      (process) => process.status as ProcessStatus,
-    ),
-  };
+/** Select da cadeia — o mesmo nas duas leituras (item e item + filhos). */
+const ITEM_PROCESS_CHAIN_COLUMNS =
+  "production_processes ( id, status, quantity_planned, quantity_completed, notes, processes ( code, display_order ) )";
+
+type RawItemProcessChain = {
+  production_processes: {
+    id: string;
+    status: ProcessStatus;
+    quantity_planned: number | string | null;
+    quantity_completed: number | string | null;
+    notes: string | null;
+    processes: { code: string; display_order: number };
+  }[];
+};
+
+/** Achata o embed de processos de um item, rotulando a origem de cada linha. */
+function mapItemProcessChain(
+  row: RawItemProcessChain,
+  orderItemId: string,
+): ItemProcessChainEntry[] {
+  return (row.production_processes ?? []).map((process) => ({
+    id: process.id,
+    orderItemId,
+    status: process.status,
+    code: process.processes.code,
+    displayOrder: process.processes.display_order,
+    quantityPlanned: toNumber(process.quantity_planned),
+    quantityCompleted: toNumber(process.quantity_completed),
+    notes: process.notes,
+  }));
+}
+
+type RawItemRow = { id: string; parent_order_item_id: string | null };
+
+/**
+ * Cadeia de VÁRIOS itens em 3 consultas no total (092 — lote de processos):
+ *
+ *  1. origem de cada item pedido (raiz ou filho);
+ *  2. filhos dos itens RAIZ, quando `includeChildren` (cadeia conjunta);
+ *  3. processos de todos os itens envolvidos.
+ *
+ * Retorna um mapa `itemId pedido -> cadeia`. Para um item RAIZ, a cadeia
+ * inclui os filhos (a Fábrica 1 e o KIT moram neles); para um item FILHO,
+ * inclui só a própria cadeia — o pai nunca entra.
+ */
+export async function getItemProcessChains(
+  client: SupabaseServer,
+  orderItemIds: readonly string[],
+  options: { includeChildren: boolean },
+): Promise<Map<string, ItemProcessChainEntry[]>> {
+  const requested = [...new Set(orderItemIds)];
+  const result = new Map<string, ItemProcessChainEntry[]>();
+  if (requested.length === 0) return result;
+
+  // 1) Itens pedidos: sabemos quais são raízes e quais são filhos.
+  const items: RawItemRow[] = [];
+  for (const chunk of chunkIds(requested)) {
+    const { data, error } = await client
+      .from("order_items")
+      .select("id, parent_order_item_id")
+      .in("id", chunk);
+
+    assertOk(error, "Não foi possível carregar o item");
+    items.push(...((data ?? []) as RawItemRow[]));
+  }
+
+  const rootIds = items
+    .filter((item) => item.parent_order_item_id === null)
+    .map((item) => item.id);
+
+  // 2) Filhos dos itens RAIZ pedidos (cadeia conjunta raiz + filhos).
+  const childrenByParent = new Map<string, string[]>();
+  if (options.includeChildren && rootIds.length > 0) {
+    for (const chunk of chunkIds(rootIds)) {
+      const { data, error } = await client
+        .from("order_items")
+        .select("id, parent_order_item_id")
+        .in("parent_order_item_id", chunk);
+
+      assertOk(error, "Não foi possível carregar os itens filhos");
+      for (const child of (data ?? []) as RawItemRow[]) {
+        if (child.parent_order_item_id === null) continue;
+        const list = childrenByParent.get(child.parent_order_item_id) ?? [];
+        list.push(child.id);
+        childrenByParent.set(child.parent_order_item_id, list);
+      }
+    }
+  }
+
+  // 3) Cadeia de todos os itens envolvidos (pedidos + filhos).
+  const allIds = new Set(requested);
+  if (options.includeChildren) {
+    for (const childIds of childrenByParent.values()) {
+      for (const childId of childIds) allIds.add(childId);
+    }
+  }
+
+  const entriesById = new Map<string, ItemProcessChainEntry[]>();
+  for (const chunk of chunkIds([...allIds])) {
+    const { data, error } = await client
+      .from("order_items")
+      .select(`id, ${ITEM_PROCESS_CHAIN_COLUMNS}`)
+      .in("id", chunk);
+
+    assertOk(error, "Não foi possível carregar os processos do item");
+
+    type RawWithId = RawItemProcessChain & { id: string };
+    for (const row of (data ?? []) as unknown as RawWithId[]) {
+      entriesById.set(row.id, mapItemProcessChain(row, row.id));
+    }
+  }
+
+  for (const itemId of requested) {
+    const chain = [...(entriesById.get(itemId) ?? [])];
+    if (options.includeChildren) {
+      for (const childId of childrenByParent.get(itemId) ?? []) {
+        chain.push(...(entriesById.get(childId) ?? []));
+      }
+    }
+    result.set(itemId, chain);
+  }
+
+  return result;
 }
 
 /**
@@ -244,49 +437,27 @@ export async function getItemAggregate(
 export async function getItemProcessChain(
   client: SupabaseServer,
   orderItemId: string,
-): Promise<
-  {
-    id: string;
-    status: ProcessStatus;
-    code: string;
-    displayOrder: number;
-    quantityPlanned: number | null;
-    quantityCompleted: number | null;
-    notes: string | null;
-  }[]
-> {
-  const { data, error } = await client
-    .from("order_items")
-    .select(
-      "production_processes ( id, status, quantity_planned, quantity_completed, notes, processes ( code, display_order ) )",
-    )
-    .eq("id", orderItemId)
-    .maybeSingle();
+): Promise<ItemProcessChainEntry[]> {
+  const chains = await getItemProcessChains(client, [orderItemId], { includeChildren: false });
+  return chains.get(orderItemId) ?? [];
+}
 
-  assertOk(error, "Não foi possível carregar os processos do item");
-  if (!data) return [];
-
-  type Raw = {
-    production_processes: {
-      id: string;
-      status: ProcessStatus;
-      quantity_planned: number | string | null;
-      quantity_completed: number | string | null;
-      notes: string | null;
-      processes: { code: string; display_order: number };
-    }[];
-  };
-
-  const row = data as unknown as Raw;
-  return (row.production_processes ?? []).map((process) => ({
-    id: process.id,
-    status: process.status,
-    code: process.processes.code,
-    displayOrder: process.processes.display_order,
-    quantityPlanned: toNumber(process.quantity_planned),
-    quantityCompleted: toNumber(process.quantity_completed),
-    notes: process.notes,
-  }));
+/**
+ * Cadeia para a cascata de CONCLUSÃO atravessando as fábricas: os processos
+ * do item e, quando ele é RAIZ, os dos seus itens FILHOS.
+ *
+ * A cadeia da Fábrica 1 (LASER…FICEP) e o KIT moram nos filhos (039), então
+ * concluir um processo de Fábrica 2 na gestão de OF precisa alcançá-los —
+ * caso contrário a cascata pousava só no item raiz e a F1 ficava pendente.
+ * O pai NÃO entra quando o item é filho: nada da cadeia do filho precede os
+ * processos do pai, e o reinício da linha (backward) continua no item único.
+ */
+export async function getItemProcessChainWithChildren(
+  client: SupabaseServer,
+  orderItemId: string,
+): Promise<ItemProcessChainEntry[]> {
+  const chains = await getItemProcessChains(client, [orderItemId], { includeChildren: true });
+  return chains.get(orderItemId) ?? [];
 }
 
 /** UUID nulo — sentinela para `in (...)` vazio (o PostgREST rejeita lista vazia). */

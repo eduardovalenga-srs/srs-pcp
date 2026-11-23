@@ -11,17 +11,20 @@ const mocks = vi.hoisted(() => ({
   getOrderProcessTargets: vi.fn<
     (client: unknown, orderId: string, processCode: string) => Promise<unknown[]>
   >(),
-  updateProductionProcess: vi.fn<
-    (client: unknown, id: string, changes: unknown) => Promise<void>
+  // 092: escrita em lote (um UPDATE para todos os processos do lote).
+  updateProductionProcessesStatus: vi.fn<
+    (client: unknown, ids: readonly string[], status: string) => Promise<void>
   >(),
-  insertProductionEvent: vi.fn<(client: unknown, event: unknown) => Promise<void>>(),
-  // order-items.repository — re-derivação do status do item atingido.
-  getItemAggregate: vi.fn<(client: unknown, itemId: string) => Promise<unknown>>(),
-  // cadeia do item usada pela cascata de conclusão/desconclusão.
-  getItemProcessChain: vi.fn<(client: unknown, orderItemId: string) => Promise<unknown[]>>(),
-  refreshOrderStatuses: vi.fn<
-    (client: unknown, orderItemId: string, status: string) => Promise<void>
+  insertProductionEvents: vi.fn<(client: unknown, events: unknown[]) => Promise<void>>(),
+  // order-items.repository — re-derivação do status dos itens atingidos.
+  getItemAggregates: vi.fn<
+    (client: unknown, itemIds: readonly string[]) => Promise<Map<string, unknown>>
   >(),
+  // 092: cadeias lidas de uma vez para todos os alvos da cascata.
+  getItemProcessChains: vi.fn<
+    (client: unknown, itemIds: readonly string[], options: unknown) => Promise<Map<string, unknown>>
+  >(),
+  refreshOrderStatusesBulk: vi.fn<(client: unknown, updates: unknown[]) => Promise<void>>(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
@@ -29,13 +32,13 @@ vi.mock("@/lib/auth/guards", () => ({ requireCapability: mocks.requireCapability
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("@/lib/repositories/production.repository", () => ({
   getOrderProcessTargets: mocks.getOrderProcessTargets,
-  updateProductionProcess: mocks.updateProductionProcess,
-  insertProductionEvent: mocks.insertProductionEvent,
+  updateProductionProcessesStatus: mocks.updateProductionProcessesStatus,
+  insertProductionEvents: mocks.insertProductionEvents,
 }));
 vi.mock("@/lib/repositories/order-items.repository", () => ({
-  getItemAggregate: mocks.getItemAggregate,
-  getItemProcessChain: mocks.getItemProcessChain,
-  refreshOrderStatuses: mocks.refreshOrderStatuses,
+  getItemAggregates: mocks.getItemAggregates,
+  getItemProcessChains: mocks.getItemProcessChains,
+  refreshOrderStatusesBulk: mocks.refreshOrderStatusesBulk,
 }));
 
 import { updateProcessBatchAction } from "@/lib/actions/production.actions";
@@ -68,11 +71,11 @@ describe("updateProcessBatchAction (025 — edição em lote por OF)", () => {
     mocks.requireCapability.mockResolvedValue({ id: "user-1", role: "GESTOR" });
     mocks.createClient.mockResolvedValue({ name: "client" });
     mocks.getOrderProcessTargets.mockResolvedValue([]);
-    mocks.updateProductionProcess.mockResolvedValue(undefined);
-    mocks.insertProductionEvent.mockResolvedValue(undefined);
-    mocks.getItemAggregate.mockResolvedValue(null);
-    mocks.getItemProcessChain.mockResolvedValue([]);
-    mocks.refreshOrderStatuses.mockResolvedValue(undefined);
+    mocks.updateProductionProcessesStatus.mockResolvedValue(undefined);
+    mocks.insertProductionEvents.mockResolvedValue(undefined);
+    mocks.getItemAggregates.mockResolvedValue(new Map());
+    mocks.getItemProcessChains.mockResolvedValue(new Map());
+    mocks.refreshOrderStatusesBulk.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -115,7 +118,7 @@ describe("updateProcessBatchAction (025 — edição em lote por OF)", () => {
     expect(result.success).toBe(false);
     expect(result.message).toContain("Recebimento de MP");
     expect(mocks.getOrderProcessTargets).not.toHaveBeenCalled();
-    expect(mocks.updateProductionProcess).not.toHaveBeenCalled();
+    expect(mocks.updateProductionProcessesStatus).not.toHaveBeenCalled();
   });
 
   it("sem item aplicável na OF não grava nada", async () => {
@@ -132,7 +135,7 @@ describe("updateProcessBatchAction (025 — edição em lote por OF)", () => {
 
     expect(result.success).toBe(false);
     expect(result.message).toContain("Nenhum item");
-    expect(mocks.updateProductionProcess).not.toHaveBeenCalled();
+    expect(mocks.updateProductionProcessesStatus).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 
@@ -145,12 +148,23 @@ describe("updateProcessBatchAction (025 — edição em lote por OF)", () => {
       target("pp-3", "item-3", "NAO_APLICAVEL"),
       target("pp-4", "item-4", "NAO_INICIADO"),
     ]);
-    mocks.getItemAggregate.mockImplementation(async () => ({
-      status: "EM_PRODUCAO" as const,
-      op: "OP-1",
-      // Todos concluídos => o status derivado do item vira CONCLUIDO.
-      processStatuses: ["CONCLUIDO" as const],
-    }));
+    mocks.getItemAggregates.mockResolvedValue(
+      new Map([
+        [
+          "item-1",
+          {
+            status: "EM_PRODUCAO",
+            op: "OP-1",
+            // Todos concluídos => o status derivado do item vira CONCLUIDO.
+            processStatuses: ["CONCLUIDO"],
+          },
+        ],
+        [
+          "item-4",
+          { status: "EM_PRODUCAO", op: null, processStatuses: ["CONCLUIDO"] },
+        ],
+      ]),
+    );
 
     const result = await updateProcessBatchAction({
       orderId: "of-1",
@@ -161,35 +175,57 @@ describe("updateProcessBatchAction (025 — edição em lote por OF)", () => {
     expect(result).toMatchObject({ success: true, changed: true, updated: 2, total: 3 });
     expect(result.message).toContain("2 de 3");
 
-    // Só os itens que diferiam foram regravados (o NAO_APLICAVEL fica de fora).
-    const updatedIds = mocks.updateProductionProcess.mock.calls.map(([, id]) => id);
-    expect(updatedIds.sort()).toEqual(["pp-1", "pp-4"]);
+    // 092: os dois itens que diferiam foram gravados em UM único UPDATE
+    // (o NAO_APLICAVEL fica de fora) — só a situação muda; quantidades e
+    // observações de cada processo são preservadas.
+    expect(mocks.updateProductionProcessesStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.updateProductionProcessesStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      ["pp-1", "pp-4"],
+      "CONCLUIDO",
+    );
+    expect(mocks.updateProductionProcessesStatus).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining(["pp-3"]),
+      expect.anything(),
+    );
 
-    // Apenas a situação muda: quantidades e observações são preservadas.
-    expect(mocks.updateProductionProcess).toHaveBeenCalledWith(expect.anything(), "pp-1", {
-      status: "CONCLUIDO",
-      quantityPlanned: 3,
-      quantityCompleted: 1,
-      notes: "obs 1",
-    });
+    // Os eventos dos dois itens saem no mesmo INSERT, com a situação
+    // anterior de cada um.
+    expect(mocks.insertProductionEvents).toHaveBeenCalledTimes(1);
+    expect(mocks.insertProductionEvents).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining([
+        {
+          productionProcessId: "pp-1",
+          userId: "user-1",
+          eventType: "STATUS_CHANGE",
+          oldStatus: "NAO_INICIADO",
+          newStatus: "CONCLUIDO",
+          oldQuantity: 1,
+          newQuantity: 1,
+          notes: "obs 1",
+        },
+        expect.objectContaining({
+          productionProcessId: "pp-4",
+          oldStatus: "NAO_INICIADO",
+          newStatus: "CONCLUIDO",
+        }),
+      ]),
+    );
 
-    // Um evento por item alterado, com a situação anterior registrada.
-    expect(mocks.insertProductionEvent).toHaveBeenCalledTimes(2);
-    expect(mocks.insertProductionEvent).toHaveBeenCalledWith(expect.anything(), {
-      productionProcessId: "pp-1",
-      userId: "user-1",
-      eventType: "STATUS_CHANGE",
-      oldStatus: "NAO_INICIADO",
-      newStatus: "CONCLUIDO",
-      oldQuantity: 1,
-      newQuantity: 1,
-      notes: "obs 1",
-    });
-
-    // Status agregado re-derivado dos itens atingidos.
-    expect(mocks.getItemAggregate).toHaveBeenCalledTimes(2);
-    expect(mocks.refreshOrderStatuses).toHaveBeenCalledTimes(2);
-    expect(mocks.refreshOrderStatuses).toHaveBeenCalledWith(expect.anything(), "item-1", "CONCLUIDO");
+    // Status agregado re-derivado dos itens atingidos em uma única leitura
+    // e uma única RPC.
+    expect(mocks.getItemAggregates).toHaveBeenCalledTimes(1);
+    expect(mocks.getItemAggregates).toHaveBeenCalledWith(expect.anything(), [
+      "item-1",
+      "item-4",
+    ]);
+    expect(mocks.refreshOrderStatusesBulk).toHaveBeenCalledTimes(1);
+    expect(mocks.refreshOrderStatusesBulk).toHaveBeenCalledWith(expect.anything(), [
+      { itemId: "item-1", status: "CONCLUIDO" },
+      { itemId: "item-4", status: "CONCLUIDO" },
+    ]);
 
     // Mudou algo => invalida as telas afetadas (inclusive a Fábrica 2).
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/gestao-entregas");
@@ -208,8 +244,8 @@ describe("updateProcessBatchAction (025 — edição em lote por OF)", () => {
     });
 
     expect(result).toMatchObject({ success: true, changed: false, updated: 0, total: 1 });
-    expect(mocks.updateProductionProcess).not.toHaveBeenCalled();
-    expect(mocks.refreshOrderStatuses).not.toHaveBeenCalled();
+    expect(mocks.updateProductionProcessesStatus).not.toHaveBeenCalled();
+    expect(mocks.refreshOrderStatusesBulk).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 

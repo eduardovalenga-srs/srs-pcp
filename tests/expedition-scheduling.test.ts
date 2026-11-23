@@ -227,3 +227,39 @@ describe("visibilidade da OF após concluir expedição", () => {
     expect(await schedulingCodes()).toEqual(["OF-EXP-C", "OF-EXP-B"]);
   });
 });
+
+describe("expedição em lote (092)", () => {
+  it("um único UPDATE concluindo o EXP de várias OFs compacta a fila", async () => {
+    const first = await createOrder("OF-EXP-F", 6, ["NAO_INICIADO"]);
+    const second = await createOrder("OF-EXP-G", 7, ["NAO_INICIADO"]);
+    const third = await createOrder("OF-EXP-H", 8, ["NAO_INICIADO"]);
+
+    expect(await schedulingCodes()).toEqual(["OF-EXP-C", "OF-EXP-B", "OF-EXP-F", "OF-EXP-G", "OF-EXP-H"]);
+
+    // 092: uma única instrução conclui o EXP das três OFs. O trigger de
+    // statement resequencia a fila UMA vez ao final, já com as três
+    // expedidas — nenhuma fica com seq preso.
+    await asSuperUser(db);
+    await db.query(
+      `update public.production_processes
+          set status = 'CONCLUIDO'
+        where order_item_id = any ($1::uuid[])`,
+      [[...first.itemIds, ...second.itemIds, ...third.itemIds]],
+    );
+
+    expect(await expConcluded(first.orderId)).toBe(true);
+    expect(await expConcluded(second.orderId)).toBe(true);
+    expect(await expConcluded(third.orderId)).toBe(true);
+
+    expect(await schedulingCodes()).toEqual(["OF-EXP-C", "OF-EXP-B"]);
+    expect(
+      await sequenceByOrder(["OF-EXP-F", "OF-EXP-G", "OF-EXP-H", "OF-EXP-B", "OF-EXP-C"]),
+    ).toEqual([
+      ["OF-EXP-C", 1],
+      ["OF-EXP-B", 2],
+      ["OF-EXP-F", null],
+      ["OF-EXP-G", null],
+      ["OF-EXP-H", null],
+    ]);
+  });
+});

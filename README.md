@@ -274,15 +274,21 @@ tests/                      testes de migrations, RLS, RPC, importação, regras
   `NAO_INICIADO`).
   Nada avança de etapa por conta própria, **exceto a cascata da linha do
   tempo** (regra 62 revisada, vale na edição unitária e na em lote): concluir
-  um processo conclui automaticamente os **predecessores não iniciados** do
-  mesmo item, e devolvê-lo a `NAO_INICIADO` **reinicia a linha**: os concluídos
-  antes e depois dele voltam a `NAO_INICIADO` — `NAO_APLICAVEL` nunca é tocado,
-  quantidades/observações são preservadas e cada ajuste gera seu
-  `production_event` com nota de automação
-  (`predecessorsToComplete`/`concludedProcessesToReset` em
-  `lib/utils/production.ts`). O **MP** aceita apenas
+  um processo conclui automaticamente os **predecessores não iniciados** —
+  do mesmo item e, desde a 090, **atravessando as fábricas**: a cadeia da
+  Fábrica 1 (LASER…FICEP) e o KIT vivem nos itens filhos, então concluir um
+  processo de Fábrica 2 na gestão de OF puxa também essas etapas dos filhos.
+  Devolvê-lo a `NAO_INICIADO` **reinicia a linha**: os concluídos antes e
+  depois dele voltam a `NAO_INICIADO` **no próprio item** (o trabalho da
+  outra fábrica não é desfeito). `NAO_APLICAVEL` nunca é tocado, quantidades
+  e observações são preservadas e cada ajuste gera seu `production_event` com
+  nota de automação (`predecessorsToComplete`/`concludedProcessesToReset` em
+  `lib/utils/production.ts`; cadeia conjunta raiz+filhos em
+  `getItemProcessChainWithChildren`). O **MP** aceita apenas
   `NAO_INICIADO` e `CONCLUIDO`: a folha de edição lista só essas duas opções e o
-  serviço rejeita as demais (`allowedProcessStatuses`, `lib/utils/production.ts`).
+  serviço rejeita as demais (`allowedProcessStatuses`, `lib/utils/production.ts`)
+  — e ele fica **fora da cascata**, por ser espelho do Recebimento de MP
+  (`/recebimento-mp`).
 - **Ordem de Produção (OP)** (`order_items.op`, migração 013): código da OP por
   sub-item (1–50 caracteres, `null` = em espera) — preenchido no formulário do pedido,
   exibido no detalhe `/pedidos/[id]` e na coluna **OP** da gestão de OF. O campo

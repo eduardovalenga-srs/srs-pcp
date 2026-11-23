@@ -334,33 +334,33 @@ describe("colunas de processos da tabela da Fábrica 1", () => {
 });
 
 describe("cascata da linha do tempo (regra 62 revisada)", () => {
-  const chain: { code: string; displayOrder: number; status: ProcessStatus }[] = [
-    { code: "MP", displayOrder: 5, status: "NAO_INICIADO" },
-    { code: "LASER", displayOrder: 10, status: "NAO_INICIADO" },
-    { code: "DB_CH", displayOrder: 20, status: "CONCLUIDO" },
-    { code: "SERRA", displayOrder: 30, status: "NAO_APLICAVEL" },
-    { code: "KIT", displayOrder: 70, status: "NAO_INICIADO" },
-    { code: "SOLDA", displayOrder: 90, status: "CONCLUIDO" },
-    { code: "QUALITY", displayOrder: 110, status: "NAO_INICIADO" },
-    { code: "EXP", displayOrder: 120, status: "CONCLUIDO" },
+  const chain: { id: string; code: string; displayOrder: number; status: ProcessStatus }[] = [
+    { id: "pp-mp", code: "MP", displayOrder: 5, status: "NAO_INICIADO" },
+    { id: "pp-laser", code: "LASER", displayOrder: 10, status: "NAO_INICIADO" },
+    { id: "pp-dbch", code: "DB_CH", displayOrder: 20, status: "CONCLUIDO" },
+    { id: "pp-serra", code: "SERRA", displayOrder: 30, status: "NAO_APLICAVEL" },
+    { id: "pp-kit", code: "KIT", displayOrder: 70, status: "NAO_INICIADO" },
+    { id: "pp-solda", code: "SOLDA", displayOrder: 90, status: "CONCLUIDO" },
+    { id: "pp-quality", code: "QUALITY", displayOrder: 110, status: "NAO_INICIADO" },
+    { id: "pp-exp", code: "EXP", displayOrder: 120, status: "CONCLUIDO" },
   ];
 
   it("conclusão puxa só os predecessores NAO_INICIADO, na ordem da linha do tempo", () => {
     // 056: o MP fica FORA da linha do tempo (espelho do recebimento).
-    expect(predecessorsToComplete(chain, "KIT").map((process) => process.code)).toEqual([
+    expect(predecessorsToComplete(chain, "pp-kit").map((process) => process.code)).toEqual([
       "LASER",
     ]);
     // DB_CH (já concluído) e SERRA (não aplicável) ficam de fora do meio;
     // KIT entra como restante não iniciado antes de SOLDA.
-    expect(predecessorsToComplete(chain, "SOLDA").map((process) => process.code)).toEqual([
+    expect(predecessorsToComplete(chain, "pp-solda").map((process) => process.code)).toEqual([
       "LASER",
       "KIT",
     ]);
   });
 
   it("alvo ausente ou fora da linha do tempo não dispara nada", () => {
-    expect(predecessorsToComplete(chain, "PUNC")).toEqual([]);
-    expect(predecessorsToComplete(chain, "SERRA")).toEqual([]);
+    expect(predecessorsToComplete(chain, "pp-punc")).toEqual([]);
+    expect(predecessorsToComplete(chain, "pp-serra")).toEqual([]);
     expect(concludedProcessesToReset(chain, "SERRA")).toEqual([]);
   });
 
@@ -378,25 +378,25 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
   });
 
   it("não há o que concluir/devolver quando a linha já está certa", () => {
-    const done: { code: string; displayOrder: number; status: ProcessStatus }[] = [
-      { code: "LASER", displayOrder: 10, status: "CONCLUIDO" },
-      { code: "DB_CH", displayOrder: 20, status: "NAO_INICIADO" },
+    const done: { id: string; code: string; displayOrder: number; status: ProcessStatus }[] = [
+      { id: "pp-laser", code: "LASER", displayOrder: 10, status: "CONCLUIDO" },
+      { id: "pp-dbch", code: "DB_CH", displayOrder: 20, status: "NAO_INICIADO" },
     ];
-    expect(predecessorsToComplete(done, "DB_CH")).toEqual([]);
+    expect(predecessorsToComplete(done, "pp-dbch")).toEqual([]);
     // o único concluído é o próprio alvo — a linha inteira não muda
     expect(concludedProcessesToReset(done, "LASER")).toEqual([]);
   });
 
   it("ordena por displayOrder com desempate pelo código e não muta a lista", () => {
-    const unsorted: { code: string; displayOrder: number; status: ProcessStatus }[] = [
-      { code: "SERRA", displayOrder: 30, status: "NAO_INICIADO" },
-      { code: "LASER", displayOrder: 10, status: "NAO_INICIADO" },
-      { code: "DB_CH", displayOrder: 20, status: "NAO_INICIADO" },
-      { code: "ALFA", displayOrder: 20, status: "NAO_INICIADO" },
+    const unsorted: { id: string; code: string; displayOrder: number; status: ProcessStatus }[] = [
+      { id: "pp-serra", code: "SERRA", displayOrder: 30, status: "NAO_INICIADO" },
+      { id: "pp-laser", code: "LASER", displayOrder: 10, status: "NAO_INICIADO" },
+      { id: "pp-dbch", code: "DB_CH", displayOrder: 20, status: "NAO_INICIADO" },
+      { id: "pp-alfa", code: "ALFA", displayOrder: 20, status: "NAO_INICIADO" },
     ];
     // alvo presente na lista — o resultado sai ordenado (displayOrder com
     // desempate ALFABÉTICO pelo código: ALFA antes de DB_CH no mesmo 20).
-    expect(predecessorsToComplete(unsorted, "SERRA").map((process) => process.code)).toEqual([
+    expect(predecessorsToComplete(unsorted, "pp-serra").map((process) => process.code)).toEqual([
       "LASER",
       "ALFA",
       "DB_CH",
@@ -410,12 +410,45 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
   });
 
   it("o MP nunca entra na cascata (056 — espelho do recebimento)", () => {
-    expect(predecessorsToComplete(chain, "EXP").map((process) => process.code)).not.toContain("MP");
+    expect(predecessorsToComplete(chain, "pp-exp").map((process) => process.code)).not.toContain("MP");
     expect(concludedProcessesToReset(chain, "EXP").map((process) => process.code)).not.toContain(
       "MP",
     );
     // Alvo é o próprio MP: nada dispara (fora da linha do tempo).
-    expect(predecessorsToComplete(chain, "MP")).toEqual([]);
+    expect(predecessorsToComplete(chain, "pp-mp")).toEqual([]);
     expect(concludedProcessesToReset(chain, "MP")).toEqual([]);
+  });
+
+  it("090: na cadeia CONJUNTA (raiz + filhos) a conclusão atravessa as fábricas", () => {
+    // Item raiz: MP, PRÉ-MTG, SOLDA… — os filhos guardam LASER…FICEP e KIT.
+    const joint: { id: string; orderItemId: string; code: string; displayOrder: number; status: ProcessStatus }[] = [
+      { id: "root-mp", orderItemId: "root", code: "MP", displayOrder: 5, status: "NAO_INICIADO" },
+      { id: "root-premtg", orderItemId: "root", code: "PRE_MTG", displayOrder: 80, status: "NAO_INICIADO" },
+      { id: "root-solda", orderItemId: "root", code: "SOLDA", displayOrder: 90, status: "CONCLUIDO" },
+      { id: "child-laser", orderItemId: "child-1", code: "LASER", displayOrder: 10, status: "NAO_INICIADO" },
+      { id: "child-dbch", orderItemId: "child-1", code: "DB_CH", displayOrder: 20, status: "NAO_INICIADO" },
+      { id: "child-kit", orderItemId: "child-1", code: "KIT", displayOrder: 70, status: "NAO_INICIADO" },
+      { id: "child2-laser", orderItemId: "child-2", code: "LASER", displayOrder: 10, status: "CONCLUIDO" },
+      { id: "child2-kit", orderItemId: "child-2", code: "KIT", displayOrder: 70, status: "NAO_INICIADO" },
+    ];
+
+    const targets = predecessorsToComplete(joint, "root-solda");
+    // F1 + KIT dos dois filhos entram; MP fica fora.
+    expect(targets.map((process) => process.id)).toEqual([
+      "child-laser",
+      "child-dbch",
+      "child-kit",
+      "child2-kit",
+      "root-premtg",
+    ]);
+    expect(targets.map((process) => process.orderItemId)).toEqual([
+      "child-1",
+      "child-1",
+      "child-1",
+      "child-2",
+      "root",
+    ]);
+    expect(targets.map((process) => process.code)).not.toContain("MP");
+    expect(targets.map((process) => process.code)).not.toContain("SOLDA");
   });
 });

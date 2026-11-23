@@ -10,16 +10,27 @@ const mocks = vi.hoisted(() => ({
   // production.repository — processo alvo, escrita e histórico.
   getProductionProcessById: vi.fn<(client: unknown, id: string) => Promise<unknown>>(),
   updateProductionProcess: vi.fn<(client: unknown, id: string, changes: unknown) => Promise<void>>(),
-  insertProductionEvent: vi.fn<(client: unknown, event: unknown) => Promise<void>>(),
+  updateProductionProcessesStatus: vi.fn<
+    (client: unknown, ids: readonly string[], status: string) => Promise<void>
+  >(),
+  insertProductionEvents: vi.fn<(client: unknown, events: unknown[]) => Promise<void>>(),
   // production.repository — alvos da edição em lote por OF (025).
   getOrderProcessTargets: vi.fn<
     (client: unknown, orderId: string, processCode: string) => Promise<unknown[]>
   >(),
   // order-items.repository — cadeia da cascata, derivação e refresh.
-  getItemAggregate: vi.fn<(client: unknown, itemId: string) => Promise<unknown>>(),
+  getItemProcessChains: vi.fn<
+    (client: unknown, itemIds: readonly string[], options: unknown) => Promise<Map<string, unknown>>
+  >(),
   getItemProcessChain: vi.fn<(client: unknown, orderItemId: string) => Promise<unknown[]>>(),
-  refreshOrderStatuses: vi.fn<
-    (client: unknown, orderItemId: string, status: string) => Promise<void>
+  getItemProcessChainWithChildren: vi.fn<
+    (client: unknown, orderItemId: string) => Promise<unknown[]>
+  >(),
+  getItemAggregates: vi.fn<
+    (client: unknown, itemIds: readonly string[]) => Promise<Map<string, unknown>>
+  >(),
+  refreshOrderStatusesBulk: vi.fn<
+    (client: unknown, updates: unknown[]) => Promise<void>
   >(),
 }));
 
@@ -29,13 +40,16 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("@/lib/repositories/production.repository", () => ({
   getProductionProcessById: mocks.getProductionProcessById,
   updateProductionProcess: mocks.updateProductionProcess,
-  insertProductionEvent: mocks.insertProductionEvent,
+  updateProductionProcessesStatus: mocks.updateProductionProcessesStatus,
+  insertProductionEvents: mocks.insertProductionEvents,
   getOrderProcessTargets: mocks.getOrderProcessTargets,
 }));
 vi.mock("@/lib/repositories/order-items.repository", () => ({
-  getItemAggregate: mocks.getItemAggregate,
+  getItemProcessChains: mocks.getItemProcessChains,
   getItemProcessChain: mocks.getItemProcessChain,
-  refreshOrderStatuses: mocks.refreshOrderStatuses,
+  getItemProcessChainWithChildren: mocks.getItemProcessChainWithChildren,
+  getItemAggregates: mocks.getItemAggregates,
+  refreshOrderStatusesBulk: mocks.refreshOrderStatusesBulk,
 }));
 
 import { updateProcessAction, updateProcessBatchAction } from "@/lib/actions/production.actions";
@@ -68,6 +82,7 @@ function currentProcess(overrides: Partial<CurrentProcess> = {}): CurrentProcess
 
 type ChainProcess = {
   id: string;
+  orderItemId: string;
   status: string;
   code: string;
   displayOrder: number;
@@ -86,6 +101,7 @@ function chainProcess(
 ): ChainProcess {
   return {
     id,
+    orderItemId: "item-1",
     status,
     code,
     displayOrder,
@@ -108,11 +124,14 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
     mocks.createClient.mockResolvedValue({ name: "client" });
     mocks.getProductionProcessById.mockResolvedValue(null);
     mocks.updateProductionProcess.mockResolvedValue(undefined);
-    mocks.insertProductionEvent.mockResolvedValue(undefined);
+    mocks.updateProductionProcessesStatus.mockResolvedValue(undefined);
+    mocks.insertProductionEvents.mockResolvedValue(undefined);
     mocks.getOrderProcessTargets.mockResolvedValue([]);
-    mocks.getItemAggregate.mockResolvedValue(null);
+    mocks.getItemProcessChains.mockResolvedValue(new Map());
     mocks.getItemProcessChain.mockResolvedValue([]);
-    mocks.refreshOrderStatuses.mockResolvedValue(undefined);
+    mocks.getItemProcessChainWithChildren.mockResolvedValue([]);
+    mocks.getItemAggregates.mockResolvedValue(new Map());
+    mocks.refreshOrderStatusesBulk.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -133,18 +152,18 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
 
   it("ao concluir, puxa os predecessores não iniciados (edição unitária)", async () => {
     mocks.getProductionProcessById.mockResolvedValue(currentProcess());
-    mocks.getItemProcessChain.mockResolvedValue([
+    mocks.getItemProcessChainWithChildren.mockResolvedValue([
       chainProcess("pp-mp", "MP", 5, "NAO_INICIADO"),
       chainProcess("pp-laser", "LASER", 10, "CONCLUIDO"),
       chainProcess("pp-dbch", "DB_CH", 20, "NAO_INICIADO"),
       chainProcess("pp-serra", "SERRA", 30, "NAO_APLICAVEL"),
       chainProcess("pp-kit", "KIT", 70, "CONCLUIDO"),
     ]);
-    mocks.getItemAggregate.mockResolvedValue({
-      status: "PLANEJADO",
-      op: "OP-1",
-      processStatuses: ["CONCLUIDO"],
-    });
+    mocks.getItemAggregates.mockResolvedValue(
+      new Map([
+        ["item-1", { status: "PLANEJADO", op: "OP-1", processStatuses: ["CONCLUIDO"] }],
+      ]),
+    );
 
     const result = await updateProcessAction({
       productionProcessId: "pp-kit",
@@ -159,43 +178,130 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
     // 056: o MP ficou fora da linha do tempo — só o DB CH é puxado.
     expect(result.message).toContain("+1 concluído automaticamente");
 
-    // alvo + DB CH (MP fora da cascata; SERRA fora da linha do tempo;
-    // LASER já concluído)
-    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(2);
+    // alvo pelo fluxo unitário; DB CH (e só ele) pela cascata em lote —
+    // MP fora da cascata; SERRA fora da linha do tempo; LASER já concluído.
+    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(1);
     expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
       expect.anything(),
       "pp-kit",
       expect.objectContaining({ status: "CONCLUIDO" }),
     );
-    expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
+    expect(mocks.updateProductionProcessesStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.updateProductionProcessesStatus).toHaveBeenCalledWith(
       expect.anything(),
-      "pp-dbch",
-      expect.objectContaining({ status: "CONCLUIDO" }),
+      ["pp-dbch"],
+      "CONCLUIDO",
     );
     // o MP NUNCA é tocado pela cascata (espelho do recebimento).
-    expect(mocks.updateProductionProcess).not.toHaveBeenCalledWith(
+    expect(mocks.updateProductionProcessesStatus).not.toHaveBeenCalledWith(
       expect.anything(),
-      "pp-mp",
+      expect.arrayContaining(["pp-mp"]),
       expect.anything(),
     );
 
-    // um evento por processo, com a nota de automação
-    expect(mocks.insertProductionEvent).toHaveBeenCalledTimes(2);
-    expect(mocks.insertProductionEvent).toHaveBeenCalledWith(
+    // alvo + cascata no mesmo INSERT, com a nota de automação
+    expect(mocks.insertProductionEvents).toHaveBeenCalledTimes(1);
+    expect(mocks.insertProductionEvents).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({
-        productionProcessId: "pp-dbch",
-        oldStatus: "NAO_INICIADO",
-        newStatus: "CONCLUIDO",
-        notes: "Concluído automaticamente ao concluir KIT",
-      }),
+      expect.arrayContaining([
+        expect.objectContaining({ productionProcessId: "pp-kit" }),
+        expect.objectContaining({
+          productionProcessId: "pp-dbch",
+          oldStatus: "NAO_INICIADO",
+          newStatus: "CONCLUIDO",
+          notes: "Concluído automaticamente ao concluir KIT",
+        }),
+      ]),
     );
 
     // a cascata roda ANTES da re-derivação do status do item
-    expect(mocks.getItemProcessChain.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.refreshOrderStatuses.mock.invocationCallOrder[0],
+    expect(mocks.getItemProcessChainWithChildren.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.getItemAggregates.mock.invocationCallOrder[0],
     );
-    expect(mocks.refreshOrderStatuses).toHaveBeenCalledWith(expect.anything(), "item-1", "CONCLUIDO");
+    expect(mocks.refreshOrderStatusesBulk).toHaveBeenCalledWith(expect.anything(), [
+      { itemId: "item-1", status: "CONCLUIDO" },
+    ]);
+  });
+
+  it("090: concluir um processo de Fábrica 2 puxa a cadeia F1/KIT dos itens filhos", async () => {
+    mocks.getProductionProcessById.mockResolvedValue(
+      currentProcess({
+        id: "pp-acab",
+        status: "NAO_INICIADO",
+        process: { code: "ACAB", name: "ACAB" },
+      }),
+    );
+    // Cadeia CONJUNTA (090): item raiz (MP/PRÉ-MTG/ACAB) + filhos (F1 + KIT).
+    mocks.getItemProcessChainWithChildren.mockResolvedValue([
+      chainProcess("root-mp", "MP", 5, "NAO_INICIADO", { orderItemId: "item-1" }),
+      chainProcess("root-premtg", "PRE_MTG", 80, "NAO_INICIADO", { orderItemId: "item-1" }),
+      chainProcess("pp-acab", "ACAB", 100, "CONCLUIDO", { orderItemId: "item-1" }),
+      chainProcess("child-laser", "LASER", 10, "NAO_INICIADO", { orderItemId: "child-1" }),
+      chainProcess("child-kit", "KIT", 70, "NAO_INICIADO", { orderItemId: "child-1" }),
+      chainProcess("child2-laser", "LASER", 10, "CONCLUIDO", { orderItemId: "child-2" }),
+      chainProcess("child2-kit", "KIT", 70, "NAO_INICIADO", { orderItemId: "child-2" }),
+    ]);
+    mocks.getItemAggregates.mockResolvedValue(
+      new Map([
+        ["item-1", { status: "EM_PRODUCAO", op: "OP-1", processStatuses: ["CONCLUIDO"] }],
+        ["child-1", { status: "EM_PRODUCAO", op: "OP-1", processStatuses: ["CONCLUIDO"] }],
+        ["child-2", { status: "EM_PRODUCAO", op: "OP-1", processStatuses: ["CONCLUIDO"] }],
+      ]),
+    );
+
+    const result = await updateProcessAction({
+      productionProcessId: "pp-acab",
+      status: "CONCLUIDO",
+    });
+
+    expect(result.success).toBe(true);
+    // LASER/KIT dos dois filhos + PRÉ-MTG do raiz (o LASER do child-2 já
+    // estava concluído e o MP fica fora da cascata).
+    expect(result.message).toContain("+4 concluídos automaticamente");
+
+    // Alvo no fluxo unitário; a cascata inteira em um único UPDATE.
+    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(1);
+    expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
+      expect.anything(),
+      "pp-acab",
+      expect.objectContaining({ status: "CONCLUIDO" }),
+    );
+    expect(mocks.updateProductionProcessesStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.updateProductionProcessesStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      ["child-laser", "child-kit", "child2-kit", "root-premtg"],
+      "CONCLUIDO",
+    );
+    expect(mocks.updateProductionProcessesStatus).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining(["root-mp"]),
+      expect.anything(),
+    );
+
+    // Cada processo puxado pela F1 registra seu evento com a nota de automação.
+    expect(mocks.insertProductionEvents).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining([
+        expect.objectContaining({
+          productionProcessId: "child-kit",
+          oldStatus: "NAO_INICIADO",
+          newStatus: "CONCLUIDO",
+          notes: "Concluído automaticamente ao concluir ACAB",
+        }),
+      ]),
+    );
+
+    // O status agregado dos FILHOS também é re-derivado — tudo em uma RPC.
+    expect(mocks.getItemAggregates).toHaveBeenCalledWith(expect.anything(), [
+      "item-1",
+      "child-1",
+      "child-2",
+    ]);
+    expect(mocks.refreshOrderStatusesBulk).toHaveBeenCalledWith(expect.anything(), [
+      { itemId: "item-1", status: "CONCLUIDO" },
+      { itemId: "child-1", status: "CONCLUIDO" },
+      { itemId: "child-2", status: "CONCLUIDO" },
+    ]);
   });
 
   it("sem mudança de situação não dispara cascata", async () => {
@@ -233,11 +339,11 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
       chainProcess("pp-quality", "QUALITY", 110, "NAO_APLICAVEL"),
       chainProcess("pp-exp", "EXP", 120, "CONCLUIDO"),
     ]);
-    mocks.getItemAggregate.mockResolvedValue({
-      status: "CONCLUIDO",
-      op: "OP-1",
-      processStatuses: ["NAO_INICIADO"],
-    });
+    mocks.getItemAggregates.mockResolvedValue(
+      new Map([
+        ["item-1", { status: "CONCLUIDO", op: "OP-1", processStatuses: ["NAO_INICIADO"] }],
+      ]),
+    );
 
     const result = await updateProcessAction({
       productionProcessId: "pp-solda",
@@ -251,29 +357,38 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
     // 056: o MP ficou fora da linha do tempo — só ACAB e EXP voltam.
     expect(result.message).toContain("2 processos devolvidos");
 
-    // a linha reinicia: alvo + ACAB e EXP (depois) — MP intocado;
-    // QUALITY não aplicável fica de fora
-    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(3);
-    expect(mocks.updateProductionProcess).not.toHaveBeenCalledWith(
-      expect.anything(),
-      "pp-mp",
-      expect.anything(),
-    );
+    // a linha reinicia: alvo no fluxo unitário + ACAB e EXP (depois) em
+    // lote — MP intocado; QUALITY não aplicável fica de fora.
+    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(1);
     expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
       expect.anything(),
-      "pp-acab",
+      "pp-solda",
       expect.objectContaining({ status: "NAO_INICIADO" }),
     );
-    expect(mocks.insertProductionEvent).toHaveBeenCalledWith(
+    expect(mocks.updateProductionProcessesStatus).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({
-        productionProcessId: "pp-exp",
-        oldStatus: "CONCLUIDO",
-        newStatus: "NAO_INICIADO",
-        notes: "Devolvido a não iniciado ao desmarcar SOLDA",
-      }),
+      ["pp-acab", "pp-exp"],
+      "NAO_INICIADO",
     );
-    expect(mocks.refreshOrderStatuses).toHaveBeenCalledWith(expect.anything(), "item-1", "EM_PRODUCAO");
+    expect(mocks.updateProductionProcessesStatus).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining(["pp-mp"]),
+      expect.anything(),
+    );
+    expect(mocks.insertProductionEvents).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining([
+        expect.objectContaining({
+          productionProcessId: "pp-exp",
+          oldStatus: "CONCLUIDO",
+          newStatus: "NAO_INICIADO",
+          notes: "Devolvido a não iniciado ao desmarcar SOLDA",
+        }),
+      ]),
+    );
+    expect(mocks.refreshOrderStatusesBulk).toHaveBeenCalledWith(expect.anything(), [
+      { itemId: "item-1", status: "EM_PRODUCAO" },
+    ]);
   });
 
   it("entrar como NAO_INICIADO vindo de NAO_APLICAVEL não mexe nos sucessores", async () => {
@@ -302,6 +417,7 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
       "pp-laser",
       expect.objectContaining({ status: "NAO_INICIADO" }),
     );
+    expect(mocks.updateProductionProcessesStatus).not.toHaveBeenCalled();
     expect(mocks.getItemProcessChain).not.toHaveBeenCalled();
   });
 
@@ -310,20 +426,24 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
       target("pp-s1", "item-1", "NAO_INICIADO"),
       target("pp-s2", "item-2", "NAO_INICIADO"),
     ]);
-    mocks.getItemProcessChain.mockImplementation(async (_client, orderItemId) =>
-      orderItemId === "item-1"
-        ? [
+    mocks.getItemProcessChains.mockResolvedValue(
+      new Map([
+        [
+          "item-1",
+          [
             chainProcess("pp-mp1", "MP", 5, "NAO_INICIADO"),
             chainProcess("pp-s1", "SOLDA", 90, "CONCLUIDO"),
-          ]
-        : [
-            chainProcess("pp-mp2", "MP", 5, "CONCLUIDO"),
-            chainProcess("pp-s2", "SOLDA", 90, "CONCLUIDO"),
           ],
+        ],
+        [
+          "item-2",
+          [
+            chainProcess("pp-mp2", "MP", 5, "CONCLUIDO", { orderItemId: "item-2" }),
+            chainProcess("pp-s2", "SOLDA", 90, "CONCLUIDO", { orderItemId: "item-2" }),
+          ],
+        ],
+      ]),
     );
-    mocks.getItemAggregate
-      .mockResolvedValueOnce({ status: "PLANEJADO", op: null, processStatuses: ["NAO_INICIADO"] })
-      .mockResolvedValueOnce({ status: "CONCLUIDO", op: null, processStatuses: ["CONCLUIDO"] });
 
     const result = await updateProcessBatchAction({
       orderId: "of-1",
@@ -336,20 +456,32 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
     // 056: o MP ficou fora da cascata — sem ele, não há nada a puxar.
     expect(result.message).toBe("SOLDA → concluído em 2 de 2 itens.");
 
-    // só os alvos do lote (o MP do item-1 fica intocado — espelho do
-    // recebimento registrado em /recebimento-mp)
-    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(2);
-    expect(mocks.updateProductionProcess).not.toHaveBeenCalledWith(
+    // alvos do lote em um único UPDATE; o MP do item-1 fica intocado
+    // (espelho do recebimento registrado em /recebimento-mp).
+    expect(mocks.updateProductionProcess).not.toHaveBeenCalled();
+    expect(mocks.updateProductionProcessesStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.updateProductionProcessesStatus).toHaveBeenCalledWith(
       expect.anything(),
-      "pp-mp1",
+      ["pp-s1", "pp-s2"],
+      "CONCLUIDO",
+    );
+    expect(mocks.updateProductionProcessesStatus).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining(["pp-mp1"]),
       expect.anything(),
     );
+    expect(mocks.insertProductionEvents).toHaveBeenCalledTimes(1);
 
-    // cadeia lida dos dois itens e sempre ANTES da re-derivação
-    expect(mocks.getItemProcessChain).toHaveBeenCalledTimes(2);
-    expect(mocks.getItemAggregate).toHaveBeenCalledTimes(2);
-    expect(mocks.getItemProcessChain.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.getItemAggregate.mock.invocationCallOrder[0],
+    // cadeia lida dos dois itens de UMA vez e sempre ANTES da re-derivação
+    expect(mocks.getItemProcessChains).toHaveBeenCalledTimes(1);
+    expect(mocks.getItemProcessChains).toHaveBeenCalledWith(
+      expect.anything(),
+      ["item-1", "item-2"],
+      { includeChildren: true },
+    );
+    expect(mocks.getItemAggregates).toHaveBeenCalledTimes(1);
+    expect(mocks.getItemProcessChains.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.getItemAggregates.mock.invocationCallOrder[0],
     );
   });
 
@@ -358,12 +490,18 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
       target("pp-s1", "item-1", "CONCLUIDO"),
       target("pp-s2", "item-2", "NAO_INICIADO"),
     ]);
-    mocks.getItemProcessChain.mockResolvedValue([
-      chainProcess("pp-mp1", "MP", 5, "CONCLUIDO"),
-      chainProcess("pp-s1", "SOLDA", 90, "NAO_INICIADO"),
-      chainProcess("pp-acab1", "ACAB", 100, "CONCLUIDO"),
-    ]);
-    mocks.getItemAggregate.mockResolvedValue(null);
+    mocks.getItemProcessChains.mockResolvedValue(
+      new Map([
+        [
+          "item-1",
+          [
+            chainProcess("pp-mp1", "MP", 5, "CONCLUIDO"),
+            chainProcess("pp-s1", "SOLDA", 90, "NAO_INICIADO"),
+            chainProcess("pp-acab1", "ACAB", 100, "CONCLUIDO"),
+          ],
+        ],
+      ]),
+    );
 
     const result = await updateProcessBatchAction({
       orderId: "of-1",
@@ -376,26 +514,33 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
     // 056: o MP ficou fora da linha do tempo — só o ACAB é devolvido.
     expect(result.message).toContain("1 processo devolvido");
 
-    // só o item-1 mudou: alvo + ACAB da linha (MP intocado); item-2 intocado
-    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(2);
-    expect(mocks.updateProductionProcess).not.toHaveBeenCalledWith(
+    // só o item-1 mudou: alvo + ACAB em um único UPDATE (MP intocado).
+    expect(mocks.updateProductionProcess).not.toHaveBeenCalled();
+    expect(mocks.updateProductionProcessesStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.updateProductionProcessesStatus).toHaveBeenCalledWith(
       expect.anything(),
-      "pp-mp1",
+      ["pp-s1", "pp-acab1"],
+      "NAO_INICIADO",
+    );
+    expect(mocks.updateProductionProcessesStatus).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining(["pp-mp1"]),
       expect.anything(),
     );
-    expect(mocks.updateProductionProcess).toHaveBeenCalledWith(
+    expect(mocks.getItemProcessChains).toHaveBeenCalledTimes(1);
+    expect(mocks.getItemProcessChains).toHaveBeenCalledWith(
       expect.anything(),
-      "pp-acab1",
-      expect.objectContaining({ status: "NAO_INICIADO" }),
+      ["item-1"],
+      { includeChildren: false },
     );
-    expect(mocks.getItemProcessChain).toHaveBeenCalledTimes(1);
-    expect(mocks.getItemProcessChain).toHaveBeenCalledWith(expect.anything(), "item-1");
-    expect(mocks.insertProductionEvent).toHaveBeenCalledWith(
+    expect(mocks.insertProductionEvents).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({
-        productionProcessId: "pp-acab1",
-        notes: "Devolvido a não iniciado ao desmarcar SOLDA",
-      }),
+      expect.arrayContaining([
+        expect.objectContaining({
+          productionProcessId: "pp-acab1",
+          notes: "Devolvido a não iniciado ao desmarcar SOLDA",
+        }),
+      ]),
     );
   });
 
@@ -413,6 +558,12 @@ describe("cascata da linha do tempo (regra 62 revisada)", () => {
     // nenhuma menção a automação na mensagem e nenhum passo de cascata
     expect(result.message).not.toContain(" · ");
     expect(mocks.getItemProcessChain).not.toHaveBeenCalled();
-    expect(mocks.updateProductionProcess).toHaveBeenCalledTimes(1);
+    expect(mocks.getItemProcessChains).not.toHaveBeenCalled();
+    expect(mocks.updateProductionProcess).not.toHaveBeenCalled();
+    expect(mocks.updateProductionProcessesStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      ["pp-s1"],
+      "NAO_APLICAVEL",
+    );
   });
 });
