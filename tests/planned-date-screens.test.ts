@@ -46,6 +46,20 @@ import {
 import { parseChildItemFilters, parseProductionFilters } from "@/lib/utils/filters";
 import type { ChildItemGroup } from "@/lib/types/order";
 import type { ProcessCell, ProcessDefinition, ProductionRow } from "@/lib/types/production";
+import type { OrderScheduleIndex } from "@/lib/types/scheduling";
+
+const SCHEDULE: OrderScheduleIndex = {
+  windowsByOrder: {
+    "order-1": {
+      MP: { start: "2026-10-08", end: "2026-10-08" },
+      LASER: { start: "2026-10-06", end: "2026-10-06" },
+      KIT: { start: "2026-10-07", end: "2026-10-07" },
+      PRE_MTG: { start: "2026-10-16", end: "2026-10-16" },
+      EXP: { start: "2026-10-19", end: "2026-10-19" },
+    },
+  },
+  expeditionByOrder: { "order-1": "2026-10-19" },
+};
 
 function html(node: ReactElement): string {
   return renderToStaticMarkup(node);
@@ -118,6 +132,7 @@ function f1Table(items: ChildItemGroup[]): ReactElement {
     processes: f1Catalog,
     filters: parseChildItemFilters({}),
     capabilities: f1Capabilities,
+    schedule: SCHEDULE,
     // Referência 12/10: LASER (06/10) e KIT (07/10) já começaram → vermelho.
     today: "2026-10-12",
   });
@@ -186,8 +201,8 @@ function baseCell(overrides: Partial<ProcessCell> = {}): ProcessCell {
 }
 
 /**
- * Entrega 20/10 (ter) — com prevista, a célula MP mostra 14/10, KIT
- * 15/10, PRÉ-MTG 16/10 e EXP 19/10 (janelas em dias úteis).
+ * A fila compartilhada mostra MP 08/10, KIT 07/10, PRÉ-MTG 16/10 e EXP
+ * 19/10, iguais aos demais itens da mesma OF.
  */
 function f2Row(processes: Record<string, ProcessCell>): ProductionRow {
   return {
@@ -224,6 +239,7 @@ function f2Table(rows: ProductionRow[]): ReactElement {
     processes: f2Catalog,
     filters: parseProductionFilters({}),
     capabilities: f2Capabilities,
+    schedule: SCHEDULE,
     // Referência 16/10: KIT (15/10, não concluído) já começou → vermelho.
     today: "2026-10-16",
   });
@@ -242,9 +258,9 @@ describe("Fábrica 2 — data prevista nas células e sem coluna DP", () => {
   it("desenha a janela prevista, o texto \"previsto de\" e o vermelho de início vencido", () => {
     const markup = html(f2Table([f2RowWithMpCompleted()]));
 
-    // Janelas (entrega 20/10): MP 14/10, KIT 15/10, PRÉ-MTG 16/10 e EXP 19/10.
-    expect(markup).toContain("14/10");
-    expect(markup).toContain("15/10");
+    // Janelas compartilhadas da OF, vindas do Sequenciamento.
+    expect(markup).toContain("08/10");
+    expect(markup).toContain("07/10");
     expect(markup).toContain("16/10");
     expect(markup).toContain("19/10");
     expect(markup).toContain("previsto de");
@@ -255,7 +271,7 @@ describe("Fábrica 2 — data prevista nas células e sem coluna DP", () => {
   it("mantém a data EFETIVA do recebimento da MP (031) ao lado da prevista", () => {
     const markup = html(f2Table([f2RowWithMpCompleted()]));
 
-    expect(markup).toContain("previsto de 14/10/2026 a 14/10/2026");
+    expect(markup).toContain("previsto de 08/10/2026 a 08/10/2026");
     expect(markup).toContain("recebida em 10/10/2026");
     expect(markup).toContain("10/10");
   });
@@ -302,15 +318,21 @@ describe("ProcessDetailsSheet — previsão de execução", () => {
       createElement(ProcessDetailsSheet, {
         selection: processSelection(),
         processes: f1Catalog,
+        schedule: {
+          windowsByOrder: {
+            "order-1": { LASER: { start: "2026-10-26", end: "2026-10-26" } },
+          },
+          expeditionByOrder: {},
+        },
         capabilities: sheetCapabilities,
         onOpenChange: () => {},
       }),
     );
 
     expect(markup).toContain("Previsão de execução");
-    // Janela da entrega 30/10: LASER cai em 26/10 (1 dia útil).
+    // Janela do sequenciamento da OF.
     expect(markup).toContain("26/10/2026");
-    expect(markup).toContain("dia útil");
+    expect(markup).toContain("sequenciamento da OF");
     expect(markup).toContain("Entrega (edição manual)");
     expect(markup).toContain("30/10/2026");
   });
@@ -323,6 +345,7 @@ describe("Fabrica2DetailsSheet — previsão de execução", () => {
         selection: {
           productionProcessId: "pp-kit",
           orderItemId: "item-1",
+          orderId: "order-1",
           orderCode: "OF-107482",
           itemDescription: "GUARDA CORPO",
           processName: "KIT",
@@ -334,15 +357,21 @@ describe("Fabrica2DetailsSheet — previsão de execução", () => {
           notes: null,
         },
         processes: f2Catalog,
+        schedule: {
+          windowsByOrder: {
+            "order-1": { KIT: { start: "2026-10-27", end: "2026-10-27" } },
+          },
+          expeditionByOrder: {},
+        },
         capabilities: { ...sheetCapabilities },
         onOpenChange: () => {},
       }),
     );
 
     expect(markup).toContain("Previsão de execução");
-    // Janela da entrega 30/10: KIT cai em 27/10 (1 dia útil).
+    // Janela do sequenciamento da OF.
     expect(markup).toContain("27/10/2026");
-    expect(markup).toContain("dia útil");
+    expect(markup).toContain("sequenciamento da OF");
     expect(markup).toContain("Entrega (edição manual)");
     expect(markup).toContain("30/10/2026");
   });

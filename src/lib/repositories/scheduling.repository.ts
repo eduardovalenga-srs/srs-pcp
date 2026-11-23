@@ -1,5 +1,9 @@
-import type { ProcessSchedulingRowRecord } from "@/lib/types/database";
-import type { ProcessSchedulingData, SchedulingOrderRow } from "@/lib/types/scheduling";
+import type { AllProcessSchedulingQueueRecord, ProcessSchedulingRowRecord } from "@/lib/types/database";
+import type {
+  ProcessScheduleQueue,
+  ProcessSchedulingData,
+  SchedulingOrderRow,
+} from "@/lib/types/scheduling";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import { isProcessStatus } from "@/lib/constants/production";
 import type { MpReceiptState } from "@/lib/types/mp-receipt";
@@ -74,6 +78,51 @@ export async function getProcessScheduling(
     anchorDate: settingsResult?.data?.anchor_date ?? todayISODate(),
     rows: ((rowsResult.data ?? []) as ProcessSchedulingRowRecord[]).map(mapRow),
   };
+}
+
+/**
+ * Filas de TODOS os processos ativos em uma única chamada (093).
+ *
+ * Cada fila sai na ordem global do sequenciamento; o índice por OF é
+ * montado em `buildScheduleIndex` (lib/utils/sequenced-schedule).
+ */
+export async function getAllProcessScheduling(
+  client: SupabaseServer,
+): Promise<ProcessScheduleQueue[]> {
+  const { data, error } = await client.rpc("get_all_process_scheduling");
+  assertOk(error, "Não foi possível carregar o sequenciamento");
+
+  return ((data ?? []) as AllProcessSchedulingQueueRecord[]).map((raw) => {
+    const rows = Array.isArray(raw.rows)
+      ? (raw.rows as unknown as {
+          order_id: string;
+          product_group_id: number | string | null;
+          weight_kg: number | string | null;
+          capacity_kg: number | string | null;
+          position: number | string | null;
+          process_concluded: boolean;
+          process_completed_at: string | null;
+          exp_concluded: boolean;
+          exp_completed_at: string | null;
+        }[])
+      : [];
+
+    return {
+      processId: raw.process_id,
+      processCode: raw.process_code,
+      anchorDate: raw.anchor_date ?? todayISODate(),
+      rows: rows.map((row) => ({
+        orderId: row.order_id,
+        productGroupId: row.product_group_id === null ? null : Number(row.product_group_id),
+        weightKg: roundWeightOrNull(toNumber(row.weight_kg)),
+        capacityKg: roundWeightOrNull(toNumber(row.capacity_kg)),
+        processConcluded: row.process_concluded,
+        processCompletedAt: row.process_completed_at,
+        expConcluded: row.exp_concluded,
+        expCompletedAt: row.exp_completed_at,
+      })),
+    };
+  });
 }
 
 /**

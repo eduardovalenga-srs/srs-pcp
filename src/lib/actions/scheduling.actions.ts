@@ -39,6 +39,8 @@ export async function saveProcessScheduleAction(
     revalidatePath("/gestao-entregas");
     revalidatePath("/fabrica-1");
     revalidatePath("/fabrica-2");
+    revalidatePath("/pedidos");
+    revalidatePath("/pedidos/[id]", "page");
     revalidatePath("/dashboard");
     return { success: true, message: "Sequenciamento salvo." };
   } catch (error) {

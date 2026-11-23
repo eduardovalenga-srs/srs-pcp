@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarClock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -10,8 +10,9 @@ import { PROCESS_STATUSES, PROCESS_STATUS_LABELS, type ProcessStatus } from "@/l
 import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { ItemProcess } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
+import type { OrderScheduleIndex } from "@/lib/types/scheduling";
 import { formatBusinessDate, formatBusinessDayMonth, formatDate } from "@/lib/utils/dates";
-import { computeProcessSchedule, scheduleProcessesForItem } from "@/lib/utils/process-schedule";
+import { windowsForOrder } from "@/lib/utils/sequenced-schedule";
 import { mpReceiptFromCell, mpReceiptClass, MP_RECEIPT_STATE_LABELS } from "@/lib/utils/mp-receipt";
 import { formatWeight } from "@/lib/utils/formatting";
 import { ProcessStatusBadge } from "@/components/shared/StatusBadges";
@@ -22,8 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 /**
  * Processos de um item pai ou filho da OF, em linhas com:
  *
- *  - janela prevista de execução (dias úteis, contada de trás para frente
- *    a partir da entrega — sem alterar a regra da cadeia de processos);
+ *  - janela prevista de execução vinda do sequenciamento da OF;
  *  - seletor de status (mesma ação da tabela de produção, com histórico);
  *  - marcação de necessidade: desmarcado grava NAO_APLICAVEL e marcado
  *    volta para NAO_INICIADO (a data prevista continua aparecendo);
@@ -34,22 +34,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
  */
 interface ItemProcessesProps {
   orderCode: string;
+  orderId: string;
   orderItemId: string;
   itemDescription: string;
   /** Entrega efetiva (item ou pedido) — base da previsão. */
   deliveryDate: string | null;
   processes: ItemProcess[];
   catalog: ProcessDefinition[];
+  schedule: OrderScheduleIndex;
   capabilities: ProductionCapabilities;
 }
 
 export function ItemProcesses({
   orderCode,
+  orderId,
   orderItemId,
   itemDescription,
   deliveryDate,
   processes,
   catalog,
+  schedule,
   capabilities,
 }: ItemProcessesProps) {
   const router = useRouter();
@@ -63,16 +67,7 @@ export function ItemProcesses({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selection, setSelection] = useState<ItemProcess | null>(null);
 
-  // Previsão contada da entrega: os processos DESMARCADOS (NAO_APLICAVEL)
-  // ficam de fora — não ocupam dias nem ganham janela, senão empurravam as
-  // datas dos demais para trás como se o trabalho fosse acontecer.
-  const schedule = useMemo(() => {
-    const byCode = new Map(rows.map((row) => [row.code, row.status] as const));
-    return computeProcessSchedule(
-      deliveryDate,
-      scheduleProcessesForItem(catalog, (code) => byCode.get(code)),
-    );
-  }, [deliveryDate, catalog, rows]);
+  const plannedWindows = windowsForOrder(schedule, orderId);
 
   const applyStatus = async (row: ItemProcess, next: ProcessStatus) => {
     if (row.status === next) return;
@@ -126,7 +121,7 @@ export function ItemProcesses({
     <div className="space-y-1.5">
       <ul className="space-y-1">
         {rows.map((row) => {
-          const window = schedule.get(row.code);
+          const window = plannedWindows[row.code];
           const busy = busyId === row.id;
           const applies = row.status !== "NAO_APLICAVEL";
           // MP é pré-requisito da produção (021): o serviço rejeita
@@ -210,7 +205,7 @@ export function ItemProcesses({
 
               <span
                 className="inline-flex items-center gap-1 text-xs tabular-nums text-muted-foreground"
-                title="Previsão calculada em dias úteis a partir da data de entrega."
+                title="Previsão de execução conforme o sequenciamento da OF."
               >
                 <CalendarClock aria-hidden className="h-3.5 w-3.5" />
                 {window ? `${formatDate(window.start)} – ${formatDate(window.end)}` : "—"}
@@ -247,6 +242,7 @@ export function ItemProcesses({
             ? {
                 productionProcessId: selection.id,
                 orderItemId,
+                orderId,
                 orderCode,
                 itemDescription,
                 processName: selection.name,
@@ -263,6 +259,7 @@ export function ItemProcesses({
             : null
         }
         processes={catalog}
+        schedule={schedule}
         capabilities={capabilities}
         onOpenChange={(open) => {
           if (!open) setSelection(null);

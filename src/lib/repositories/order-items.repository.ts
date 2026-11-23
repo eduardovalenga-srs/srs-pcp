@@ -11,7 +11,7 @@ import type {
 import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { ProcessStatus } from "@/lib/constants/production";
 import { listConfirmedQuantityByItemIds } from "@/lib/repositories/romaneio.repository";
-import { buildChildItemGroup } from "@/lib/utils/child-item-groups";
+import { buildChildItemGroup, applyChildItemOverdueCuts, summarizeKitOverdue } from "@/lib/utils/child-item-groups";
 import { escapeFilterTerm } from "@/lib/utils/filters";
 import { roundWeight } from "@/lib/utils/formatting";
 import { mpReceiptFromCell } from "@/lib/utils/mp-receipt";
@@ -19,6 +19,9 @@ import { pendingQuantity, pendingRootQuantity, pendingRootWeight, pendingWeight 
 import { assertOk } from "@/lib/utils/supabase-result";
 import { todayISODate } from "@/lib/utils/dates";
 import type { KitOverdueTotals } from "@/lib/utils/child-item-groups";
+import type { OrderScheduleIndex } from "@/lib/types/scheduling";
+import { EMPTY_SCHEDULE_INDEX } from "@/lib/utils/sequenced-schedule";
+import { EXPORT_PAGE_SIZE, collectAllPages } from "@/lib/utils/collect-pages";
 
 function toNumber(value: number | string | null): number | null {
   if (value === null || value === undefined) return null;
@@ -545,7 +548,32 @@ export async function listChildItemGroups(
   filters: ChildItemFilters,
   processId: string | null = null,
   today: string = todayISODate(),
+  schedule: OrderScheduleIndex = EMPTY_SCHEDULE_INDEX,
 ): Promise<ChildItemGroupsResult & { kitOverdue: KitOverdueTotals | null }> {
+  if (filters.overdue || filters.processOverdue) {
+    // Datas previstas vêm do sequenciamento (por OF): os recortes de
+    // atraso são aplicados EM MEMÓRIA sobre o conjunto filtrado inteiro.
+    const groups = await collectAllPages((page) =>
+      listChildItemGroups(
+        client,
+        { ...filters, overdue: false, processOverdue: false, page, pageSize: EXPORT_PAGE_SIZE },
+        processId,
+        today,
+        schedule,
+      ).then((result) => ({ rows: result.items, total: result.total })),
+    );
+    const cut = applyChildItemOverdueCuts(groups, schedule, filters, today);
+    const from = (filters.page - 1) * filters.pageSize;
+
+    return {
+      items: cut.slice(from, from + filters.pageSize),
+      total: cut.length,
+      qtyTotal: cut.reduce((sum, item) => sum + item.quantity, 0),
+      weightTotal: roundWeight(cut.reduce((sum, item) => sum + (item.weightTotal ?? 0), 0)),
+      kitOverdue: summarizeKitOverdue(cut, schedule, today),
+    };
+  }
+
   const rpcFilters = await childItemRpcFilters(client, filters, processId);
   const materialFilter = filters.material.trim();
   const materialEmbed = materialFilter ? "order_item_materials!inner" : "order_item_materials";
@@ -572,48 +600,25 @@ export async function listChildItemGroups(
     };
     groups?: GroupRow[];
   };
-  let groupsPayload: GroupsPayload;
-  let kitOverdue: KitOverdueTotals | null = null;
+  const kitOverdue: KitOverdueTotals | null = null;
 
-  if (filters.overdue || filters.processOverdue) {
-    const { data, error } = await client.rpc("get_child_item_groups_page", {
+  const [groupsResult, totalsResult] = await Promise.all([
+    client.rpc("get_child_item_groups", {
       ...groupsRpcFilters,
       p_offset: from,
       p_limit: filters.pageSize,
-      p_kit_overdue: filters.overdue,
-      p_process_overdue: filters.processOverdue,
-      p_process_code: filters.processCode,
-      p_today: today,
-    });
-    assertOk(error, "Não foi possível carregar os itens filhos");
-    groupsPayload = (data ?? {}) as unknown as GroupsPayload;
-    if (groupsPayload.kitOverdue) {
-      kitOverdue = {
-        records: toNumber(groupsPayload.kitOverdue.records ?? null) ?? 0,
-        qty: toNumber(groupsPayload.kitOverdue.qty ?? null) ?? 0,
-        weight: roundWeight(toNumber(groupsPayload.kitOverdue.weight ?? null) ?? 0),
-      };
-    }
-  } else {
-    const [groupsResult, totalsResult] = await Promise.all([
-      client.rpc("get_child_item_groups", {
-        ...groupsRpcFilters,
-        p_offset: from,
-        p_limit: filters.pageSize,
-      }),
-      client.rpc("get_child_items_totals", rpcFilters),
-    ]);
-    assertOk(groupsResult.error, "Não foi possível carregar os itens filhos");
-    assertOk(totalsResult.error, "Não foi possível carregar os itens filhos");
-    groupsPayload = (groupsResult.data ?? {}) as unknown as GroupsPayload;
-
-    const totals = (totalsResult.data ?? {}) as unknown as {
-      qtyTotal?: number | string;
-      weightTotal?: number | string;
-    };
-    groupsPayload.qtyTotal = totals.qtyTotal;
-    groupsPayload.weightTotal = totals.weightTotal;
-  }
+    }),
+    client.rpc("get_child_items_totals", rpcFilters),
+  ]);
+  assertOk(groupsResult.error, "Não foi possível carregar os itens filhos");
+  assertOk(totalsResult.error, "Não foi possível carregar os itens filhos");
+  const groupsPayload = (groupsResult.data ?? {}) as unknown as GroupsPayload;
+  const totals = (totalsResult.data ?? {}) as unknown as {
+    qtyTotal?: number | string;
+    weightTotal?: number | string;
+  };
+  groupsPayload.qtyTotal = totals.qtyTotal;
+  groupsPayload.weightTotal = totals.weightTotal;
 
   const groupRows = groupsPayload.groups ?? [];
   const memberIds = [
@@ -876,22 +881,19 @@ export async function getChildItemsKitOverdueTotals(
   filters: ChildItemFilters,
   processId: string | null = null,
   today: string = todayISODate(),
+  schedule: OrderScheduleIndex = EMPTY_SCHEDULE_INDEX,
 ): Promise<KitOverdueTotals> {
-  const rpcFilters = await childItemRpcFilters(client, { ...filters, overdue: false }, processId);
-  const { data, error } = await client.rpc("get_child_items_kit_overdue_totals", {
-    ...rpcFilters,
-    p_today: today,
-  });
-  assertOk(error, "Não foi possível carregar os atrasados da Fábrica 1");
-
-  const totals = (data ?? {}) as unknown as {
-    records?: number | string;
-    qty?: number | string;
-    weight?: number | string;
-  };
-  return {
-    records: toNumber(totals.records ?? null) ?? 0,
-    qty: toNumber(totals.qty ?? null) ?? 0,
-    weight: roundWeight(toNumber(totals.weight ?? null) ?? 0),
-  };
+  const groups = await collectAllPages((page) =>
+    listChildItemGroups(
+      client,
+      { ...filters, overdue: false, processOverdue: false, page, pageSize: EXPORT_PAGE_SIZE },
+      processId,
+      today,
+      schedule,
+    ).then((result) => ({ rows: result.items, total: result.total })),
+  );
+  const processFiltered = filters.processOverdue
+    ? applyChildItemOverdueCuts(groups, schedule, { ...filters, overdue: false }, today)
+    : groups;
+  return summarizeKitOverdue(processFiltered, schedule, today);
 }

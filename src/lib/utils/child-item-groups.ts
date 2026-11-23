@@ -8,10 +8,10 @@ import type {
   OrderItemMaterial,
 } from "@/lib/types/order";
 import type { MpCellReceipt } from "@/lib/types/mp-receipt";
-import type { ProcessDefinition } from "@/lib/types/production";
+import type { OrderScheduleIndex, ProcessScheduleWindow } from "@/lib/types/scheduling";
 import { calculateTotalWeight, roundWeight } from "@/lib/utils/formatting";
 import { aggregateMpReceipts } from "@/lib/utils/mp-receipt";
-import { computeProcessSchedule, scheduleProcessesForItem, type ProcessWindow } from "@/lib/utils/process-schedule";
+import { windowsForOrder } from "@/lib/utils/sequenced-schedule";
 import { isProcessStartOverdue } from "@/lib/utils/production";
 
 /**
@@ -201,55 +201,44 @@ export function buildChildItemGroup(input: {
   };
 }
 
-/** Dados que o cálculo de janela precisa de cada processo do catálogo. */
-export type KitCatalogProcess = Pick<ProcessDefinition, "code" | "displayOrder" | "durationDays">;
-
 /**
- * Janela prevista do KIT numa linha agrupada da Fábrica 1 — MESMA receita da
- * célula da tabela (`scheduleByItem` em `components/fabrica1/Fabrica1Table`):
- * dias úteis contados de TRÁS para FRENTE a partir da entrega do grupo, com
- * os status AGREGADOS do grupo (`NAO_APLICAVEL` não ocupa dias nem ganha
- * janela). Devolve null quando não há entrega válida ou o grupo não tem KIT
- * aplicável.
+ * Janela prevista do KIT no sequenciamento da OF.
+ *
+ * O sequenciamento é por OF: todos os itens/grupos da mesma OF
+ * compartilham a mesma janela por processo.
  */
 export function kitWindowForGroup(
-  item: Pick<ChildItemGroup, "deliveryDate" | "processes">,
-  catalog: readonly KitCatalogProcess[],
-): ProcessWindow | null {
-  const statusByCode = new Map(item.processes.map((process) => [process.code, process.status] as const));
-  return (
-    computeProcessSchedule(
-      item.deliveryDate,
-      scheduleProcessesForItem(catalog, (code) => statusByCode.get(code)),
-    ).get(KIT_PROCESS_CODE) ?? null
-  );
+  item: Pick<ChildItemGroup, "orderId">,
+  schedule: OrderScheduleIndex,
+): ProcessScheduleWindow | null {
+  return windowsForOrder(schedule, item.orderId)[KIT_PROCESS_CODE] ?? null;
 }
 
 /**
  * REGRA DE ATRASO DA FÁBRICA 1 — card "Atrasados" desta tela:
  * o grupo está atrasado quando a data da coluna KIT (o INÍCIO previsto da
- * janela, o mesmo valor exibido/destacado em vermelho na célula) é ANTERIOR
- * à data de referência.
+ * janela do sequenciamento da OF, o mesmo valor exibido/destacado em
+ * vermelho na célula) é ANTERIOR à data de referência.
  *
  * Fora da conta:
  *  - KIT `CONCLUIDO` (`isProcessStartOverdue` nunca marca processo concluído —
  *    item finalizado não fica eternamente "atrasado");
  *  - KIT `NAO_APLICAVEL`/ausente no grupo;
- *  - sem janela calculável (grupo sem data de entrega).
+ *  - sem janela no sequenciamento (OF fora da fila/sem capacidade).
  *
  * ATENÇÃO: isto é a regra NOVA do card; a regra global de atraso da gestão
  * (`isItemOverdue` — entrega da OF vencida + EXPEDIÇÃO pendente) continua
  * valendo para as demais telas.
  */
 export function isChildItemKitOverdue(
-  item: Pick<ChildItemGroup, "deliveryDate" | "processes">,
-  catalog: readonly KitCatalogProcess[],
+  item: Pick<ChildItemGroup, "orderId" | "processes">,
+  schedule: OrderScheduleIndex,
   today: string,
 ): boolean {
   const kit = item.processes.find((process) => process.code === KIT_PROCESS_CODE);
   if (!kit || kit.status === "NAO_APLICAVEL") return false;
 
-  const window = kitWindowForGroup(item, catalog);
+  const window = kitWindowForGroup(item, schedule);
   if (!window) return false;
 
   return isProcessStartOverdue(window.start, kit.status, today);
@@ -267,22 +256,18 @@ export function isChildItemKitOverdue(
  *    QUALQUER etapa editável do grupo (funil do grupo) — o MP fica de fora
  *    nele, porque a coluna MP desta tela mostra o status do PAI;
  *  - fora da conta: processo `NAO_APLICAVEL`/ausente no grupo, processo já
- *    `CONCLUIDO` e grupo sem data de entrega (sem janela calculável) — mesma
+ *    `CONCLUIDO` e grupo sem janela no Sequenciamento — mesma
  *    convenção de `isChildItemKitOverdue`/`isProcessStartOverdue`.
  *
  * Não considera feriados (o cálculo da janela já é em dias úteis).
  */
 export function isGroupProcessOverdue(
-  item: Pick<ChildItemGroup, "deliveryDate" | "processes">,
-  catalog: readonly KitCatalogProcess[],
+  item: Pick<ChildItemGroup, "orderId" | "processes">,
+  schedule: OrderScheduleIndex,
   code: string | "ALL",
   today: string,
 ): boolean {
-  const statusByCode = new Map(item.processes.map((process) => [process.code, process.status] as const));
-  const schedule = computeProcessSchedule(
-    item.deliveryDate,
-    scheduleProcessesForItem(catalog, (candidate) => statusByCode.get(candidate)),
-  );
+  const windows = windowsForOrder(schedule, item.orderId);
 
   const targets =
     code === "ALL"
@@ -290,9 +275,16 @@ export function isGroupProcessOverdue(
       : [code];
 
   for (const target of targets) {
-    const window = schedule.get(target);
-    const status = statusByCode.get(target);
-    if (window && status && isProcessStartOverdue(window.start, status, today)) return true;
+    const window = windows[target];
+    const status = item.processes.find((process) => process.code === target)?.status;
+    if (
+      window &&
+      status &&
+      status !== "NAO_APLICAVEL" &&
+      isProcessStartOverdue(window.start, status, today)
+    ) {
+      return true;
+    }
   }
   return false;
 }
@@ -311,10 +303,10 @@ export interface KitOverdueTotals {
  */
 export function kitOverdueGroups(
   items: readonly ChildItemGroup[],
-  catalog: readonly KitCatalogProcess[],
+  schedule: OrderScheduleIndex,
   today: string,
 ): ChildItemGroup[] {
-  return items.filter((item) => isChildItemKitOverdue(item, catalog, today));
+  return items.filter((item) => isChildItemKitOverdue(item, schedule, today));
 }
 
 /**
@@ -325,11 +317,11 @@ export function kitOverdueGroups(
  */
 export function summarizeKitOverdue(
   items: readonly ChildItemGroup[],
-  catalog: readonly KitCatalogProcess[],
+  schedule: OrderScheduleIndex,
   today: string,
 ): KitOverdueTotals {
   const totals: KitOverdueTotals = { records: 0, qty: 0, weight: 0 };
-  for (const item of kitOverdueGroups(items, catalog, today)) {
+  for (const item of kitOverdueGroups(items, schedule, today)) {
     totals.records += 1;
     totals.qty += item.quantity;
     totals.weight += item.weightTotal ?? 0;
@@ -346,20 +338,20 @@ export function summarizeKitOverdue(
  *     pelo INÍCIO previsto da janela do processo escolhido (ou de qualquer
  *     etapa editável, no filtro do grupo).
  *
- * Nenhum dos dois existe no banco (as janelas são calculadas em dias úteis
- * a partir da entrega), então a varredura do conjunto filtrado inteiro vem
+ * Nenhum dos dois existe no banco (as janelas são acumuladas pelo
+ * Sequenciamento), então a varredura do conjunto filtrado inteiro vem
  * antes — é a MESMA técnica do card do KIT e da Fábrica 2 (item 051).
  * A tela, os cards e o .xlsx falam a mesma língua porque os três passam por
  * aqui.
  */
 export function applyChildItemOverdueCuts(
   groups: readonly ChildItemGroup[],
-  catalog: readonly KitCatalogProcess[],
+  schedule: OrderScheduleIndex,
   filters: Pick<ChildItemFilters, "overdue" | "processCode" | "processOverdue">,
   today: string,
 ): ChildItemGroup[] {
   const processCut: ChildItemGroup[] = filters.processOverdue
-    ? groups.filter((group) => isGroupProcessOverdue(group, catalog, filters.processCode, today))
+    ? groups.filter((group) => isGroupProcessOverdue(group, schedule, filters.processCode, today))
     : [...groups];
-  return filters.overdue ? kitOverdueGroups(processCut, catalog, today) : processCut;
+  return filters.overdue ? kitOverdueGroups(processCut, schedule, today) : processCut;
 }

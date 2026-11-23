@@ -1,4 +1,8 @@
-import type { ScheduledOrderRow, SchedulingOrderRow } from "@/lib/types/scheduling";
+import type {
+  ScheduledWindow,
+  SchedulingLoadRow,
+  SchedulingOrderRow,
+} from "@/lib/types/scheduling";
 import { addBusinessDays, isValidISODate } from "@/lib/utils/dates";
 
 /**
@@ -10,11 +14,15 @@ import { addBusinessDays, isValidISODate } from "@/lib/utils/dates";
  * `ceil(acumulado + carga) - 1`, contados a partir da data de início.
  * OFs sem peso/capacidade não ocupam dias e ficam sinalizadas — nunca
  * recebem um valor padrão silencioso.
+ *
+ * Genérica na linha de entrada: a tela de Sequenciamento usa as linhas
+ * completas (`ScheduledOrderRow`) e o índice de datas das demais telas usa
+ * só a carga por OF (`ScheduleQueueRow`).
  */
-export function computeScheduleRows(
-  rows: readonly SchedulingOrderRow[],
+export function computeScheduleRows<T extends SchedulingLoadRow>(
+  rows: readonly T[],
   anchorDate: string,
-): ScheduledOrderRow[] {
+): Array<T & ScheduledWindow> {
   let cumulativeDays = 0;
 
   return rows.map((row) => {

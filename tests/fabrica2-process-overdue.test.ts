@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProcessCell, ProductionResult, ProductionRow, ProcessDefinition } from "@/lib/types/production";
+import type { OrderScheduleIndex } from "@/lib/types/scheduling";
 import { parseProductionFilters } from "@/lib/utils/filters";
 import { isProcessOverdue } from "@/lib/utils/production";
 
@@ -24,6 +25,32 @@ const { getProductionRowsMock, getActiveProcessesMock } = vi.hoisted(() => ({
   getActiveProcessesMock: vi.fn(),
 }));
 
+const SCHEDULE: OrderScheduleIndex = {
+  windowsByOrder: {
+    atraso: {
+      ACAB: { start: "2020-01-01", end: "2020-01-01" },
+      QUALITY: { start: "2020-01-01", end: "2020-01-01" },
+      EXP: { start: "2020-01-01", end: "2020-01-01" },
+    },
+    "qual-concluido": {
+      ACAB: { start: "2020-01-01", end: "2020-01-01" },
+      QUALITY: { start: "2020-01-01", end: "2020-01-01" },
+      EXP: { start: "2020-01-01", end: "2020-01-01" },
+    },
+    "acab-ok": {
+      ACAB: { start: "2020-01-01", end: "2020-01-01" },
+      QUALITY: { start: "2020-01-01", end: "2020-01-01" },
+      EXP: { start: "2020-01-01", end: "2020-01-01" },
+    },
+    futuro: {
+      ACAB: { start: "2099-01-01", end: "2099-01-01" },
+      QUALITY: { start: "2099-01-01", end: "2099-01-01" },
+      EXP: { start: "2099-01-01", end: "2099-01-01" },
+    },
+  },
+  expeditionByOrder: {},
+};
+
 vi.mock("@/lib/repositories/production.repository", () => ({
   getActiveProcesses: getActiveProcessesMock,
   getProductionRows: getProductionRowsMock,
@@ -41,6 +68,33 @@ vi.mock("@/lib/repositories/order-items.repository", () => ({
   getItemAggregate: vi.fn(),
   getItemProcessChain: vi.fn(),
   refreshOrderStatuses: vi.fn(),
+}));
+vi.mock("@/lib/services/scheduling.service", () => ({
+  getScheduleIndex: vi.fn().mockResolvedValue({
+    windowsByOrder: {
+      atraso: {
+        ACAB: { start: "2020-01-01", end: "2020-01-01" },
+        QUALITY: { start: "2020-01-01", end: "2020-01-01" },
+        EXP: { start: "2020-01-01", end: "2020-01-01" },
+      },
+      "qual-concluido": {
+        ACAB: { start: "2020-01-01", end: "2020-01-01" },
+        QUALITY: { start: "2020-01-01", end: "2020-01-01" },
+        EXP: { start: "2020-01-01", end: "2020-01-01" },
+      },
+      "acab-ok": {
+        ACAB: { start: "2020-01-01", end: "2020-01-01" },
+        QUALITY: { start: "2020-01-01", end: "2020-01-01" },
+        EXP: { start: "2020-01-01", end: "2020-01-01" },
+      },
+      futuro: {
+        ACAB: { start: "2099-01-01", end: "2099-01-01" },
+        QUALITY: { start: "2099-01-01", end: "2099-01-01" },
+        EXP: { start: "2099-01-01", end: "2099-01-01" },
+      },
+    },
+    expeditionByOrder: {},
+  }),
 }));
 
 const { getProductionPage } = await import("@/lib/services/production.service");
@@ -95,7 +149,7 @@ function row({
 
   return {
     orderItemId: id,
-    orderId: "order",
+    orderId: id,
     orderCode: "OF TT10",
     orderType: "OF",
     customerName: "ACME",
@@ -156,27 +210,27 @@ beforeEach(() => {
 
 describe("isProcessOverdue — regra do filtro 'Atrasados' (051)", () => {
   it("marca o processo cujo início previsto já passou e que não concluiu", () => {
-    expect(isProcessOverdue(atraso, CATALOG, "QUALITY", TODAY)).toBe(true);
-    expect(isProcessOverdue(atraso, CATALOG, "ACAB", TODAY)).toBe(true);
+    expect(isProcessOverdue(atraso, SCHEDULE, "QUALITY", TODAY)).toBe(true);
+    expect(isProcessOverdue(atraso, SCHEDULE, "ACAB", TODAY)).toBe(true);
   });
 
   it("não marca processo concluído, não aplicável, ausente ou sem entrega", () => {
-    expect(isProcessOverdue(qualConcluido, CATALOG, "QUALITY", TODAY)).toBe(false);
+    expect(isProcessOverdue(qualConcluido, SCHEDULE, "QUALITY", TODAY)).toBe(false);
     expect(
-      isProcessOverdue(row({ id: "na", deliveryDate: "2020-01-10", qual: "NAO_APLICAVEL" }), CATALOG, "QUALITY", TODAY),
+      isProcessOverdue(row({ id: "na", deliveryDate: "2020-01-10", qual: "NAO_APLICAVEL" }), SCHEDULE, "QUALITY", TODAY),
     ).toBe(false);
     expect(
-      isProcessOverdue(row({ id: "sem-celula", deliveryDate: "2020-01-10", qual: null }), CATALOG, "QUALITY", TODAY),
+      isProcessOverdue(row({ id: "sem-celula", deliveryDate: "2020-01-10", qual: null }), SCHEDULE, "QUALITY", TODAY),
     ).toBe(false);
-    expect(isProcessOverdue(row({ id: "sem-entrega", deliveryDate: null }), CATALOG, "QUALITY", TODAY)).toBe(false);
-    expect(isProcessOverdue(futuro, CATALOG, "QUALITY", TODAY)).toBe(false);
+    expect(isProcessOverdue(row({ id: "sem-entrega", deliveryDate: null }), SCHEDULE, "QUALITY", TODAY)).toBe(false);
+    expect(isProcessOverdue(futuro, SCHEDULE, "QUALITY", TODAY)).toBe(false);
   });
 
   it("com 'ALL' vale qualquer processo aplicável do item", () => {
     // QUALITY concluído, mas ACAB/EXP ainda vencidos → atrasado no grupo.
-    expect(isProcessOverdue(qualConcluido, CATALOG, "ALL", TODAY)).toBe(true);
+    expect(isProcessOverdue(qualConcluido, SCHEDULE, "ALL", TODAY)).toBe(true);
     // Entrega futura: nada venceu.
-    expect(isProcessOverdue(futuro, CATALOG, "ALL", TODAY)).toBe(false);
+    expect(isProcessOverdue(futuro, SCHEDULE, "ALL", TODAY)).toBe(false);
     // Só processos concluídos/não aplicáveis: nenhum atraso.
     expect(
       isProcessOverdue(
@@ -187,7 +241,7 @@ describe("isProcessOverdue — regra do filtro 'Atrasados' (051)", () => {
           qual: "CONCLUIDO",
           exp: "CONCLUIDO",
         }),
-        CATALOG,
+        SCHEDULE,
         "ALL",
         TODAY,
       ),

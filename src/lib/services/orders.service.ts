@@ -24,48 +24,50 @@ import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import { firstZodMessage } from "@/lib/validators/common";
 import { deriveOrderItemStatus, deriveOrderStatus } from "@/lib/utils/production";
 import { calculateTotalWeight } from "@/lib/utils/formatting";
-import { getOrdersProcessRows } from "@/lib/repositories/orders.repository";
-import { ordersProposalDates } from "@/lib/utils/proposal-date";
+import { getScheduleIndex } from "@/lib/services/scheduling.service";
+import type { OrderScheduleIndex } from "@/lib/types/scheduling";
+import { expeditionForOrder } from "@/lib/utils/sequenced-schedule";
 
-/** Página de pedidos + a data de proposta (DP) de cada linha. */
+/** Página de pedidos + a data de expedição (DP) de cada linha. */
 export interface OrdersPage extends OrderListResult {
   /**
-   * DP por pedido (ISO `AAAA-MM-DD` ou null = célula "—"): quando a MP do
-   * pedido ainda não foi entregue, hoje + Σ das durações dos processos
-   * aplicáveis (sem o MP) em dias úteis. Pedido sem linha de processo não
-   * entra no mapa (trate como null).
+   * DP por pedido (ISO `AAAA-MM-DD` ou null = célula "—"): a data de
+   * expedição vinda do sequenciamento (fim da janela do EXP; conclusão
+   * efetiva quando a OF já foi expedida).
    */
   proposalByOrder: Record<string, string | null>;
-  /** Data de referência (AAAA-MM-DD) usada no cálculo da DP. */
+  /** Data de referência (AAAA-MM-DD) usada na página. */
   today: string;
 }
 
 /**
- * DP dos pedidos informados — usada pela página de Pedidos (só a página
- * visível) e pela exportação (o conjunto inteiro), para as duas lerem a
- * mesma regra. Busca os processos em lotes e agrega no cliente.
+ * DP dos pedidos informados — a MESMA data de expedição do sequenciamento
+ * (índice compartilhado com a Gestão de OF). Usada pela página de Pedidos
+ * (só a página visível) e pela exportação (o conjunto inteiro).
  */
 export async function getOrdersProposal(
   client: SupabaseServer,
   orderIds: readonly string[],
-  today: string = todayISODate(),
 ): Promise<Record<string, string | null>> {
   if (orderIds.length === 0) return {};
-  const [catalog, processRows] = await Promise.all([
-    getActiveProcesses(client),
-    getOrdersProcessRows(client, orderIds),
-  ]);
-  return ordersProposalDates(processRows, catalog, today);
+  const schedule = await getScheduleIndex(client);
+  const result: Record<string, string | null> = {};
+  for (const orderId of orderIds) {
+    result[orderId] = expeditionForOrder(schedule, orderId);
+  }
+  return result;
 }
 
 export async function getOrdersPage(client: SupabaseServer, filters: OrderFilters): Promise<OrdersPage> {
-  const ordersPage = await listOrders(client, filters);
   const today = todayISODate();
-  const proposalByOrder = await getOrdersProposal(
-    client,
-    ordersPage.orders.map((order) => order.id),
-    today,
-  );
+  const [ordersPage, schedule] = await Promise.all([
+    listOrders(client, filters),
+    getScheduleIndex(client),
+  ]);
+  const proposalByOrder: Record<string, string | null> = {};
+  for (const order of ordersPage.orders) {
+    proposalByOrder[order.id] = expeditionForOrder(schedule, order.id);
+  }
   return { ...ordersPage, proposalByOrder, today };
 }
 
@@ -79,6 +81,8 @@ export interface ChildItemPage extends ChildItemGroupsResult {
    * conjunto filtrado, sem carregar as demais páginas para calculá-los.
    */
   kitOverdue: KitOverdueTotals | null;
+  /** Datas previstas por OF, vindas do sequenciamento (093). */
+  schedule: OrderScheduleIndex;
 }
 
 /**
@@ -87,13 +91,16 @@ export interface ChildItemPage extends ChildItemGroupsResult {
  * do filtro para o id da linha de processo (filtro no banco).
  *
  * A listagem normal usa as RPCs paginadas existentes. Os recortes de atraso
- * passam pela RPC de banco; o resumo do KIT sem recorte fica sob demanda.
+ * usam as janelas do Sequenciamento em memória; o resumo do KIT fica sob demanda.
  */
 export async function getChildItemsPage(
   client: SupabaseServer,
   filters: ChildItemFilters,
 ): Promise<ChildItemPage> {
-  const processes = await getActiveProcesses(client);
+  const [processes, schedule] = await Promise.all([
+    getActiveProcesses(client),
+    getScheduleIndex(client),
+  ]);
   const today = todayISODate();
 
   const processId =
@@ -111,11 +118,12 @@ export async function getChildItemsPage(
       processes,
       today,
       kitOverdue: { records: 0, qty: 0, weight: 0 },
+      schedule,
     };
   }
 
-  const result = await listChildItemGroups(client, filters, processId, today);
-  return { ...result, processes, today };
+  const result = await listChildItemGroups(client, filters, processId, today, schedule);
+  return { ...result, processes, today, schedule };
 }
 
 export async function getOrder(client: SupabaseServer, orderId: string): Promise<OrderDetails | null> {

@@ -118,9 +118,9 @@ describe("cabeçalho da tabela de Pedidos", () => {
     expect(markup).toContain('aria-label="Filtrar por situação do pedido"');
     // Coluna informativa: Itens não tem filtro (decisão de escopo 038).
     expect(markup).toContain("Itens");
-    // DP (data de proposta): informativa, sem filtro — leitor de tela
+    // DP (data de expedição): informativa, sem filtro — leitor de tela
     // enxerga o nome completo (o visível é a abreviação).
     expect(markup).toContain("DP");
-    expect(markup).toContain("Data de proposta");
+    expect(markup).toContain("Data de expedição");
   });
 });

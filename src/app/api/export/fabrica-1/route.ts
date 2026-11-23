@@ -5,6 +5,7 @@ import { EXPORT_PAGE_SIZE, collectAllPages, exportFileName, searchParamsRecord }
 import { workbookResponse } from "@/lib/export/workbook";
 import { listChildItemGroups } from "@/lib/repositories/order-items.repository";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
+import { getScheduleIndex } from "@/lib/services/scheduling.service";
 import { createClient } from "@/lib/supabase/server";
 import { todayISODate } from "@/lib/utils/dates";
 import { parseChildItemFilters } from "@/lib/utils/filters";
@@ -32,7 +33,10 @@ export async function GET(request: Request) {
     const filters = parseChildItemFilters(searchParamsRecord(request));
     const client = await createClient();
 
-    const processes = await getActiveProcesses(client);
+    const [processes, schedule] = await Promise.all([
+      getActiveProcesses(client),
+      getScheduleIndex(client),
+    ]);
     const processId =
       filters.processCode === "ALL"
         ? null
@@ -48,9 +52,10 @@ export async function GET(request: Request) {
               { ...filters, page, pageSize: EXPORT_PAGE_SIZE },
               processId,
               today,
+              schedule,
             ).then((result) => ({ rows: result.items, total: result.total })),
           );
-    return workbookResponse(exportFileName("fabrica-1"), fabrica1Sheet(groups, processes, today));
+    return workbookResponse(exportFileName("fabrica-1"), fabrica1Sheet(groups, processes, schedule));
   } catch (error) {
     return Response.json(
       { error: errorMessage(error, "Não foi possível exportar a lista.") },

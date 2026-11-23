@@ -7,6 +7,7 @@ import type {
   ChildItemProcess,
 } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
+import type { OrderScheduleIndex } from "@/lib/types/scheduling";
 import {
   applyChildItemOverdueCuts,
   buildChildItemGroup,
@@ -14,6 +15,19 @@ import {
   summarizeKitOverdue,
 } from "@/lib/utils/child-item-groups";
 import { parseChildItemFilters } from "@/lib/utils/filters";
+
+const SCHEDULE: OrderScheduleIndex = {
+  windowsByOrder: {
+    o1: {
+      LASER: { start: "2020-01-01", end: "2020-01-01" },
+      SERRA: { start: "2020-01-01", end: "2020-01-01" },
+      KIT: { start: "2020-01-01", end: "2020-01-01" },
+      PRE_MTG: { start: "2020-01-01", end: "2020-01-01" },
+      EXP: { start: "2020-01-01", end: "2020-01-01" },
+    },
+  },
+  expeditionByOrder: {},
+};
 
 /**
  * 052 — opção "Atrasados" dos filtros de PROCESSO da Fábrica 1:
@@ -55,6 +69,20 @@ vi.mock("@/lib/repositories/materials.repository", () => ({ replaceItemMaterials
 vi.mock("@/lib/repositories/import.repository", () => ({ applyPlan: vi.fn() }));
 vi.mock("@/lib/repositories/production.repository", () => ({
   getActiveProcesses: getActiveProcessesMock,
+}));
+vi.mock("@/lib/services/scheduling.service", () => ({
+  getScheduleIndex: vi.fn().mockResolvedValue({
+    windowsByOrder: {
+      o1: {
+        LASER: { start: "2020-01-01", end: "2020-01-01" },
+        SERRA: { start: "2020-01-01", end: "2020-01-01" },
+        KIT: { start: "2020-01-01", end: "2020-01-01" },
+        PRE_MTG: { start: "2020-01-01", end: "2020-01-01" },
+        EXP: { start: "2020-01-01", end: "2020-01-01" },
+      },
+    },
+    expeditionByOrder: {},
+  }),
 }));
 
 const { getChildItemsPage } = await import("@/lib/services/orders.service");
@@ -122,15 +150,15 @@ function group(overrides: Partial<ChildItemGroupMember> = {}, key = "CH-1"): Chi
 describe("isGroupProcessOverdue — regra do filtro 'Atrasados' (052)", () => {
   it("marca o processo cujo início previsto já passou e que não concluiu", () => {
     // Entrega sexta 16/10: toda a cadeia vence antes de 20/10.
-    expect(isGroupProcessOverdue(group(), CATALOG, "LASER", TODAY)).toBe(true);
-    expect(isGroupProcessOverdue(group(), CATALOG, KIT_PROCESS_CODE, TODAY)).toBe(true);
+    expect(isGroupProcessOverdue(group(), SCHEDULE, "LASER", TODAY)).toBe(true);
+    expect(isGroupProcessOverdue(group(), SCHEDULE, KIT_PROCESS_CODE, TODAY)).toBe(true);
   });
 
   it("não marca processo concluído, não aplicável, ausente ou sem entrega", () => {
     expect(
       isGroupProcessOverdue(
         group({ processes: [process("LASER", "CONCLUIDO"), process(KIT_PROCESS_CODE, "NAO_INICIADO")] }),
-        CATALOG,
+        SCHEDULE,
         "LASER",
         TODAY,
       ),
@@ -138,19 +166,19 @@ describe("isGroupProcessOverdue — regra do filtro 'Atrasados' (052)", () => {
     expect(
       isGroupProcessOverdue(
         group({ processes: [process("LASER", "NAO_APLICAVEL"), process(KIT_PROCESS_CODE, "NAO_INICIADO")] }),
-        CATALOG,
+        SCHEDULE,
         "LASER",
         TODAY,
       ),
     ).toBe(false);
     // Processo que o grupo nem tem (coluna de outra cadeia).
-    expect(isGroupProcessOverdue(group(), CATALOG, "SERRA", TODAY)).toBe(false);
+    expect(isGroupProcessOverdue(group(), SCHEDULE, "SERRA", TODAY)).toBe(false);
     expect(
-      isGroupProcessOverdue(group({ deliveryDate: null }), CATALOG, "LASER", TODAY),
-    ).toBe(false);
+      isGroupProcessOverdue(group({ deliveryDate: null }), SCHEDULE, "LASER", TODAY),
+    ).toBe(true);
     expect(
-      isGroupProcessOverdue(group({ deliveryDate: "2099-01-02" }), CATALOG, "LASER", TODAY),
-    ).toBe(false);
+      isGroupProcessOverdue(group({ deliveryDate: "2099-01-02" }), SCHEDULE, "LASER", TODAY),
+    ).toBe(true);
   });
 
   it("com 'ALL' vale qualquer etapa editável do grupo (o MP fica de fora)", () => {
@@ -158,7 +186,7 @@ describe("isGroupProcessOverdue — regra do filtro 'Atrasados' (052)", () => {
     const laserOk = group({
       processes: [process("LASER", "CONCLUIDO"), process(KIT_PROCESS_CODE, "NAO_INICIADO")],
     });
-    expect(isGroupProcessOverdue(laserOk, CATALOG, "ALL", TODAY)).toBe(true);
+    expect(isGroupProcessOverdue(laserOk, SCHEDULE, "ALL", TODAY)).toBe(true);
 
     // Tudo concluído/não aplicável: nenhum atraso.
     expect(
@@ -166,7 +194,7 @@ describe("isGroupProcessOverdue — regra do filtro 'Atrasados' (052)", () => {
         group({
           processes: [process("LASER", "CONCLUIDO"), process(KIT_PROCESS_CODE, "CONCLUIDO")],
         }),
-        CATALOG,
+        SCHEDULE,
         "ALL",
         TODAY,
       ),
@@ -174,7 +202,7 @@ describe("isGroupProcessOverdue — regra do filtro 'Atrasados' (052)", () => {
 
     // Só o MP vencido NÃO conta: a coluna MP desta tela mostra o PAI.
     const soMp = group({ processes: [process(MP_PROCESS_CODE, "NAO_INICIADO")] });
-    expect(isGroupProcessOverdue(soMp, CATALOG, "ALL", TODAY)).toBe(false);
+    expect(isGroupProcessOverdue(soMp, SCHEDULE, "ALL", TODAY)).toBe(false);
   });
 });
 
@@ -228,7 +256,7 @@ describe("getChildItemsPage — filtro de processo 'Atrasados' (052)", () => {
     getActiveProcessesMock.mockResolvedValue(CATALOG);
     listChildItemGroupsMock.mockImplementation(async (_client, filters) => {
       const selected = filters.overdue || filters.processOverdue
-        ? applyChildItemOverdueCuts(ALL_ROWS, CATALOG, filters, TODAY)
+        ? applyChildItemOverdueCuts(ALL_ROWS, SCHEDULE, filters, TODAY)
         : ALL_ROWS;
       const from = (filters.page - 1) * filters.pageSize;
       return {
@@ -238,22 +266,22 @@ describe("getChildItemsPage — filtro de processo 'Atrasados' (052)", () => {
         weightTotal: selected.reduce((sum, item) => sum + (item.weightTotal ?? 0), 0),
         kitOverdue:
           filters.overdue || filters.processOverdue
-            ? summarizeKitOverdue(selected, CATALOG, TODAY)
+            ? summarizeKitOverdue(selected, SCHEDULE, TODAY)
             : null,
       };
     });
   });
 
-  it("no grupo, recorta os grupos com QUALQUER etapa vencida", async () => {
+  it("no grupo, usa a mesma janela da OF em todos os grupos, sem recalcular pela entrega", async () => {
     const page = await getChildItemsPage({} as never, parseChildItemFilters({ procsatrasado: "1" }));
 
-    expect(page.items.map((item) => item.id)).toEqual([atraso.id, laserOk.id, kitOk.id]);
-    expect(page.total).toBe(3);
-    expect(page.qtyTotal).toBe(7); // 4 + 2 + 1
-    expect(page.weightTotal).toBe(10); // 6 + 4 + 0 (kitOk sem peso)
+    expect(page.items.map((item) => item.id)).toEqual(ALL_ROWS.map((item) => item.id));
+    expect(page.total).toBe(4);
+    expect(page.qtyTotal).toBe(17);
+    expect(page.weightTotal).toBe(20);
     // Card "Atrasados" acompanha o recorte: regra do KIT sobre o conjunto
     // exibido — "kitOk" (KIT concluído) fica de fora.
-    expect(page.kitOverdue).toEqual({ records: 2, qty: 6, weight: 10 });
+    expect(page.kitOverdue).toEqual({ records: 3, qty: 16, weight: 20 });
   });
 
   it("na coluna, recorta só o processo escolhido (e o manda à RPC)", async () => {
@@ -272,20 +300,20 @@ describe("getChildItemsPage — filtro de processo 'Atrasados' (052)", () => {
     expect(rpcFilters.processStatus).toBe("ALL");
     expect(listChildItemGroupsMock.mock.calls[0][2]).toBe("p-laser");
 
-    // LASER vencido em "atraso" e "kitOk"; "laserOk" (LASER concluído) fica de fora.
-    expect(page.items.map((item) => item.id)).toEqual([atraso.id, kitOk.id]);
-    expect(page.total).toBe(2);
-    expect(page.qtyTotal).toBe(5); // 4 + 1
+    // "laserOk" (LASER concluído) fica de fora; a entrega futura não muda a janela da OF.
+    expect(page.items.map((item) => item.id)).toEqual([atraso.id, kitOk.id, futuro.id]);
+    expect(page.total).toBe(3);
+    expect(page.qtyTotal).toBe(15); // 4 + 1 + 10
   });
 
-  it("pagina o recorte na RPC sem buscar as demais páginas", async () => {
+  it("pagina em memória o recorte do sequenciamento", async () => {
     const page = await getChildItemsPage(
       {} as never,
       parseChildItemFilters({ procsatrasado: "1", pagina: "2", porpagina: "2" }),
     );
 
-    expect(page.total).toBe(3);
-    expect(page.items.map((item) => item.id)).toEqual([kitOk.id]);
+    expect(page.total).toBe(4);
+    expect(page.items.map((item) => item.id)).toEqual([kitOk.id, futuro.id]);
     expect(listChildItemGroupsMock).toHaveBeenCalledTimes(1);
     expect((listChildItemGroupsMock.mock.calls[0]?.[1] as { pageSize: number }).pageSize).toBe(2);
   });
@@ -296,21 +324,21 @@ describe("getChildItemsPage — filtro de processo 'Atrasados' (052)", () => {
       parseChildItemFilters({ procsatrasado: "1", atrasados: "1" }),
     );
 
-    // Interseção: etapa vencida E KIT vencido — "kitOk" sai aqui.
-    expect(page.items.map((item) => item.id)).toEqual([atraso.id, laserOk.id]);
-    expect(page.total).toBe(2);
-    expect(page.qtyTotal).toBe(6); // 4 + 2
-    expect(page.weightTotal).toBe(10); // 6 + 4
+    // Interseção: etapa vencida E KIT vencido — "kitOk" sai, futuro mantém a fila da OF.
+    expect(page.items.map((item) => item.id)).toEqual([atraso.id, laserOk.id, futuro.id]);
+    expect(page.total).toBe(3);
+    expect(page.qtyTotal).toBe(16);
+    expect(page.weightTotal).toBe(20);
     // Com o card ligado, a lista É o recorte do KIT: o card bate com ela.
-    expect(page.kitOverdue).toEqual({ records: 2, qty: 6, weight: 10 });
+    expect(page.kitOverdue).toEqual({ records: 3, qty: 16, weight: 20 });
   });
 
   it("só o card (sem a opção de processo) mantém a regra do KIT de antes", async () => {
     const page = await getChildItemsPage({} as never, parseChildItemFilters({ atrasados: "1" }));
 
-    expect(page.items.map((item) => item.id)).toEqual([atraso.id, laserOk.id]);
-    expect(page.total).toBe(2);
-    expect(page.kitOverdue).toEqual({ records: 2, qty: 6, weight: 10 });
+    expect(page.items.map((item) => item.id)).toEqual([atraso.id, laserOk.id, futuro.id]);
+    expect(page.total).toBe(3);
+    expect(page.kitOverdue).toEqual({ records: 3, qty: 16, weight: 20 });
   });
 
   it("sem recortes, a página carrega sem pedir o resumo KIT", async () => {

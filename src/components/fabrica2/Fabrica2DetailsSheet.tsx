@@ -13,10 +13,11 @@ import {
   type ProcessStatus,
 } from "@/lib/constants/production";
 import type { ProcessDefinition, ProductionEvent } from "@/lib/types/production";
+import type { OrderScheduleIndex } from "@/lib/types/scheduling";
 import { formatDate, formatDateTime } from "@/lib/utils/dates";
 import { formatQuantity } from "@/lib/utils/formatting";
 import { allowedProcessStatuses } from "@/lib/utils/production";
-import { getProcessWindow } from "@/lib/utils/process-schedule";
+import { EMPTY_SCHEDULE_INDEX, windowsForOrder } from "@/lib/utils/sequenced-schedule";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +45,8 @@ import { ProcessStatusBadge } from "@/components/shared/StatusBadges";
 export interface Fabrica2ProcessSelection {
   productionProcessId: string;
   orderItemId: string;
+  /** OF da linha — usada para ler a janela no sequenciamento. */
+  orderId?: string;
   orderCode: string;
   itemDescription: string;
   processName: string;
@@ -59,7 +62,7 @@ export interface Fabrica2Capabilities {
   canUpdateStatus: boolean;
   canEditQuantities: boolean;
   canViewHistory: boolean;
-  /** Edição manual da data de entrega (orders.edit) — recalcula as previsões. */
+  /** Edição manual da data de entrega (orders.edit). */
   canEditDelivery: boolean;
 }
 
@@ -67,6 +70,8 @@ interface Fabrica2DetailsSheetProps {
   selection: Fabrica2ProcessSelection | null;
   /** Catálogo ativo — local/duração exibidos na folha. */
   processes: ProcessDefinition[];
+  /** Datas previstas por OF, vindas do sequenciamento (093). */
+  schedule?: OrderScheduleIndex;
   onOpenChange: (open: boolean) => void;
   capabilities: Fabrica2Capabilities;
 }
@@ -81,7 +86,13 @@ type HistoryState =
  * O formulário é remontado (key) a cada processo selecionado, então o estado
  * local nasce a partir das props — sem efeitos de sincronização.
  */
-export function Fabrica2DetailsSheet({ selection, processes, onOpenChange, capabilities }: Fabrica2DetailsSheetProps) {
+export function Fabrica2DetailsSheet({
+  selection,
+  processes,
+  schedule = EMPTY_SCHEDULE_INDEX,
+  onOpenChange,
+  capabilities,
+}: Fabrica2DetailsSheetProps) {
   return (
     <Sheet open={!!selection} onOpenChange={onOpenChange}>
       <SheetContent className="overflow-y-auto sm:max-w-xl">
@@ -90,6 +101,7 @@ export function Fabrica2DetailsSheet({ selection, processes, onOpenChange, capab
             key={selection.productionProcessId}
             selection={selection}
             processes={processes}
+            schedule={schedule}
             capabilities={capabilities}
             onClose={() => onOpenChange(false)}
           />
@@ -102,30 +114,31 @@ export function Fabrica2DetailsSheet({ selection, processes, onOpenChange, capab
 function ProcessForm({
   selection,
   processes,
+  schedule,
   capabilities,
   onClose,
 }: {
   selection: Fabrica2ProcessSelection;
   processes: ProcessDefinition[];
+  schedule: OrderScheduleIndex;
   capabilities: Fabrica2Capabilities;
   onClose: () => void;
 }) {
   const router = useRouter();
 
-  // Datas prévias deste processo: janela contada de trás para frente da entrega.
+  // Datas prévias deste processo: janela do sequenciamento da OF.
   const catalogEntry = processes.find((item) => item.code === selection.processCode);
-  const duration = catalogEntry?.durationDays ?? 1;
 
-  // Entrega editável na própria folha: a prévia usa o estado local (a
-  // janela recalcula ao digitar) e a gravação persiste o campo — depois
-  // disso o refresh recalcula as previsões de todos os processos. O valor
-  // gravado fica em estado próprio porque a seleção (props) não muda com
-  // a folha aberta.
+  // Entrega editável na própria folha. O Sequenciamento segue como fonte
+  // das janelas; o valor gravado fica em estado próprio porque a seleção
+  // (props) não muda com a folha aberta.
   const [deliveryDate, setDeliveryDate] = useState(selection.deliveryDate);
   const [savedDeliveryDate, setSavedDeliveryDate] = useState(selection.deliveryDate);
   const [savingDelivery, setSavingDelivery] = useState(false);
 
-  const plannedWindow = getProcessWindow(deliveryDate, processes, selection.processCode);
+  const plannedWindow = selection.orderId
+    ? windowsForOrder(schedule, selection.orderId)[selection.processCode] ?? null
+    : null;
   const deliveryDirty = deliveryDate !== savedDeliveryDate;
 
   const [status, setStatus] = useState<ProcessStatus>(selection.status);
@@ -251,14 +264,11 @@ function ProcessForm({
               <>
                 De <span className="font-medium tabular-nums">{formatDate(plannedWindow.start)}</span> a{" "}
                 <span className="font-medium tabular-nums">{formatDate(plannedWindow.end)}</span>
-                <span className="text-muted-foreground">
-                  {" "}
-                  ({duration} {duration === 1 ? "dia útil" : "dias úteis"})
-                </span>
+                <span className="text-muted-foreground"> (sequenciamento da OF)</span>
               </>
             ) : (
               <span className="text-muted-foreground">
-                Sem data de entrega — não há como calcular as datas.
+                Sem janela no sequenciamento — a OF não está na fila deste processo.
               </span>
             )}
           </p>

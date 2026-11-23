@@ -30,6 +30,7 @@ import type {
   ProcessDefinition,
   ProductionOrderRow,
 } from "@/lib/types/production";
+import type { OrderScheduleIndex } from "@/lib/types/scheduling";
 
 /**
  * Catálogo com MP na frente da cadeia (displayOrder 5). Entrega 10/10/2026
@@ -91,6 +92,14 @@ function markup(mp: OrderProcessCell): string {
       filters: parseProductionFilters({}),
       capabilities: { canUpdateStatus: true, canEditDelivery: false },
       today: TODAY,
+      schedule: {
+        windowsByOrder: {
+          "order-1": {
+            MP: { start: "2026-10-05", end: "2026-10-05" },
+          },
+        },
+        expeditionByOrder: { "order-1": "2026-10-09" },
+      } satisfies OrderScheduleIndex,
     }),
   );
 }
@@ -118,6 +127,12 @@ function visibleDay(html: string, day: string): boolean {
 }
 
 describe("Gestão de OF — coluna MP com a data prevista e a data efetiva", () => {
+  it("DP informa Data de expedição e não oferece ordenação", () => {
+    const html = markup(doneCell());
+    expect(html).toContain("Data de expedição");
+    expect(html).not.toContain("proposal_date");
+  });
+
   it("mostra a data prevista junto da data efetiva do recebimento", () => {
     const html = markup(receivedMp);
 

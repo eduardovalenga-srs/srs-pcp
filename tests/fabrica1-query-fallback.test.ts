@@ -33,19 +33,12 @@ describe("Fábrica 1 — caminho rápido e resumo sob demanda", () => {
     expect(result.items).toEqual([]);
   });
 
-  it("só consulta a agregação KIT quando o resumo é solicitado", async () => {
-    const rpc = vi.fn(async (name: string, args?: Record<string, unknown>) => {
-      expect(name).toBe("get_child_items_kit_overdue_totals");
-      expect(args).toHaveProperty("p_today", "2026-11-12");
-      return {
-        data: {
-          records: 2,
-          qty: 8,
-          weight: 12.5,
-        },
-        error: null,
-      };
-    });
+  it("calcula o resumo KIT em memória usando as filas do Sequenciamento", async () => {
+    const rpc = vi.fn(async (name: string) =>
+      name === "get_child_item_groups"
+        ? { data: { total: 0, groups: [] }, error: null }
+        : { data: { qtyTotal: 0, weightTotal: 0 }, error: null },
+    );
 
     const totals = await getChildItemsKitOverdueTotals(
       clientWithRpc(rpc),
@@ -54,7 +47,10 @@ describe("Fábrica 1 — caminho rápido e resumo sob demanda", () => {
       "2026-11-12",
     );
 
-    expect(totals).toEqual({ records: 2, qty: 8, weight: 12.5 });
-    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(totals).toEqual({ records: 0, qty: 0, weight: 0 });
+    expect(rpc.mock.calls.map(([name]) => name).sort()).toEqual([
+      "get_child_item_groups",
+      "get_child_items_totals",
+    ]);
   });
 });

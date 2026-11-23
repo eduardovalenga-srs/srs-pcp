@@ -34,6 +34,14 @@ vi.mock("@/lib/repositories/order-items.repository", () => ({
   getItemProcessChain: vi.fn(),
   refreshOrderStatuses: vi.fn(),
 }));
+vi.mock("@/lib/services/scheduling.service", () => ({
+  getScheduleIndex: vi.fn().mockResolvedValue({
+    windowsByOrder: {
+      order: { ACAB: { start: "2020-01-01", end: "2020-01-02" } },
+    },
+    expeditionByOrder: {},
+  }),
+}));
 
 const { getFabrica2FilteredSummary, getProductionPage } = await import("@/lib/services/production.service");
 
@@ -104,7 +112,7 @@ const vencido2 = row({ orderItemId: "vencido-2", quantity: 2 });
 const vencido3 = row({ orderItemId: "vencido-3", quantity: 3, unitWeightKg: 2, exp: "CONCLUIDO" });
 /** ACAB já concluído: data passada é esperada, não conta como atraso. */
 const concluido = row({ orderItemId: "concluido", deliveryDate: "2020-01-10", acab: "CONCLUIDO" });
-/** Entrega futura: ACAB ainda não venceu. */
+/** Outra linha da mesma OF: compartilha a janela agendada, apesar da entrega futura. */
 const futuro = row({ orderItemId: "futuro", deliveryDate: "2099-01-02" });
 
 const ALL_ROWS = [vencido1, vencido2, vencido3, concluido, futuro];
@@ -141,7 +149,7 @@ describe("getProductionPage — card Atrasados pela data do ACAB", () => {
 
     const summary = await getFabrica2FilteredSummary({} as never, parseProductionFilters({}));
 
-    expect(summary.overdue).toEqual({ records: 3, qty: 9, weight: 12 });
+    expect(summary.overdue).toEqual({ records: 4, qty: 10, weight: 12 });
     expect(summary.acabamento).toEqual({ records: 1, qty: 1, weight: 0 });
     expect(getProductionRowsMock).toHaveBeenCalledTimes(1);
     expect(getProductionRowsMock.mock.calls[0][1]).toMatchObject({ page: 1, pageSize: 1000, delivery: "ALL" });
@@ -155,7 +163,7 @@ describe("getProductionPage — card Atrasados pela data do ACAB", () => {
       parseProductionFilters({ entrega: "OVERDUE" }),
     );
 
-    expect(summary.overdue).toEqual({ records: 3, qty: 9, weight: 12 });
+    expect(summary.overdue).toEqual({ records: 4, qty: 10, weight: 12 });
     expect(summary.acabamento).toEqual({ records: 0, qty: 0, weight: 0 });
   });
 
@@ -173,10 +181,10 @@ describe("getProductionPage — card Atrasados pela data do ACAB", () => {
       expect((call[1] as { delivery: string }).delivery).toBe("ALL");
     }
 
-    expect(page.total).toBe(3);
-    expect(page.rows).toEqual([vencido3]);
-    expect(page.overdue).toEqual({ records: 3, qty: 9, weight: 12 });
-    expect(page.qtyTotal).toBe(9);
+    expect(page.total).toBe(4);
+    expect(page.rows).toEqual([vencido3, futuro]);
+    expect(page.overdue).toEqual({ records: 4, qty: 10, weight: 12 });
+    expect(page.qtyTotal).toBe(10);
     expect(page.weightTotal).toBe(12);
     // Acabamento dentro do recorte: nenhum dos atrasados concluiu o ACAB.
     expect(page.acabamento).toEqual({ records: 0, qty: 0, weight: 0 });

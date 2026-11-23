@@ -7,13 +7,10 @@ import {
 } from "@/lib/constants/processes";
 import { PROCESS_STATUSES, type ProcessStatus } from "@/lib/constants/production";
 import type { ProductionRow } from "@/lib/types/production";
+import type { OrderScheduleIndex, ProcessScheduleWindow } from "@/lib/types/scheduling";
 import { todayISODate } from "@/lib/utils/dates";
 import { calculateTotalWeight, roundWeight } from "@/lib/utils/formatting";
-import {
-  computeProcessSchedule,
-  scheduleProcessesForItem,
-  type ProcessWindow,
-} from "@/lib/utils/process-schedule";
+import { windowsForOrder } from "@/lib/utils/sequenced-schedule";
 
 export interface ProcessState {
   processCode: string;
@@ -59,48 +56,13 @@ export function isProcessStartOverdue(
   return status !== "CONCLUIDO";
 }
 
-/** Dados que o cálculo da janela de um processo precisa do catálogo. */
-export interface ScheduleCatalogProcess {
-  code: string;
-  displayOrder: number;
-  durationDays: number;
-}
-
-/** Janelas previstas de cada processo do item (mesma receita da célula). */
-function scheduleOfItem(
-  item: Pick<ProductionRow, "deliveryDate" | "processes">,
-  catalog: readonly ScheduleCatalogProcess[],
-): Map<string, ProcessWindow> {
-  const statusByCode = new Map(
-    Object.entries(item.processes).map(([code, cell]) => [code, cell.status] as const),
-  );
-  return computeProcessSchedule(
-    item.deliveryDate,
-    scheduleProcessesForItem(catalog, (code) => statusByCode.get(code)),
-  );
-}
-
-/** Janela prevista de UM processo do item (null sem entrega/janela). */
+/** Janela prevista de UM processo do item, vinda do sequenciamento da OF. */
 export function processWindowForItem(
-  item: Pick<ProductionRow, "deliveryDate" | "processes">,
-  catalog: readonly ScheduleCatalogProcess[],
+  item: Pick<ProductionRow, "orderId">,
+  schedule: OrderScheduleIndex,
   code: string,
-): ProcessWindow | null {
-  return scheduleOfItem(item, catalog).get(code) ?? null;
-}
-
-/**
- * Janela prevista do ACAB de um item da Fábrica 2 — MESMA receita da célula
- * da tabela (`scheduleByItem` em `components/fabrica2/Fabrica2Table`): dias
- * úteis contados de trás para frente a partir da entrega, com o status do
- * processo NO ITEM (`NAO_APLICAVEL` não ocupa dias nem ganha janela).
- * Devolve null quando não há entrega válida ou o item não tem ACAB aplicável.
- */
-export function acabWindowForItem(
-  item: Pick<ProductionRow, "deliveryDate" | "processes">,
-  catalog: readonly ScheduleCatalogProcess[],
-): ProcessWindow | null {
-  return processWindowForItem(item, catalog, ACAB_PROCESS_CODE);
+): ProcessScheduleWindow | null {
+  return windowsForOrder(schedule, item.orderId)[code] ?? null;
 }
 
 /**
@@ -113,20 +75,20 @@ export function acabWindowForItem(
  *  - ACAB `CONCLUIDO` (item que já passou pelo acabamento não fica
  *    eternamente "atrasado" — mesma convenção da cor de data vencida);
  *  - ACAB `NAO_APLICAVEL`/ausente no item;
- *  - sem janela calculável (item sem data de entrega).
+ *  - sem janela calculável no Sequenciamento da OF.
  *
  * ATENÇÃO: a regra global de atraso por entrega (`isItemOverdue`) continua
  * valendo para as demais telas (gestão de OF e cores da coluna Entrega).
  */
 export function isAcabOverdue(
-  item: Pick<ProductionRow, "deliveryDate" | "processes">,
-  catalog: readonly ScheduleCatalogProcess[],
+  item: Pick<ProductionRow, "orderId" | "processes">,
+  schedule: OrderScheduleIndex,
   today: string,
 ): boolean {
   const acab = item.processes[ACAB_PROCESS_CODE];
   if (!acab || acab.status === "NAO_APLICAVEL") return false;
 
-  const window = acabWindowForItem(item, catalog);
+  const window = processWindowForItem(item, schedule, ACAB_PROCESS_CODE);
   if (!window) return false;
 
   return isProcessStartOverdue(window.start, acab.status, today);
@@ -141,26 +103,26 @@ export function isAcabOverdue(
  *  - `code` = código de UM processo (filtro da coluna) ou `"ALL"` para
  *    QUALQUER processo aplicável do catálogo (filtro do grupo "PROCESSOS");
  *  - fora da conta: processo `NAO_APLICAVEL`/ausente no item, processo já
- *    `CONCLUIDO` e item sem data de entrega (sem janela calculável) — mesma
+ *    `CONCLUIDO` e item sem janela no Sequenciamento — mesma
  *    convenção de `isAcabOverdue`/`isProcessStartOverdue`.
  *
  * Não considera feriados/fins de semana no MVP (o cálculo da janela já é em
  * dias úteis).
  */
 export function isProcessOverdue(
-  item: Pick<ProductionRow, "deliveryDate" | "processes">,
-  catalog: readonly ScheduleCatalogProcess[],
+  item: Pick<ProductionRow, "orderId" | "processes">,
+  schedule: OrderScheduleIndex,
   code: string | "ALL",
   today: string,
 ): boolean {
-  const schedule = scheduleOfItem(item, catalog);
-  const targets = code === "ALL" ? schedule.keys() : [code];
+  const windows = windowsForOrder(schedule, item.orderId);
+  const targets = code === "ALL" ? Object.keys(windows) : [code];
 
   for (const target of targets) {
-    const window = schedule.get(target);
+    const window = windows[target];
     if (!window) continue;
     const status = item.processes[target]?.status;
-    if (status && isProcessStartOverdue(window.start, status, today)) return true;
+    if (status && status !== "NAO_APLICAVEL" && isProcessStartOverdue(window.start, status, today)) return true;
   }
   return false;
 }
@@ -265,9 +227,9 @@ export function applicableProcesses<
 }
 
 /**
- * Linha do tempo de um item: processos aplicáveis na mesma ordem do cálculo
- * de previsão (`computeProcessSchedule`) — `displayOrder` com desempate pelo
- * código. `NAO_APLICAVEL` fica de fora; a lista original não é mutada.
+ * Linha do tempo de um item: processos aplicáveis em ordem fabril —
+ * `displayOrder` com desempate pelo código. `NAO_APLICAVEL` fica de fora;
+ * a lista original não é mutada. As datas vêm do Sequenciamento.
  *
  * 056: o MP fica DE FORA da linha do tempo — ele é um espelho do
  * recebimento de matéria-prima (`/recebimento-mp`), então a cascata de

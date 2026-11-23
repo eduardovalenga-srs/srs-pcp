@@ -24,7 +24,8 @@ import { formatQuantity } from "@/lib/utils/formatting";
 import { fabrica1ProcessColumns } from "@/lib/utils/production";
 import { weightKgOf } from "@/lib/utils/romaneio";
 import { countBusinessDays, isWeekendISO, sumCompletedWeightBefore } from "@/lib/utils/weight-period";
-import { childItemProposalDate, itemProposalDate, orderProposalDate } from "@/lib/utils/proposal-date";
+import { expeditionForOrder } from "@/lib/utils/sequenced-schedule";
+import type { OrderScheduleIndex } from "@/lib/types/scheduling";
 
 /**
  * Montagem das planilhas de exportação (.xlsx) — uma função por tela,
@@ -143,13 +144,13 @@ function isFabrica1Editable(code: string): boolean {
 
 /**
  * Gestão de OF (ProductionTable): Seq., OF/OS, Cli., Qtd., Peso, Ent.,
- * DP (data de proposta) e UMA coluna por processo do catálogo ativo
- * (ordem do catálogo).
+ * DP (data de expedição do sequenciamento) e UMA coluna por processo do
+ * catálogo ativo (ordem do catálogo).
  */
 export function gestaoEntregasSheet(
   rows: readonly ProductionOrderRow[],
   processes: readonly ProcessDefinition[],
-  today: string,
+  schedule: OrderScheduleIndex,
 ): ExportSheet {
   const headers = ["Seq.", "OF/OS", "Cli.", "Qtd.", "Peso", "Ent.", "DP", ...processes.map((p) => p.code)];
   const body: ExportCell[][] = rows.map((row) => [
@@ -159,7 +160,7 @@ export function gestaoEntregasSheet(
     number(row.quantity),
     number(row.weightTotal),
     dateCell(row.deliveryDate),
-    dateCell(orderProposalDate(row, processes, today)),
+    dateCell(expeditionForOrder(schedule, row.orderId)),
     ...processes.map((process) => orderProcessCell(row.processes[process.code])),
   ]);
   return { headers, rows: body, dateColumns: [5, 6] };
@@ -167,14 +168,15 @@ export function gestaoEntregasSheet(
 
 /**
  * Fábrica 2 (Fabrica2Table): Seq., OF/OS, Cli., TP, Item pai, Desc., Qtd.,
- * Peso, Ent., DP (data de proposta), OP e os processos FORA da cadeia da
- * Fábrica 1 (a cadeia fica oculta — a MP abre a lista, como na tela). Os
- * rótulos são os que a tela EXIBE (o nome completo mora só no tooltip).
+ * Peso, Ent., DP (data de expedição do sequenciamento), OP e os processos
+ * FORA da cadeia da Fábrica 1 (a cadeia fica oculta — a MP abre a lista,
+ * como na tela). Os rótulos são os que a tela EXIBE (o nome completo mora
+ * só no tooltip).
  */
 export function fabrica2Sheet(
   rows: readonly ProductionRow[],
   processes: readonly ProcessDefinition[],
-  today: string,
+  schedule: OrderScheduleIndex,
 ): ExportSheet {
   const processColumns = processes.filter(
     (process) => !(F1_PROCESS_CODES as readonly string[]).includes(process.code),
@@ -203,7 +205,7 @@ export function fabrica2Sheet(
     number(row.quantity),
     number(row.unitWeightKg),
     dateCell(row.deliveryDate),
-    dateCell(itemProposalDate(row, processes, today)),
+    dateCell(expeditionForOrder(schedule, row.orderId)),
     text(row.op),
     ...processColumns.map((process) => itemProcessCell(row.processes[process.code])),
   ]);
@@ -212,14 +214,14 @@ export function fabrica2Sheet(
 
 /**
  * Fábrica 1 (Fabrica1Table): Seq., OF/OS, Cli., Filho, Matérias-primas,
- * Qtd., Peso un., Peso total, Ent., DP (data de proposta) e a cadeia F1
- * (MP primeiro, depois LASER…FICEP e o KIT) — o que vem depois do KIT
- * mora na gestão de OF.
+ * Qtd., Peso un., Peso total, Ent., DP (data de expedição do sequenciamento)
+ * e a cadeia F1 (MP primeiro, depois LASER…FICEP e o KIT) — o que vem depois
+ * do KIT mora na gestão de OF.
  */
 export function fabrica1Sheet(
   items: readonly ChildItemGroup[],
   processes: readonly ProcessDefinition[],
-  today: string,
+  schedule: OrderScheduleIndex,
 ): ExportSheet {
   const processColumns = fabrica1ProcessColumns(processes);
   const headers = [
@@ -247,7 +249,7 @@ export function fabrica1Sheet(
     number(item.unitWeightKg),
     number(item.weightTotal),
     dateCell(item.deliveryDate),
-    dateCell(childItemProposalDate(item, processes, today)),
+    dateCell(expeditionForOrder(schedule, item.orderId)),
     ...processColumns.map((process) =>
       isFabrica1Editable(process.code)
         ? itemProcessCell(item.processes.find((entry) => entry.code === process.code))
@@ -259,7 +261,7 @@ export function fabrica1Sheet(
 
 /**
  * Pedidos (OrderList): Código (com o prefixo OF/OS do badge), Cliente,
- * Entrega, DP (data de proposta), Situação e Itens — ordem fixa do
+ * Entrega, DP (data de expedição), Situação e Itens — ordem fixa do
  * servidor (entrega, código). A DP vem do mapa calculado pelo servidor
  * (mesma regra da gestão de OF).
  */

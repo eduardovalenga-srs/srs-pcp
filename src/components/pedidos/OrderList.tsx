@@ -22,11 +22,7 @@ interface OrderListProps {
   canDelete: boolean;
   /** 038: filtros vigentes — os cabeçalhos de coluna aplicam na URL. */
   filters: OrderFilters;
-  /**
-   * Data de proposta (DP) por pedido (ISO ou null = "—"): quando a MP do
-   * pedido ainda não foi entregue, hoje + Σ dos processos aplicáveis (sem
-   * o MP) em dias úteis. Pedido fora do mapa é tratado como null.
-   */
+  /** Data de expedição (DP) por pedido, vinda do Sequenciamento ou efetiva. */
   proposalByOrder: Record<string, string | null>;
 }
 
@@ -88,14 +84,14 @@ export function OrderList({ orders, canDelete, filters, proposalByOrder }: Order
               <th scope="col" className="px-3 py-2 font-semibold">
                 <HeaderLabel label="Entrega" filter={<OrderDeliveryFilter filters={filters} />} />
               </th>
-              {/* DP (data de proposta): informativa, sem filtro por decisão de escopo. */}
+              {/* DP (data de expedição): informativa, sem filtro por escopo. */}
               <th
                 scope="col"
                 className="px-3 py-2 font-semibold"
-                title="Data de proposta — se a MP chegar hoje"
+                title="Data de expedição"
               >
                 <span aria-hidden>DP</span>
-                <span className="sr-only">Data de proposta</span>
+                <span className="sr-only">Data de expedição</span>
               </th>
               <th scope="col" className="px-3 py-2 font-semibold">
                 <HeaderLabel label="Situação" filter={<OrderStatusFilter filters={filters} />} />

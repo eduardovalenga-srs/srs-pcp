@@ -9,14 +9,11 @@ import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } fro
 import type { ChildItemFilters, ChildItemGroup, ChildItemProcess } from "@/lib/types/order";
 import type { MpCellReceipt } from "@/lib/types/mp-receipt";
 import type { ProcessDefinition } from "@/lib/types/production";
+import type { OrderScheduleIndex, ProcessScheduleWindow } from "@/lib/types/scheduling";
 import { formatBusinessDate, formatBusinessDayMonth, formatDate, formatDayMonth } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { mpReceiptClass, MP_RECEIPT_STATE_LABELS } from "@/lib/utils/mp-receipt";
-import {
-  computeProcessSchedule,
-  scheduleProcessesForItem,
-  type ProcessWindow,
-} from "@/lib/utils/process-schedule";
+import { EMPTY_SCHEDULE_INDEX, windowsForOrder } from "@/lib/utils/sequenced-schedule";
 import { fabrica1ItemProcesses, fabrica1ProcessColumns, isProcessStartOverdue } from "@/lib/utils/production";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +44,8 @@ interface Fabrica1TableProps {
   capabilities: ProductionCapabilities;
   /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
   today: string;
+  /** Datas previstas por OF, vindas do sequenciamento (093). */
+  schedule?: OrderScheduleIndex;
 }
 
 const helper = createColumnHelper<CoreFeatures, ChildItemGroup>();
@@ -99,8 +98,8 @@ interface ProcessCellButtonProps {
    * situação; 1 membro mantém a edição completa). Null → sem registro.
    */
   selection: ProcessSelection | null;
-  /** Janela prevista de execução (dias úteis contados de trás para frente da entrega). */
-  plan: ProcessWindow | null;
+  /** Janela prevista de execução vinda do sequenciamento da OF. */
+  plan: ProcessScheduleWindow | null;
   /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
   today: string;
   /** Descrição exibida nos textos da célula (a do grupo quando agrupada). */
@@ -168,8 +167,7 @@ function ProcessCellButton({
 /**
  * Célula do MP: somente leitura, com o espelho do RECEBIMENTO do ITEM PAI
  * (056) — verde = total, amarelo = parcial, padrão = nada recebido. A
- * janela prevista vem do PAI (entrega + status do pai, memo
- * `parentMpPlanByItem`) e, concluído (031), a data efetiva do recebimento
+ * janela prevista vem do sequenciamento da OF e, concluído (031), a data efetiva do recebimento
  * aparece ACIMA da prevista — mesmo desenho das demais células.
  */
 function InheritedProcessCell({
@@ -183,8 +181,8 @@ function InheritedProcessCell({
   /** 056: espelho do recebimento do pai (kg × planejado) — pinta a célula. */
   receipt: MpCellReceipt | null;
   completedAt: string | null;
-  /** Janela prevista do MP, contada da entrega do PAI. */
-  plan: ProcessWindow | null;
+  /** Janela prevista do MP no sequenciamento da OF. */
+  plan: ProcessScheduleWindow | null;
   /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
   today: string;
 }) {
@@ -249,7 +247,7 @@ function InheritedMpChip({
 }: {
   /** Linha agrupada (033) — a coluna MP agrega os pais do grupo. */
   item: ChildItemGroup;
-  plan: ProcessWindow | null;
+  plan: ProcessScheduleWindow | null;
   today: string;
 }) {
   const status = item.parentProcessStatuses[MP_PROCESS_CODE];
@@ -328,53 +326,19 @@ function cellSelection(row: ChildItemGroup, process: ChildItemProcess): ProcessS
 }
 
 /** Tabela da Fábrica 1 (desktop) + cards (mobile), no mesmo desenho da gestão de entregas. */
-export function Fabrica1Table({ items, processes, filters, capabilities, today }: Fabrica1TableProps) {
+export function Fabrica1Table({
+  items,
+  processes,
+  filters,
+  capabilities,
+  today,
+  schedule = EMPTY_SCHEDULE_INDEX,
+}: Fabrica1TableProps) {
   const [selection, setSelection] = useState<ProcessSelection | null>(null);
 
   // Colunas de processo da cadeia F1: MP primeiro, depois as etapas de
   // sub-item e o KIT. O que vem depois do KIT continua na gestão de entregas.
   const processColumns = useMemo(() => fabrica1ProcessColumns(processes), [processes]);
-
-  // Datas previstas por item: janela de cada processo contada da entrega.
-  // O status do processo NO ITEM entra no cálculo: desmarcado (NAO_APLICAVEL)
-  // não ocupa dias nem ganha janela (senão empurrava as datas anteriores).
-  const scheduleByItem = useMemo(
-    () =>
-      new Map(
-        items.map((item) => {
-          const byCode = new Map(item.processes.map((p) => [p.code, p.status] as const));
-          return [
-            item.id,
-            computeProcessSchedule(
-              item.deliveryDate,
-              scheduleProcessesForItem(processes, (code) => byCode.get(code)),
-            ),
-          ] as const;
-        }),
-      ),
-    [items, processes],
-  );
-
-  // Janela prevista do MP no ITEM PAI (a coluna MP é herdada do pai):
-  // contada da entrega do pai com os status do pai — a mesma regra das
-  // janelas por item da Fábrica 2, aplicada ao pai desta linha.
-  const parentMpPlanByItem = useMemo(
-    () =>
-      new Map<string, ProcessWindow | null>(
-        items.map(
-          (item): [string, ProcessWindow | null] => [
-            item.id,
-            item.parentDeliveryDate
-              ? computeProcessSchedule(
-                  item.parentDeliveryDate,
-                  scheduleProcessesForItem(processes, (code) => item.parentProcessStatuses[code]),
-                ).get(MP_PROCESS_CODE) ?? null
-              : null,
-          ],
-        ),
-      ),
-    [items, processes],
-  );
 
   const columns = useMemo(() => {
     const orderColumns = [
@@ -598,7 +562,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
                   status={row.parentProcessStatuses[process.code]}
                   receipt={process.code === MP_PROCESS_CODE ? row.parentMpReceipt : null}
                   completedAt={row.parentMpCompletedAt}
-                  plan={parentMpPlanByItem.get(row.id) ?? null}
+                  plan={windowsForOrder(schedule, row.orderId)[MP_PROCESS_CODE] ?? null}
                   today={today}
                 />
               );
@@ -611,7 +575,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
                 disabled={!capabilities.canUpdateStatus}
                 onSelect={setSelection}
                 selection={cell ? cellSelection(row, cell) : null}
-                plan={scheduleByItem.get(row.id)?.get(process.code) ?? null}
+                plan={windowsForOrder(schedule, row.orderId)[process.code] ?? null}
                 today={today}
                 itemLabel={row.description}
               />
@@ -638,7 +602,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
         columns: helper.columns(processGroupColumns),
       }),
     ]);
-  }, [filters, processColumns, capabilities.canUpdateStatus, scheduleByItem, parentMpPlanByItem, today]);
+  }, [filters, processColumns, capabilities.canUpdateStatus, schedule, today]);
 
   const table = useTable({
     features: coreFeatures,
@@ -835,7 +799,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
                 ))}
                 <InheritedMpChip
                   item={item}
-                  plan={parentMpPlanByItem.get(item.id) ?? null}
+                  plan={windowsForOrder(schedule, item.orderId)[MP_PROCESS_CODE] ?? null}
                   today={today}
                 />
               </ul>
@@ -847,6 +811,7 @@ export function Fabrica1Table({ items, processes, filters, capabilities, today }
       <ProcessDetailsSheet
         selection={selection}
         processes={processes}
+        schedule={schedule}
         capabilities={capabilities}
         onOpenChange={(open) => {
           if (!open) setSelection(null);

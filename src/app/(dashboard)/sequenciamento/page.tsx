@@ -10,6 +10,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { getAllProcesses } from "@/lib/repositories/production.repository";
 import { getAllProductGroups } from "@/lib/repositories/product-groups.repository";
 import { getProcessScheduling } from "@/lib/repositories/scheduling.repository";
+import { getScheduleIndex } from "@/lib/services/scheduling.service";
 import { createClient } from "@/lib/supabase/server";
 import type { ProcessDefinition } from "@/lib/types/production";
 import type { ProductGroupDefinition } from "@/lib/types/product-group";
@@ -64,10 +65,14 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
     : null;
 
   let scheduling: Awaited<ReturnType<typeof getProcessScheduling>> | null = null;
+  let schedule: Awaited<ReturnType<typeof getScheduleIndex>> | null = null;
   let loadError: unknown = null;
   try {
     const client = await createClient();
-    scheduling = await getProcessScheduling(client, { processId, familyGroupId });
+    [scheduling, schedule] = await Promise.all([
+      getProcessScheduling(client, { processId, familyGroupId }),
+      getScheduleIndex(client),
+    ]);
   } catch (error) {
     loadError = error;
   }
@@ -106,6 +111,7 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
           familyGroupId={familyGroupId}
           initialAnchorDate={scheduling.anchorDate}
           initialRows={scheduling.rows}
+          expeditionByOrder={schedule?.expeditionByOrder ?? {}}
           canEdit={canEdit}
         />
       )}

@@ -5,6 +5,7 @@ import { exportFileName, searchParamsRecord } from "@/lib/export/common";
 import { workbookResponse } from "@/lib/export/workbook";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { listFabrica2FilteredRows } from "@/lib/services/production.service";
+import { getScheduleIndex } from "@/lib/services/scheduling.service";
 import { createClient } from "@/lib/supabase/server";
 import { todayISODate } from "@/lib/utils/dates";
 import { parseProductionFilters } from "@/lib/utils/filters";
@@ -32,13 +33,16 @@ export async function GET(request: Request) {
     const client = await createClient();
     const today = todayISODate();
 
-    const processes = await getActiveProcesses(client);
+    const [processes, schedule] = await Promise.all([
+      getActiveProcesses(client),
+      getScheduleIndex(client),
+    ]);
     // Fábrica 2: recortes em MEMÓRIA — "Atrasados" do ACAB (entrega=OVERDUE)
     // e, na 051, "Atrasados" dos filtros de processo. A exportação sai com o
     // MESMO recorte que a tela exibe (varredura da lista inteira).
-    const rows = await listFabrica2FilteredRows(client, filters, today, processes);
+    const rows = await listFabrica2FilteredRows(client, filters, today, schedule);
 
-    return workbookResponse(exportFileName("fabrica-2"), fabrica2Sheet(rows, processes, today));
+    return workbookResponse(exportFileName("fabrica-2"), fabrica2Sheet(rows, processes, schedule));
   } catch (error) {
     return Response.json(
       { error: errorMessage(error, "Não foi possível exportar a lista.") },

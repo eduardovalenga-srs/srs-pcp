@@ -36,8 +36,7 @@ export async function GET(request: Request) {
       })),
     );
 
-    // Data de proposta (DP) calculada com a MESMA regra da página — o
-    // servidor agrega os processos do conjunto inteiro exportado.
+    // Data de expedição (DP), da mesma fila do Sequenciamento usada pela tela.
     const proposalByOrder = await getOrdersProposal(
       client,
       orders.map((order) => order.id),

@@ -15,14 +15,10 @@ import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
 import { formatBusinessDate, formatBusinessDayMonth, formatDate, formatDayMonth } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
-import {
-  computeProcessSchedule,
-  scheduleProcessesForItem,
-  type ProcessWindow,
-} from "@/lib/utils/process-schedule";
+import type { OrderScheduleIndex, ProcessScheduleWindow } from "@/lib/types/scheduling";
+import { EMPTY_SCHEDULE_INDEX, expeditionForOrder, windowsForOrder } from "@/lib/utils/sequenced-schedule";
 import { isProcessStartOverdue } from "@/lib/utils/production";
 import { mpReceiptFromCell, mpReceiptClass, MP_RECEIPT_STATE_LABELS } from "@/lib/utils/mp-receipt";
-import { orderProposalDate } from "@/lib/utils/proposal-date";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { OrderStatusBadge } from "@/components/shared/StatusBadges";
@@ -47,7 +43,7 @@ import {
 /** Permissões que a visão consolidada enxerga (025). */
 export interface ProductionCapabilities {
   canUpdateStatus: boolean;
-  /** Edição da entrega do PEDIDO (orders.edit) — recalcula as previsões. */
+  /** Edição da entrega do PEDIDO (orders.edit). */
   canEditDelivery: boolean;
 }
 
@@ -58,6 +54,8 @@ interface ProductionTableProps {
   capabilities: ProductionCapabilities;
   /** Data de referência (AAAA-MM-DD) — datas anteriores a ela ficam em vermelho. */
   today: string;
+  /** Datas previstas por OF, vindas do sequenciamento (093). */
+  schedule?: OrderScheduleIndex;
 }
 
 const helper = createColumnHelper<CoreFeatures, ProductionOrderRow>();
@@ -71,7 +69,7 @@ function DeliveryCell({ row, canEdit }: { row: ProductionOrderRow; canEdit: bool
   );
 
   // Edição manual da entrega do PEDIDO (ADMIN/GESTOR): a gravação dispara
-  // o refresh e as previsões de todos os processos são recalculadas.
+  // o refresh da entrega e das regras de atraso.
   if (!canEdit) return content;
   return (
     <DeliveryDatePopover
@@ -89,8 +87,8 @@ interface ProcessCellButtonProps {
   processName: string;
   disabled: boolean;
   onSelect: (selection: ProcessBatchSelection) => void;
-  /** Janela prevista de execução (dias úteis contados de trás para frente da entrega). */
-  plan: ProcessWindow | null;
+  /** Janela prevista de execução, vinda do sequenciamento da OF. */
+  plan: ProcessScheduleWindow | null;
   /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
   today: string;
   context: {
@@ -158,7 +156,7 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
         </span>
         {/* 031: MP recebida — a data efetiva do recebimento ACIMA da prevista. */}
         {receivedDay ? <span className="tabular-nums text-[10px]">{receivedDay}</span> : null}
-        {/* Janela prevista (derivada da entrega) — a data-limite do recebimento. */}
+        {/* Janela prevista do sequenciamento — a data-limite do recebimento. */}
         {plannedDay ? (
           <span className={cn("tabular-nums text-[10px]", plannedDayPast && "text-status-late")}>
             {plannedDay}
@@ -226,32 +224,15 @@ function statusClass(status: ProcessStatus): string {
  * que no servidor lê os itens filhos). Clicar numa célula abre a edição
  * EM LOTE (ProcessBatchEditor), que aplica a situação a toda a OF.
  */
-export function ProductionTable({ rows, processes, filters, capabilities, today }: ProductionTableProps) {
+export function ProductionTable({
+  rows,
+  processes,
+  filters,
+  capabilities,
+  today,
+  schedule = EMPTY_SCHEDULE_INDEX,
+}: ProductionTableProps) {
   const [selection, setSelection] = useState<ProcessBatchSelection | null>(null);
-
-  // Datas previstas por OF: janela de cada processo contada da entrega do
-  // PEDIDO. A pior situação agregada entra no cálculo; processo sem itens
-  // aplicáveis (NAO_APLICAVEL) não ocupa dias nem ganha janela.
-  const scheduleByOrder = useMemo(
-    () =>
-      new Map(
-        rows.map((row) => {
-          const statusByCode = new Map(
-            Object.entries(row.processes).map(
-              ([code, cell]) => [code, cell.applicable > 0 ? cell.status : "NAO_APLICAVEL"] as const,
-            ),
-          );
-          return [
-            row.orderId,
-            computeProcessSchedule(
-              row.deliveryDate,
-              scheduleProcessesForItem(processes, (code) => statusByCode.get(code)),
-            ),
-          ] as const;
-        }),
-      ),
-    [rows, processes],
-  );
 
   const columns = useMemo(() => {
     const orderColumns = [
@@ -373,16 +354,12 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
         ),
         cell: (info) => <DeliveryCell row={info.row.original} canEdit={capabilities.canEditDelivery} />,
       }),
-      // DP (data de proposta): ao lado da entrega — quando a MP ainda não
-      // foi entregue, é a data até a qual podemos entregar se ela chegar
-      // hoje (hoje + Σ dos processos aplicáveis, em dias úteis). Sem MP
-      // pendente a célula é "—". 043: ordenável (a RPC computa a mesma
-      // regra em SQL — sem cenário, a linha ordena por último).
-      helper.accessor((row) => orderProposalDate(row, processes, today), {
+      // DP (data de expedição): fim da janela do EXP no sequenciamento —
+      // da janela do EXP; quando a OF já foi expedida, a data efetiva da
+      // conclusão. Sem janela a célula é "—" (e a coluna não ordena).
+      helper.accessor((row) => expeditionForOrder(schedule, row.orderId), {
         id: "proposalDate",
-        header: () => (
-          <ColumnHeader label="DP" fullLabel="Data de proposta" columnId="proposal_date" filters={filters} />
-        ),
+        header: () => <ColumnHeader label="DP" fullLabel="Data de expedição" filters={filters} />,
         cell: (info) => <ProposalDateCell value={info.getValue()} />,
       }),
     ];
@@ -409,7 +386,7 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
               processName={process.name}
               disabled={!capabilities.canUpdateStatus}
               onSelect={setSelection}
-              plan={scheduleByOrder.get(row.orderId)?.get(process.code) ?? null}
+              plan={windowsForOrder(schedule, row.orderId)[process.code] ?? null}
               today={today}
               context={{
                 orderId: row.orderId,
@@ -440,7 +417,7 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
         columns: helper.columns(processColumns),
       }),
     ]);
-  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, scheduleByOrder, today]);
+  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, schedule, today]);
 
   const table = useTable({
     features: coreFeatures,
@@ -578,7 +555,7 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
               <div>
                 <dt className="inline">Proposta: </dt>
                 <dd className="inline text-foreground">
-                  <ProposalDateCell value={orderProposalDate(row, processes, today)} />
+                  <ProposalDateCell value={expeditionForOrder(schedule, row.orderId)} />
                 </dd>
               </div>
               <div>
@@ -614,7 +591,7 @@ export function ProductionTable({ rows, processes, filters, capabilities, today 
                   processName={process.name}
                   disabled={!capabilities.canUpdateStatus}
                   onSelect={setSelection}
-                  plan={scheduleByOrder.get(row.orderId)?.get(process.code) ?? null}
+                  plan={windowsForOrder(schedule, row.orderId)[process.code] ?? null}
                   today={today}
                   context={{
                     orderId: row.orderId,

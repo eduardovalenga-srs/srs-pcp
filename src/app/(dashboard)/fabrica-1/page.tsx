@@ -109,6 +109,7 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
           filters={filters}
           capabilities={capabilities}
           today={data.today}
+          schedule={data.schedule}
         />
       </ListScroll>
 

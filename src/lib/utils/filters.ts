@@ -30,11 +30,8 @@ export const PRODUCTION_SORT_KEYS = [
   // 025: coluna "Peso total" da gestão de entregas consolidada por OF.
   // A Fábrica 2 não usa — a RPC dela ignora chaves fora da whitelist.
   "weight_total",
-  // 043: "Cli." (a Fábrica 2 passa a ordenar junto) e a DP (data de
-  // proposta) — a DP só existe na gestão; a RPC da Fábrica 2 não a
-  // reconhece e cai no default (entrega), sem quebrar nada.
+  // 043: "Cli." (a Fábrica 2 passa a ordenar junto).
   "customer",
-  "proposal_date",
 ] as const;
 export type ProductionSortKey = (typeof PRODUCTION_SORT_KEYS)[number];
 

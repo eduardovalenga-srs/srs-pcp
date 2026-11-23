@@ -40,6 +40,32 @@ export function formatBusinessDayMonth(value: string | Date | null | undefined):
   return formatBusinessTimestamp(value, "dd/MM");
 }
 
+/**
+ * Data/hora EFETIVA no fuso do negócio, como ISO `AAAA-MM-DD`.
+ *
+ * Mesma precaução de `formatBusinessDate` (não ler a parte UTC da string) e
+ * usada pelas datas de expedição efetiva — o valor precisa ser comparável e
+ * ordenável no formato dos cálculos em dias úteis.
+ */
+export function businessISODate(value: string | Date | null | undefined): string | null {
+  if (!value) return null;
+  if (typeof value === "string" && isValidISODate(value)) return value;
+  const date = value instanceof Date ? value : new Date(value);
+  if (!isValid(date)) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: "year" | "month" | "day") =>
+    parts.find((entry) => entry.type === type)?.value ?? "";
+  const year = part("year");
+  const month = part("month");
+  const day = part("day");
+  return year && month && day ? `${year}-${month}-${day}` : null;
+}
+
 function formatBusinessTimestamp(
   value: string | Date | null | undefined,
   pattern: "dd/MM" | "dd/MM/yyyy",
@@ -178,8 +204,8 @@ export function subBusinessDays(isoDate: string, days: number): string {
 
 /**
  * SOME `days` dias úteis (só seg–sex) a partir de uma data ISO — espelho
- * forward de `subBusinessDays`, usado pela data de proposta (DP): a DP
- * conta para FRENTE a partir de hoje.
+ * forward de `subBusinessDays`, usado pela fila do Sequenciamento para
+ * avançar as janelas em dias úteis.
  *
  * Se a data de partida cair em fim de semana, ela rola para o próximo dia
  * útil ANTES de somar (a fábrica não começa no sábado). `days = 0` devolve

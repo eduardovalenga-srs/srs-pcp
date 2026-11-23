@@ -24,9 +24,9 @@ interface DeliveryDatePopoverProps {
 
 /**
  * Edição da data de entrega do PEDIDO (025), na própria coluna "Ent." da
- * gestão de entregas consolidada. Gravada a nova data, o refresh da página
- * recalcula as previsões de todos os processos (janelas derivadas da
- * entrega) e a regra de atraso da linha.
+ * gestão de entregas consolidada. Gravada a nova data, o refresh atualiza
+ * a entrega e a regra de atraso da linha. As janelas de processo seguem o
+ * Sequenciamento da OF.
  *
  * Itens com data própria (override) mantêm a deles — elas continuam
  * visíveis e editáveis na tela da Fábrica 2 e no detalhe do pedido.
@@ -96,8 +96,7 @@ export function DeliveryDatePopover({
           />
         </div>
         <p className="text-xs text-muted-foreground">
-          As previsões de todos os processos são recalculadas a partir desta data. Itens com entrega
-          própria mantêm a data deles.
+          As janelas dos processos seguem o Sequenciamento. Itens com entrega própria mantêm a data deles.
         </p>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={saving}>

@@ -5,6 +5,8 @@ import { PROCESS_STATUS_LABELS, type ProcessStatus, type WeightGranularity } fro
 import { ACAB_PROCESS_CODE, MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type { CompletedWeightStats, FilteredKpiTotals, ProductionEvent, ProductionFilteredSummary, ProductionFilters, ProductionOrderResult, ProductionResult, ProductionRow, ProductionStats, ProcessDefinition } from "@/lib/types/production";
+import type { OrderScheduleIndex } from "@/lib/types/scheduling";
+import { getScheduleIndex } from "@/lib/services/scheduling.service";
 import {
   getActiveProcesses,
   getCompletedWeightStats as getCompletedWeightStatsFromRepository,
@@ -53,6 +55,8 @@ export interface ProductionPage extends Omit<ProductionResult, "expedition" | "o
   acabamento: FilteredKpiTotals | null;
   /** Data de referência (AAAA-MM-DD) usada pela RPC — mesma base da regra de atraso. */
   today: string;
+  /** Datas previstas por OF, vindas do sequenciamento (093). */
+  schedule: OrderScheduleIndex;
 }
 
 /**
@@ -73,7 +77,7 @@ export async function listFabrica2FilteredRows(
   client: SupabaseServer,
   filters: ProductionFilters,
   today: string,
-  processes: readonly ProcessDefinition[],
+  schedule: OrderScheduleIndex,
 ): Promise<ProductionRow[]> {
   const rows = await collectAllPages((page) =>
     getProductionRows(
@@ -91,10 +95,10 @@ export async function listFabrica2FilteredRows(
   );
 
   const deliveryCut =
-    filters.delivery === "OVERDUE" ? rows.filter((row) => isAcabOverdue(row, processes, today)) : rows;
+    filters.delivery === "OVERDUE" ? rows.filter((row) => isAcabOverdue(row, schedule, today)) : rows;
 
   return filters.processOverdue
-    ? deliveryCut.filter((row) => isProcessOverdue(row, processes, filters.processCode, today))
+    ? deliveryCut.filter((row) => isProcessOverdue(row, schedule, filters.processCode, today))
     : deliveryCut;
 }
 
@@ -104,10 +108,10 @@ export async function listFabrica2FilteredRows(
  */
 function acabOverdueTotalsOf(
   rows: readonly ProductionRow[],
-  processes: readonly ProcessDefinition[],
+  schedule: OrderScheduleIndex,
   today: string,
 ) {
-  return productionRowsTotals(rows.filter((row) => isAcabOverdue(row, processes, today)));
+  return productionRowsTotals(rows.filter((row) => isAcabOverdue(row, schedule, today)));
 }
 
 /** Itens do recorte com o ACABAMENTO concluído — card "Acabamento" da Fábrica 2. */
@@ -126,20 +130,20 @@ export async function getFabrica2FilteredSummary(
   filters: ProductionFilters,
 ): Promise<ProductionFilteredSummary> {
   const today = todayISODate();
-  const processes = await getActiveProcesses(client);
+  const schedule = await getScheduleIndex(client);
   // O recorte de entrega OVERDUE depende da janela de ACAB, calculada em
   // memória. Busca o conjunto-base e reaplica esse recorte abaixo.
   const rows = await listFabrica2FilteredRows(
     client,
     { ...filters, delivery: "ALL", page: 1 },
     today,
-    processes,
+    schedule,
   );
   const filteredRows =
-    filters.delivery === "OVERDUE" ? rows.filter((row) => isAcabOverdue(row, processes, today)) : rows;
+    filters.delivery === "OVERDUE" ? rows.filter((row) => isAcabOverdue(row, schedule, today)) : rows;
 
   return {
-    overdue: acabOverdueTotalsOf(filteredRows, processes, today),
+    overdue: acabOverdueTotalsOf(filteredRows, schedule, today),
     acabamento: acabamentoTotalsOf(filteredRows),
   };
 }
@@ -168,12 +172,15 @@ export async function getProductionPage(
   filters: ProductionFilters,
 ): Promise<ProductionPage> {
   const today = todayISODate();
-  const processes = await getActiveProcesses(client);
+  const [processes, schedule] = await Promise.all([
+    getActiveProcesses(client),
+    getScheduleIndex(client),
+  ]);
 
   // Recorte em memória ligado (entrega e/ou processo): a lista, a paginação,
   // os totais e os KPIs saem do MESMO conjunto varrido.
   if (filters.delivery === "OVERDUE" || filters.processOverdue) {
-    const cut = await listFabrica2FilteredRows(client, filters, today, processes);
+    const cut = await listFabrica2FilteredRows(client, filters, today, schedule);
     const totals = productionRowsTotals(cut);
     const from = (filters.page - 1) * filters.pageSize;
     return {
@@ -184,11 +191,12 @@ export async function getProductionPage(
       // Card "Atrasados": regra do ACAB sobre o conjunto filtrado — com
       // `entrega=OVERDUE` a própria lista já é esse recorte.
       overdue:
-        filters.delivery === "OVERDUE" ? totals : acabOverdueTotalsOf(cut, processes, today),
+        filters.delivery === "OVERDUE" ? totals : acabOverdueTotalsOf(cut, schedule, today),
       // Card "Acabamento": itens com o ACAB concluído dentro do MESMO recorte.
       acabamento: acabamentoTotalsOf(cut),
       processes,
       today,
+      schedule,
     };
   }
 
@@ -206,6 +214,7 @@ export async function getProductionPage(
     acabamento: null,
     processes,
     today,
+    schedule,
   };
 }
 
@@ -213,6 +222,8 @@ export interface ProductionOrderPage extends ProductionOrderResult {
   processes: ProcessDefinition[];
   /** Data de referência (AAAA-MM-DD) usada pela RPC — mesma base da regra de atraso. */
   today: string;
+  /** Datas previstas por OF, vindas do sequenciamento (093). */
+  schedule: OrderScheduleIndex;
 }
 
 /**
@@ -225,11 +236,12 @@ export async function getProductionOrdersPage(
   filters: ProductionFilters,
 ): Promise<ProductionOrderPage> {
   const today = todayISODate();
-  const [result, processes] = await Promise.all([
+  const [result, processes, schedule] = await Promise.all([
     getProductionOrderRows(client, filters, today),
     getActiveProcesses(client),
+    getScheduleIndex(client),
   ]);
-  return { ...result, processes, today };
+  return { ...result, processes, today, schedule };
 }
 
 /** Indicadores do dashboard. */

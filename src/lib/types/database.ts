@@ -223,6 +223,14 @@ export type ProcessSchedulingRowRecord = {
   mp_state: MpReceiptStateValue | null;
 };
 
+/** Fila por processo retornada pela RPC get_all_process_scheduling (095). */
+export type AllProcessSchedulingQueueRecord = {
+  process_id: string;
+  process_code: string;
+  anchor_date: string | null;
+  rows: Json;
+};
+
 export type ProductionProcessRow = {
   id: string;
   order_item_id: string;
@@ -1519,6 +1527,11 @@ export type Database = {
           p_family_group_id?: number | null;
         };
         Returns: ProcessSchedulingRowRecord[];
+      };
+      get_all_process_scheduling: {
+        // 093: filas de TODOS os processos ativos de uma vez (índice de datas)
+        Args: Record<string, never>;
+        Returns: AllProcessSchedulingQueueRecord[];
       };
       save_process_schedule: {
         // grava a sequência global, opcionalmente com processo/data (077)

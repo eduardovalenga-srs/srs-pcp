@@ -14,10 +14,11 @@ import {
   type ProcessStatus,
 } from "@/lib/constants/production";
 import type { ProcessDefinition, ProductionEvent } from "@/lib/types/production";
+import type { OrderScheduleIndex } from "@/lib/types/scheduling";
 import { formatBusinessDate, formatDate, formatDateTime } from "@/lib/utils/dates";
 import { formatQuantity } from "@/lib/utils/formatting";
 import { allowedProcessStatuses } from "@/lib/utils/production";
-import { getProcessWindow } from "@/lib/utils/process-schedule";
+import { EMPTY_SCHEDULE_INDEX, windowsForOrder } from "@/lib/utils/sequenced-schedule";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,14 +71,16 @@ export interface ProductionCapabilities {
   canUpdateStatus: boolean;
   canEditQuantities: boolean;
   canViewHistory: boolean;
-  /** Edição manual da data de entrega (orders.edit) — recalcula as previsões. */
+  /** Edição manual da data de entrega (orders.edit). */
   canEditDelivery: boolean;
 }
 
 interface ProcessDetailsSheetProps {
   selection: ProcessSelection | null;
-  /** Catálogo (com durações) para calcular as datas previstas. */
+  /** Catálogo (nomes/locais) das etapas exibidas na folha. */
   processes: ProcessDefinition[];
+  /** Datas previstas por OF, vindas do sequenciamento (093). */
+  schedule?: OrderScheduleIndex;
   onOpenChange: (open: boolean) => void;
   capabilities: ProductionCapabilities;
 }
@@ -95,6 +98,7 @@ type HistoryState =
 export function ProcessDetailsSheet({
   selection,
   processes,
+  schedule = EMPTY_SCHEDULE_INDEX,
   onOpenChange,
   capabilities,
 }: ProcessDetailsSheetProps) {
@@ -106,6 +110,7 @@ export function ProcessDetailsSheet({
             key={selection.productionProcessId}
             selection={selection}
             processes={processes}
+            schedule={schedule}
             capabilities={capabilities}
             onClose={() => onOpenChange(false)}
           />
@@ -118,11 +123,13 @@ export function ProcessDetailsSheet({
 function ProcessForm({
   selection,
   processes,
+  schedule,
   capabilities,
   onClose,
 }: {
   selection: ProcessSelection;
   processes: ProcessDefinition[];
+  schedule: OrderScheduleIndex;
   capabilities: ProductionCapabilities;
   onClose: () => void;
 }) {
@@ -133,20 +140,19 @@ function ProcessForm({
   // quantidades/observações por item seguem na Fábrica 2/detalhe).
   const isGroup = (selection.groupItemIds?.length ?? 0) > 1;
 
-  // Datas prévias deste processo: janela contada de trás para frente da entrega.
+  // Datas prévias deste processo: janela do SEQUENCIAMENTO da OF.
   const catalogEntry = processes.find((item) => item.code === selection.processCode);
-  const duration = catalogEntry?.durationDays ?? 1;
 
-  // Entrega editável na própria folha: a prévia usa o estado local (a
-  // janela recalcula ao digitar) e a gravação persiste o campo — depois
-  // disso o refresh recalcula as previsões de todos os processos. O valor
-  // gravado fica em estado próprio porque a seleção (props) não muda com
-  // a folha aberta.
+  // Entrega editável na própria folha. O Sequenciamento segue como fonte
+  // das janelas; o valor gravado fica em estado próprio porque a seleção
+  // (props) não muda com a folha aberta.
   const [deliveryDate, setDeliveryDate] = useState(selection.deliveryDate);
   const [savedDeliveryDate, setSavedDeliveryDate] = useState(selection.deliveryDate);
   const [savingDelivery, setSavingDelivery] = useState(false);
 
-  const plannedWindow = getProcessWindow(deliveryDate, processes, selection.processCode);
+  const plannedWindow = selection.orderId
+    ? windowsForOrder(schedule, selection.orderId)[selection.processCode] ?? null
+    : null;
   const deliveryDirty = deliveryDate !== savedDeliveryDate;
 
   const [status, setStatus] = useState<ProcessStatus>(selection.status);
@@ -288,14 +294,11 @@ function ProcessForm({
               <>
                 De <span className="font-medium tabular-nums">{formatDate(plannedWindow.start)}</span> a{" "}
                 <span className="font-medium tabular-nums">{formatDate(plannedWindow.end)}</span>
-                <span className="text-muted-foreground">
-                  {" "}
-                  ({duration} {duration === 1 ? "dia útil" : "dias úteis"})
-                </span>
+                <span className="text-muted-foreground"> (sequenciamento da OF)</span>
               </>
             ) : (
               <span className="text-muted-foreground">
-                Sem data de entrega — não há como calcular as datas.
+                Sem janela no sequenciamento — a OF não está na fila deste processo.
               </span>
             )}
           </p>

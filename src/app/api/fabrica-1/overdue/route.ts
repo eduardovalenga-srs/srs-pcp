@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { searchParamsRecord } from "@/lib/export/common";
 import { getChildItemsKitOverdueTotals } from "@/lib/repositories/order-items.repository";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
+import { getScheduleIndex } from "@/lib/services/scheduling.service";
 import { createClient } from "@/lib/supabase/server";
 import { todayISODate } from "@/lib/utils/dates";
 import { parseChildItemFilters } from "@/lib/utils/filters";
@@ -31,11 +32,14 @@ export async function GET(request: Request) {
       return Response.json({ records: 0, qty: 0, weight: 0 });
     }
 
+    const schedule = await getScheduleIndex(client);
+    const today = todayISODate();
     const totals = await getChildItemsKitOverdueTotals(
       client,
       { ...filters, overdue: false },
       processId,
-      todayISODate(),
+      today,
+      schedule,
     );
     return Response.json(totals);
   } catch (error) {

@@ -7,6 +7,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getOrder } from "@/lib/services/orders.service";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
+import { getScheduleIndex } from "@/lib/services/scheduling.service";
 import { listProductGroupOptions } from "@/lib/repositories/product-groups.repository";
 import type { OrderItemDetails } from "@/lib/types/order";
 import type { ProcessDefinition } from "@/lib/types/production";
@@ -94,17 +95,20 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
 
   let order: Awaited<ReturnType<typeof getOrder>>;
   let processCatalog: ProcessDefinition[] = [];
+  let schedule: Awaited<ReturnType<typeof getScheduleIndex>> = { windowsByOrder: {}, expeditionByOrder: {} };
   let productGroups: ProductGroupOption[] = [];
   try {
     const client = await createClient();
     // 024: pedido, catálogo e famílias em paralelo (os dois últimos só são
     // usados se o pedido existir, mas o custo é menor que o sequencial).
-    const [loadedOrder, loadedCatalog, loadedGroups] = await Promise.all([
+    const [loadedOrder, loadedCatalog, loadedGroups, loadedSchedule] = await Promise.all([
       getOrder(client, id),
       getActiveProcesses(client),
       listProductGroupOptions(client),
+      getScheduleIndex(client),
     ]);
     order = loadedOrder;
+    schedule = loadedSchedule;
     processCatalog = loadedOrder ? loadedCatalog : [];
     productGroups = loadedOrder ? loadedGroups : [];
   } catch (error) {
@@ -358,11 +362,13 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
                     </h4>
                     <ItemProcesses
                       orderCode={order.code}
+                      orderId={order.id}
                       orderItemId={item.id}
                       itemDescription={item.description}
                       deliveryDate={item.deliveryDate ?? order.deliveryDate}
                       processes={item.processes}
                       catalog={processCatalog}
+                      schedule={schedule}
                       capabilities={productionCapabilities}
                     />
                   </div>
@@ -446,11 +452,13 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
                             </h5>
                             <ItemProcesses
                               orderCode={order.code}
+                              orderId={order.id}
                               orderItemId={child.id}
                               itemDescription={child.description}
                               deliveryDate={child.deliveryDate ?? order.deliveryDate}
                               processes={child.processes}
                               catalog={processCatalog}
+                              schedule={schedule}
                               capabilities={productionCapabilities}
                             />
                           </div>

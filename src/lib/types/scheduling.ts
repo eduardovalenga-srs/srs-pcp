@@ -10,6 +10,7 @@
 
 import type { ProcessStatus } from "@/lib/constants/production";
 import type { MpReceiptState } from "@/lib/types/mp-receipt";
+
 /** OF na fila de um processo (dados crus, antes do cálculo de datas). */
 export interface SchedulingOrderRow {
   orderId: string;
@@ -34,8 +35,23 @@ export interface SchedulingOrderRow {
   mpState: MpReceiptState | null;
 }
 
-/** Linha da tela com a carga e as datas previstas calculadas. */
-export interface ScheduledOrderRow extends SchedulingOrderRow {
+/** Dados mínimos de carga de uma linha na fila de um processo. */
+export interface SchedulingLoadRow {
+  weightKg: number | null;
+  productGroupId: number | null;
+  capacityKg: number | null;
+}
+
+/** Janela prevista de execução de um processo (YYYY-MM-DD). */
+export interface ProcessScheduleWindow {
+  /** Primeiro dia útil em que o processo deve rodar. */
+  start: string;
+  /** Último dia útil (inclusive) em que o processo deve terminar. */
+  end: string;
+}
+
+/** Janela/carga calculada para uma linha de fila. */
+export interface ScheduledWindow {
   /** Peso ÷ capacidade (dias úteis, aceita fração). */
   loadDays: number | null;
   startDate: string | null;
@@ -44,8 +60,47 @@ export interface ScheduledOrderRow extends SchedulingOrderRow {
   issue: string | null;
 }
 
+/** Linha da tela com a carga e as datas previstas calculadas. */
+export interface ScheduledOrderRow extends SchedulingOrderRow, ScheduledWindow {}
+
 export interface ProcessSchedulingData {
   processId: string | null;
   anchorDate: string;
   rows: SchedulingOrderRow[];
+}
+
+/**
+ * Linha mínima de uma fila por processo usada pelo índice compartilhado
+ * (Gestão de OF, Fábrica 1, Fábrica 2, Pedidos).
+ */
+export interface ScheduleQueueRow extends SchedulingLoadRow {
+  orderId: string;
+  /** Processo da OF concluído em todos os itens aplicáveis. */
+  processConcluded: boolean;
+  /** Conclusão efetiva do processo, quando conhecida. */
+  processCompletedAt: string | null;
+  /** OF já teve a expedição concluída (sai da fila, não ocupa capacidade). */
+  expConcluded: boolean;
+  /** Conclusão efetiva do EXP — data de expedição de quem já foi expedido. */
+  expCompletedAt: string | null;
+}
+
+/** Fila crua de UM processo (ordem global já aplicada pelo banco). */
+export interface ProcessScheduleQueue {
+  processId: string;
+  processCode: string;
+  anchorDate: string;
+  rows: ScheduleQueueRow[];
+}
+
+/**
+ * Índice de datas previstas por OF, compartilhado pelas telas: a janela de
+ * cada processo vem da fila do sequenciamento (seq global + âncora +
+ * capacidade), não da data de entrega.
+ */
+export interface OrderScheduleIndex {
+  /** orderId -> código do processo -> janela prevista. */
+  windowsByOrder: Record<string, Record<string, ProcessScheduleWindow>>;
+  /** orderId -> data de expedição (fim do EXP planejado ou conclusão efetiva). */
+  expeditionByOrder: Record<string, string | null>;
 }

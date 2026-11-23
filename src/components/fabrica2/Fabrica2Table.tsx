@@ -6,15 +6,12 @@ import { AlertTriangle } from "lucide-react";
 import { coreFeatures, createColumnHelper, flexRender, useTable, type CoreFeatures } from "@tanstack/react-table";
 
 import type { ProcessDefinition, ProductionFilters, ProductionRow, ProcessCell } from "@/lib/types/production";
+import type { OrderScheduleIndex, ProcessScheduleWindow } from "@/lib/types/scheduling";
 import { PROCESS_STATUS_LABELS, PROCESS_STATUS_SYMBOLS, type ProcessStatus } from "@/lib/constants/production";
 import { F1_PROCESS_CODES, MP_PROCESS_CODE } from "@/lib/constants/processes";
 import { formatBusinessDate, formatBusinessDayMonth, formatDate, formatDayMonth } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight, truncate } from "@/lib/utils/formatting";
-import {
-  computeProcessSchedule,
-  scheduleProcessesForItem,
-  type ProcessWindow,
-} from "@/lib/utils/process-schedule";
+import { EMPTY_SCHEDULE_INDEX, windowsForOrder } from "@/lib/utils/sequenced-schedule";
 import { isProcessStartOverdue } from "@/lib/utils/production";
 import { mpReceiptFromCell, mpReceiptClass, MP_RECEIPT_STATE_LABELS } from "@/lib/utils/mp-receipt";
 import { cn } from "@/lib/utils";
@@ -45,6 +42,8 @@ interface Fabrica2TableProps {
   capabilities: Fabrica2Capabilities;
   /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
   today: string;
+  /** Datas previstas por OF, vindas do sequenciamento (093). */
+  schedule?: OrderScheduleIndex;
 }
 
 const helper = createColumnHelper<CoreFeatures, ProductionRow>();
@@ -61,7 +60,7 @@ function DeliveryCell({ row, canEdit }: { row: ProductionRow; canEdit: boolean }
   );
 
   // Edição manual da entrega (ADMIN/GESTOR): a gravação dispara o refresh
-  // e as previsões de todos os processos são recalculadas.
+  // da entrega e das regras de atraso.
   if (!canEdit) return content;
   return (
     <Fabrica2DeliveryDatePopover
@@ -79,12 +78,13 @@ interface ProcessCellButtonProps {
   processName: string;
   disabled: boolean;
   onSelect: (selection: Fabrica2ProcessSelection) => void;
-  /** Janela prevista de execução (dias úteis contados de trás para frente da entrega). */
-  plan: ProcessWindow | null;
+  /** Janela prevista de execução, vinda do sequenciamento da OF. */
+  plan: ProcessScheduleWindow | null;
   /** Data de referência (AAAA-MM-DD) — início anterior a ela fica em vermelho. */
   today: string;
   context: {
     orderItemId: string;
+    orderId: string;
     orderCode: string;
     itemDescription: string;
     processCode: string;
@@ -187,6 +187,7 @@ function ProcessCellButton({ cell, processName, disabled, onSelect, plan, today,
         onSelect({
           productionProcessId: cell.id ?? "",
           orderItemId: context.orderItemId,
+          orderId: context.orderId,
           orderCode: context.orderCode,
           itemDescription: context.itemDescription,
           processName,
@@ -225,30 +226,15 @@ function statusClass(status: ProcessStatus): string {
 }
 
 /** Tabela da Fábrica 2 (desktop) + cards (mobile) com folha de detalhes. */
-export function Fabrica2Table({ rows, processes, filters, capabilities, today }: Fabrica2TableProps) {
+export function Fabrica2Table({
+  rows,
+  processes,
+  filters,
+  capabilities,
+  today,
+  schedule = EMPTY_SCHEDULE_INDEX,
+}: Fabrica2TableProps) {
   const [selection, setSelection] = useState<Fabrica2ProcessSelection | null>(null);
-
-  // Datas previstas por item: janela de cada processo contada da entrega.
-  // O status do processo NO ITEM entra no cálculo: desmarcado (NAO_APLICAVEL)
-  // não ocupa dias nem ganha janela (senão empurrava as datas anteriores).
-  const scheduleByItem = useMemo(
-    () =>
-      new Map(
-        rows.map((row) => {
-          const byCode = new Map(
-            Object.entries(row.processes).map(([code, cell]) => [code, cell.status] as const),
-          );
-          return [
-            row.orderItemId,
-            computeProcessSchedule(
-              row.deliveryDate,
-              scheduleProcessesForItem(processes, (code) => byCode.get(code)),
-            ),
-          ] as const;
-        }),
-      ),
-    [rows, processes],
-  );
 
   // Largura da coluna "Item pai": cabe o código mais longo da página atual.
   // Piso = cabeçalho "Item pai"; teto = um código maluco não desloca as
@@ -469,10 +455,11 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
                 processName={process.name}
                 disabled={!capabilities.canUpdateStatus}
                 onSelect={setSelection}
-                plan={scheduleByItem.get(row.orderItemId)?.get(process.code) ?? null}
+                plan={windowsForOrder(schedule, row.orderId)[process.code] ?? null}
                 today={today}
                 context={{
                   orderItemId: row.orderItemId,
+                  orderId: row.orderId,
                   orderCode: row.orderCode,
                   itemDescription: row.description,
                   processCode: process.code,
@@ -501,7 +488,7 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
         columns: helper.columns(processColumns),
       }),
     ]);
-  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, scheduleByItem, today, parentItemWidthCh]);
+  }, [filters, processes, capabilities.canUpdateStatus, capabilities.canEditDelivery, schedule, today, parentItemWidthCh]);
 
   const table = useTable({
     features: coreFeatures,
@@ -683,10 +670,11 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
                   processName={process.name}
                   disabled={!capabilities.canUpdateStatus}
                   onSelect={setSelection}
-                  plan={scheduleByItem.get(row.orderItemId)?.get(process.code) ?? null}
+                  plan={windowsForOrder(schedule, row.orderId)[process.code] ?? null}
                   today={today}
                   context={{
                     orderItemId: row.orderItemId,
+                    orderId: row.orderId,
                     orderCode: row.orderCode,
                     itemDescription: row.description,
                     processCode: process.code,
@@ -702,6 +690,7 @@ export function Fabrica2Table({ rows, processes, filters, capabilities, today }:
       <Fabrica2DetailsSheet
         selection={selection}
         processes={processes}
+        schedule={schedule}
         onOpenChange={(open) => {
           if (!open) setSelection(null);
         }}

@@ -4,6 +4,7 @@ import { gestaoEntregasSheet } from "@/lib/export/columns";
 import { EXPORT_PAGE_SIZE, collectAllPages, exportFileName, searchParamsRecord } from "@/lib/export/common";
 import { workbookResponse } from "@/lib/export/workbook";
 import { getActiveProcesses, getProductionOrderRows } from "@/lib/repositories/production.repository";
+import { getScheduleIndex } from "@/lib/services/scheduling.service";
 import { createClient } from "@/lib/supabase/server";
 import { todayISODate } from "@/lib/utils/dates";
 import { parseProductionFilters } from "@/lib/utils/filters";
@@ -31,12 +32,15 @@ export async function GET(request: Request) {
     const client = await createClient();
     const today = todayISODate();
 
-    const processes = await getActiveProcesses(client);
+    const [processes, schedule] = await Promise.all([
+      getActiveProcesses(client),
+      getScheduleIndex(client),
+    ]);
     const rows = await collectAllPages((page) =>
       getProductionOrderRows(client, { ...filters, page, pageSize: EXPORT_PAGE_SIZE }, today),
     );
 
-    return workbookResponse(exportFileName("gestao-entregas"), gestaoEntregasSheet(rows, processes, today));
+    return workbookResponse(exportFileName("gestao-entregas"), gestaoEntregasSheet(rows, processes, schedule));
   } catch (error) {
     return Response.json(
       { error: errorMessage(error, "Não foi possível exportar a lista.") },

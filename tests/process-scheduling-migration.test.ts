@@ -382,6 +382,54 @@ describe("migration 078 — situação do processo e da MP por OF", () => {
   });
 });
 
+describe("migration 095 — datas efetivas nos processos concluídos", () => {
+  it("retorna filas ativas e a conclusão efetiva do EXP em OFs já concluídas", async () => {
+    await asSuperUser(db);
+    const { rows: shipped } = await db.query<{ id: string }>(
+      `insert into public.orders (code, type, customer_name, status, product_group_id)
+       values ('OF-SEQ-SHIPPED-093', 'OF', 'Cliente EXP', 'CONCLUIDO', 1)
+       returning id`,
+    );
+    const shippedOrderId = shipped[0]?.id as string;
+    const { rows: root } = await db.query<{ id: string }>(
+      `insert into public.order_items (order_id, description, quantity, unit_weight_kg)
+       values ($1, 'Item expedido', 2, 25)
+       returning id`,
+      [shippedOrderId],
+    );
+    await db.query(
+      `insert into public.production_processes (order_item_id, process_id, status, completed_at)
+       select $1, p.id, 'CONCLUIDO', '2026-10-20T02:00:00Z'::timestamptz
+         from public.processes p
+        where p.code = 'EXP'`,
+      [root[0]?.id],
+    );
+
+    await asUser(db, "authenticated", adminId);
+    const { rows } = await db.query<{ process_code: string; rows: unknown }>(
+      `select s.process_code, s.rows
+         from public.get_all_process_scheduling() s
+        where s.process_code = 'EXP'`,
+    );
+    const expQueue = rows[0]?.rows as {
+      order_id: string;
+      weight_kg: number | string;
+      process_concluded: boolean;
+      process_completed_at: string;
+      exp_concluded: boolean;
+      exp_completed_at: string;
+    }[];
+    const shippedRow = expQueue.find((row) => row.order_id === shippedOrderId);
+
+    expect(shippedRow).toBeDefined();
+    expect(shippedRow?.exp_concluded).toBe(true);
+    expect(Number(shippedRow?.weight_kg)).toBe(0);
+    expect(shippedRow?.process_concluded).toBe(true);
+    expect(new Date(shippedRow?.process_completed_at ?? "").toISOString()).toBe("2026-10-20T02:00:00.000Z");
+    expect(new Date(shippedRow?.exp_completed_at ?? "").toISOString()).toBe("2026-10-20T02:00:00.000Z");
+  });
+});
+
 describe("migration 070 — save_process_schedule", () => {
   it("grava posições, observações e a data de início (ADMIN)", async () => {
     await asUser(db, "authenticated", adminId);
@@ -445,6 +493,64 @@ describe("migration 070 — save_process_schedule", () => {
       "OF-SEQ-2",
       "OF-SEQ-SEM",
     ]);
+  });
+
+  it("aceita no save as OFs concluídas que continuam visíveis na fila", async () => {
+    await asSuperUser(db);
+    await db.exec("begin");
+    try {
+      await db.query(
+        `update public.production_processes pp
+            set status = 'CONCLUIDO'
+           from public.order_items oi
+          where oi.id = pp.order_item_id
+            and oi.order_id = $1
+            and pp.process_id = $2`,
+        [activeOrderId, processId],
+      );
+
+      await asUser(db, "authenticated", adminId);
+      const { rows } = await db.query<{
+        order_id: string;
+        order_code: string;
+        notes: string | null;
+        process_status: string;
+        weight_kg: string;
+      }>(
+        `select order_id, order_code, notes, process_status, weight_kg
+           from public.get_process_scheduling($1, null)`,
+        [processId],
+      );
+      const completedOrder = rows.find((row) => row.order_id === activeOrderId);
+      expect(completedOrder).toMatchObject({
+        process_status: "CONCLUIDO",
+        weight_kg: "0",
+      });
+
+      // O componente envia todas as linhas exibidas, inclusive a concluída.
+      await db.query(`select public.save_process_schedule($1, $2, $3::jsonb)`, [
+        processId,
+        "2026-10-10",
+        JSON.stringify(
+          rows.map((row, index) => ({
+            order_id: row.order_id,
+            position: index + 1,
+            notes: row.notes,
+          })),
+        ),
+      ]);
+
+      const { rows: saved } = await db.query<{ order_id: string }>(
+        `select order_id
+           from public.order_process_schedules
+          where process_id = $1`,
+        [processId],
+      );
+      expect(saved.map((row) => row.order_id)).toContain(activeOrderId);
+    } finally {
+      await asSuperUser(db);
+      await db.exec("rollback");
+    }
   });
 
   it("regrava a ordem sem duplicar linhas (upsert)", async () => {

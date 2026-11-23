@@ -116,6 +116,7 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
           filters={filters}
           capabilities={capabilities}
           today={data.today}
+          schedule={data.schedule}
         />
       </ListScroll>
 

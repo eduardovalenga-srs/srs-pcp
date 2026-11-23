@@ -29,6 +29,7 @@ interface ProcessSchedulingProps {
   familyGroupId: number | null;
   initialAnchorDate: string;
   initialRows: SchedulingOrderRow[];
+  expeditionByOrder: Record<string, string | null>;
   canEdit: boolean;
 }
 
@@ -39,6 +40,7 @@ export function ProcessScheduling({
   familyGroupId,
   initialAnchorDate,
   initialRows,
+  expeditionByOrder,
   canEdit,
 }: ProcessSchedulingProps) {
   const router = useRouter();
@@ -232,6 +234,7 @@ export function ProcessScheduling({
                 <th scope="col" className="min-w-16 border-b px-2 py-2 text-right">Qtd.</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2 text-right">Peso (kg)</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2">Entrega</th>
+                <th scope="col" className="min-w-28 border-b px-2 py-2">Data de expedição</th>
                 <th scope="col" className="min-w-28 border-b px-2 py-2">Família</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2">Processo</th>
                 <th scope="col" className="min-w-20 border-b px-2 py-2">MP</th>
@@ -281,6 +284,9 @@ export function ProcessScheduling({
                     {formatWeight(row.weightKg)}
                   </td>
                   <td className="border-b px-2 py-1.5 tabular-nums">{formatDate(row.deliveryDate)}</td>
+                  <td className="border-b px-2 py-1.5 tabular-nums">
+                    {formatDate(expeditionByOrder[row.orderId] ?? null)}
+                  </td>
                   <td className="border-b px-2 py-1.5">
                     {row.groupType ? (
                       <span title={row.familyDescription ?? undefined}>{row.groupType}</span>
