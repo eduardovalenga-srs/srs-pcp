@@ -144,6 +144,8 @@ describe("filtragem por papel (capabilities da sidebar)", () => {
     expect(markup).toContain('href="/dashboard"');
     // 043: RH passa a ser de ADMIN e operadores (F1).
     expect(markup).toContain('href="/rh/funcionarios"');
+    expect(markup).not.toContain('href="/rh/vagas"');
+    expect(markup).not.toContain('href="/rh/vagas"');
   });
 
   it("OPERADOR_F2 (055) vê somente a Fábrica 2", () => {
@@ -176,15 +178,25 @@ describe("filtragem por papel (capabilities da sidebar)", () => {
     expect(markup).not.toContain('href="/rh/alocacoes"');
   });
 
-  it("ADMIN e OPERADOR_F1 veem RH; GESTOR vê apenas alocações", () => {
+  it("ADMIN vê cadastro e vagas; GESTOR vê recrutamento e alocações", () => {
     for (const role of ["ADMIN", "OPERADOR_F1"] as const) {
       const markup = renderSidebar(role);
       expect(markup, `grupo RH para ${role}`).toContain('href="/rh/funcionarios"');
     }
     const managerMarkup = renderSidebar("GESTOR");
     expect(managerMarkup).toContain('href="/rh/alocacoes"');
+    expect(managerMarkup).toContain('href="/rh/vagas"');
     expect(managerMarkup).not.toContain('href="/rh/funcionarios"');
     expect(managerMarkup).not.toContain('href="/rh/funcionarios/importacao"');
+  });
+
+  it("mantém Vagas dentro do grupo RH, não em Gestão de Fábrica", () => {
+    const entries = visibleEntries("GESTOR");
+    const factory = entries.find((entry) => entry.type === "group" && entry.id === "fabrica");
+    const rh = entries.find((entry) => entry.type === "group" && entry.id === "rh");
+
+    expect(factory?.type === "group" && factory.items.some((item) => item.type === "item" && item.href === "/rh/vagas")).toBe(false);
+    expect(rh?.type === "group" && rh.items.some((item) => item.type === "item" && item.href === "/rh/vagas")).toBe(true);
   });
 });
 

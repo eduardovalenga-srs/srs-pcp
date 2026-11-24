@@ -1,5 +1,6 @@
 import {
   Boxes,
+  BriefcaseBusiness,
   ClipboardList,
   FileUp,
   Factory,
@@ -134,6 +135,13 @@ export const NAV_ENTRIES: NavEntry[] = [
     icon: Users,
     capability: "menu.rh",
     items: [
+      {
+        type: "item",
+        href: "/rh/vagas",
+        label: "Vagas",
+        icon: BriefcaseBusiness,
+        capability: "rh.recruitment.view",
+      },
       {
         type: "item",
         href: "/rh/funcionarios",

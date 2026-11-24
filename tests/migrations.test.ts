@@ -58,6 +58,8 @@ describe("migrations", () => {
       "production_events",
       "employees",
       "employee_allocation_nodes",
+      "recruitment_vacancies",
+      "recruitment_candidates",
       "import_batches",
       "import_errors",
       "product_groups",
@@ -2871,5 +2873,58 @@ describe("080_completed_weight_mp_receipts", () => {
     expect(created[0]?.utc).toBe("2026-11-05 12:00:00");
 
     await db.query(`delete from public.orders where id = $1`, [orderId]);
+  });
+});
+
+describe("096_recruitment_vacancies", () => {
+  it("restringe vagas e candidatos à equipe de recrutamento", async () => {
+    const managerId = await createUser(db, "recruitment-manager@test.local", "GESTOR");
+    const operatorId = await createUser(db, "recruitment-operator@test.local", "OPERADOR_F1");
+
+    await asUser(db, "authenticated", managerId);
+    const { rows: vacancyRows } = await db.query<{ id: string }>(
+      `insert into public.recruitment_vacancies (title, customer, department)
+       values ('Soldador', 'Cliente da OF', 'Produção') returning id`,
+    );
+    const vacancyId = vacancyRows[0]?.id as string;
+    const { rows: candidateRows } = await db.query<{ id: string }>(
+      `insert into public.recruitment_candidates (vacancy_id, name, email)
+       values ($1, 'Candidato de teste', 'candidato@test.local') returning id`,
+      [vacancyId],
+    );
+    expect(candidateRows).toHaveLength(1);
+    await db.query(
+      `update public.recruitment_candidates set stage = 'CONTRATADO' where id = $1`,
+      [candidateRows[0]?.id],
+    );
+    const { rows: unchangedStatus } = await db.query<{ status: string }>(
+      `select status from public.recruitment_vacancies where id = $1`,
+      [vacancyId],
+    );
+    expect(unchangedStatus[0]?.status).toBe("RASCUNHO");
+    await db.query(
+      `update public.recruitment_vacancies set status = 'PREENCHIDA' where id = $1`,
+      [vacancyId],
+    );
+
+    await asUser(db, "authenticated", operatorId);
+    const { rows: hiddenVacancies } = await db.query<{ count: number }>(
+      `select count(*)::int as count from public.recruitment_vacancies`,
+    );
+    const { rows: hiddenCandidates } = await db.query<{ count: number }>(
+      `select count(*)::int as count from public.recruitment_candidates`,
+    );
+    expect(hiddenVacancies[0]?.count).toBe(0);
+    expect(hiddenCandidates[0]?.count).toBe(0);
+    await expect(
+      db.query(
+        `insert into public.recruitment_candidates (vacancy_id, name)
+         values ($1, 'Candidato sem acesso')`,
+        [vacancyId],
+      ),
+    ).rejects.toThrow();
+
+    await asSuperUser(db);
+    await db.query(`delete from public.recruitment_vacancies where id = $1`, [vacancyId]);
   });
 });

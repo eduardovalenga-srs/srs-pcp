@@ -36,6 +36,8 @@ const ALL_CAPABILITIES: Capability[] = [
   "rh.manage",
   "rh.allocation.view",
   "rh.allocation.manage",
+  "rh.recruitment.view",
+  "rh.recruitment.manage",
 ];
 
 describe("página inicial por papel (homePathFor)", () => {
@@ -91,6 +93,8 @@ describe("matriz de permissões (item 40)", () => {
       "menu.rh",
       "rh.allocation.view",
       "rh.allocation.manage",
+      "rh.recruitment.view",
+      "rh.recruitment.manage",
     ];
     const denied: Capability[] = [
       "processes.manage",
@@ -140,6 +144,8 @@ describe("matriz de permissões (item 40)", () => {
       "rh.manage",
       "rh.allocation.view",
       "rh.allocation.manage",
+      "rh.recruitment.view",
+      "rh.recruitment.manage",
     ];
 
     for (const capability of allowed) expect(can("OPERADOR_F1", capability), capability).toBe(true);
@@ -175,6 +181,8 @@ describe("matriz de permissões (item 40)", () => {
       "rh.manage",
       "rh.allocation.view",
       "rh.allocation.manage",
+      "rh.recruitment.view",
+      "rh.recruitment.manage",
     ];
 
     for (const capability of allowed) expect(can("OPERADOR_F2", capability), capability).toBe(true);
@@ -214,6 +222,8 @@ describe("matriz de permissões (item 40)", () => {
       "rh.manage",
       "rh.allocation.view",
       "rh.allocation.manage",
+      "rh.recruitment.view",
+      "rh.recruitment.manage",
     ];
 
     for (const capability of allowed) expect(can("VISUALIZADOR", capability), capability).toBe(true);

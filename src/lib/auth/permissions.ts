@@ -37,7 +37,9 @@ export type Capability =
   | "rh.view"
   | "rh.manage"
   | "rh.allocation.view"
-  | "rh.allocation.manage";
+  | "rh.allocation.manage"
+  | "rh.recruitment.view"
+  | "rh.recruitment.manage";
 
 const CAPABILITIES: Record<Role, readonly Capability[]> = {
   ADMIN: [
@@ -77,6 +79,8 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "rh.manage",
     "rh.allocation.view",
     "rh.allocation.manage",
+    "rh.recruitment.view",
+    "rh.recruitment.manage",
   ],
   GESTOR: [
     "production.view",
@@ -107,6 +111,8 @@ const CAPABILITIES: Record<Role, readonly Capability[]> = {
     "menu.rh",
     "rh.allocation.view",
     "rh.allocation.manage",
+    "rh.recruitment.view",
+    "rh.recruitment.manage",
   ],
   // OPERADOR_F1 (era OPERADOR): não vê a gestão de entregas (menu nem
   // página) — o trabalho dele entra pela Fábrica 1 → link da OF → folha do

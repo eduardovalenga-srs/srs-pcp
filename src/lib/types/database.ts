@@ -20,6 +20,66 @@ export type ProcessStatusValue =
 export type MpReceiptStateValue = "NONE" | "PARCIAL" | "TOTAL";
 export type ImportBatchStatusValue = "PENDENTE" | "PROCESSANDO" | "CONCLUIDO" | "COM_ERROS" | "FALHOU";
 export type EmployeeStatusValue = "ATIVO" | "INATIVO";
+export type RecruitmentVacancyStatusValue =
+  | "RASCUNHO"
+  | "ABERTA"
+  | "PAUSADA"
+  | "PREENCHIDA"
+  | "ENCERRADA"
+  | "CANCELADA";
+export type RecruitmentRequestReasonValue = "NOVA_VAGA" | "SUBSTITUICAO" | "REFORCO";
+export type RecruitmentCandidateStageValue =
+  | "NOVO"
+  | "TRIAGEM"
+  | "ENTREVISTA"
+  | "APROVADO"
+  | "REPROVADO"
+  | "CONTRATADO";
+
+export type RecruitmentVacancyRow = {
+  id: string;
+  title: string;
+  customer: string | null;
+  request_reason: RecruitmentRequestReasonValue;
+  replacement_employee_id: string | null;
+  allocation_client_id: string | null;
+  allocation_location_id: string | null;
+  allocation_area_id: string | null;
+  allocation_position_id: string | null;
+  department: string;
+  location: string | null;
+  employment_type: string;
+  quantity: number;
+  description: string | null;
+  requirements: string | null;
+  salary_range: string | null;
+  requester: string | null;
+  recruiter: string | null;
+  priority: "BAIXA" | "NORMAL" | "ALTA";
+  status: RecruitmentVacancyStatusValue;
+  opening_date: string;
+  target_date: string | null;
+  closed_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+};
+
+export type RecruitmentCandidateRow = {
+  id: string;
+  vacancy_id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  source: string | null;
+  stage: RecruitmentCandidateStageValue;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+};
 
 export type EmployeeRow = {
   id: string;
@@ -694,6 +754,127 @@ export type Database = {
             columns: ["allocation_position_id"];
             isOneToOne: true;
             referencedRelation: "employee_allocation_nodes";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      recruitment_vacancies: {
+        Row: RecruitmentVacancyRow;
+        Insert: {
+          id?: string;
+          title: string;
+          customer?: string | null;
+          request_reason?: RecruitmentRequestReasonValue;
+          replacement_employee_id?: string | null;
+          allocation_client_id?: string | null;
+          allocation_location_id?: string | null;
+          allocation_area_id?: string | null;
+          allocation_position_id?: string | null;
+          department: string;
+          location?: string | null;
+          employment_type?: string;
+          quantity?: number;
+          description?: string | null;
+          requirements?: string | null;
+          salary_range?: string | null;
+          requester?: string | null;
+          recruiter?: string | null;
+          priority?: RecruitmentVacancyRow["priority"];
+          status?: RecruitmentVacancyStatusValue;
+          opening_date?: string;
+          target_date?: string | null;
+          closed_reason?: string | null;
+          created_by?: string | null;
+          updated_by?: string | null;
+        };
+        Update: Partial<Omit<Database["public"]["Tables"]["recruitment_vacancies"]["Insert"], "id">>;
+        Relationships: [
+          {
+            foreignKeyName: "recruitment_vacancies_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recruitment_vacancies_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recruitment_vacancies_replacement_employee_id_fkey";
+            columns: ["replacement_employee_id"];
+            isOneToOne: false;
+            referencedRelation: "employees";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recruitment_vacancies_allocation_client_id_fkey";
+            columns: ["allocation_client_id"];
+            isOneToOne: false;
+            referencedRelation: "employee_allocation_nodes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recruitment_vacancies_allocation_location_id_fkey";
+            columns: ["allocation_location_id"];
+            isOneToOne: false;
+            referencedRelation: "employee_allocation_nodes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recruitment_vacancies_allocation_area_id_fkey";
+            columns: ["allocation_area_id"];
+            isOneToOne: false;
+            referencedRelation: "employee_allocation_nodes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recruitment_vacancies_allocation_position_id_fkey";
+            columns: ["allocation_position_id"];
+            isOneToOne: false;
+            referencedRelation: "employee_allocation_nodes";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      recruitment_candidates: {
+        Row: RecruitmentCandidateRow;
+        Insert: {
+          id?: string;
+          vacancy_id: string;
+          name: string;
+          email?: string | null;
+          phone?: string | null;
+          source?: string | null;
+          stage?: RecruitmentCandidateStageValue;
+          notes?: string | null;
+          created_by?: string | null;
+          updated_by?: string | null;
+        };
+        Update: Partial<Omit<Database["public"]["Tables"]["recruitment_candidates"]["Insert"], "id">>;
+        Relationships: [
+          {
+            foreignKeyName: "recruitment_candidates_vacancy_id_fkey";
+            columns: ["vacancy_id"];
+            isOneToOne: false;
+            referencedRelation: "recruitment_vacancies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recruitment_candidates_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recruitment_candidates_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
         ];
