@@ -16,11 +16,16 @@ import type { ProcessStatus } from "@/lib/constants/production";
 import type { ProcessDefinition } from "@/lib/types/production";
 import type { ProductGroupDefinition } from "@/lib/types/product-group";
 import type { MpReceiptState } from "@/lib/types/mp-receipt";
-import type { SchedulingOrderRow } from "@/lib/types/scheduling";
-import { formatDate } from "@/lib/utils/dates";
+import type { ProcessScheduleQueue, SchedulingOrderRow } from "@/lib/types/scheduling";
+import { businessISODate, formatDate } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { MP_RECEIPT_STATE_LABELS, mpReceiptClass } from "@/lib/utils/mp-receipt";
-import { computeScheduleRows, formatLoadDays, moveSchedulingRow } from "@/lib/utils/scheduling";
+import {
+  computeScheduleRows,
+  computeSequentialExpeditionDates,
+  formatLoadDays,
+  moveSchedulingRow,
+} from "@/lib/utils/scheduling";
 
 interface ProcessSchedulingProps {
   processes: ProcessDefinition[];
@@ -29,7 +34,7 @@ interface ProcessSchedulingProps {
   familyGroupId: number | null;
   initialAnchorDate: string;
   initialRows: SchedulingOrderRow[];
-  expeditionByOrder: Record<string, string | null>;
+  scheduleQueues: ProcessScheduleQueue[];
   canEdit: boolean;
 }
 
@@ -40,7 +45,7 @@ export function ProcessScheduling({
   familyGroupId,
   initialAnchorDate,
   initialRows,
-  expeditionByOrder,
+  scheduleQueues,
   canEdit,
 }: ProcessSchedulingProps) {
   const router = useRouter();
@@ -48,19 +53,38 @@ export function ProcessScheduling({
   const [rows, setRows] = useState(initialRows);
   const [saving, setSaving] = useState(false);
 
-  const scheduledRows = useMemo(
-    () =>
-      processId
-        ? computeScheduleRows(rows, anchorDate)
-        : rows.map((row) => ({
-            ...row,
-            loadDays: null,
-            startDate: null,
-            endDate: null,
-            issue: null,
-          })),
-    [rows, anchorDate, processId],
-  );
+  const scheduledRows = useMemo(() => {
+    if (!processId) {
+      return rows.map((row) => ({
+        ...row,
+        loadDays: null,
+        startDate: null,
+        endDate: null,
+        issue: null,
+      }));
+    }
+
+    const processCode = processes.find((process) => process.id === processId)?.code;
+    const queue = scheduleQueues.find(
+      (candidate) => candidate.processId === processId || candidate.processCode === processCode,
+    );
+    const visibleOrder = new Map(rows.map((row, index) => [row.orderId, index]));
+    const queueRows = [...(queue?.rows ?? rows)].sort((left, right) => {
+      const leftPosition = visibleOrder.get(left.orderId) ?? Number.MAX_SAFE_INTEGER;
+      const rightPosition = visibleOrder.get(right.orderId) ?? Number.MAX_SAFE_INTEGER;
+      return leftPosition - rightPosition;
+    });
+    const calculatedByOrder = new Map(
+      computeScheduleRows(queueRows, anchorDate).map((row) => [row.orderId, row]),
+    );
+
+    return rows.map((row) => {
+      const calculated = calculatedByOrder.get(row.orderId);
+      return calculated
+        ? { ...row, ...calculated }
+        : computeScheduleRows([row], anchorDate)[0];
+    });
+  }, [rows, anchorDate, processId, processes, scheduleQueues]);
 
   const totals = useMemo(() => {
     return scheduledRows.reduce(
@@ -71,6 +95,32 @@ export function ProcessScheduling({
       { weight: 0, days: 0 },
     );
   }, [scheduledRows]);
+
+  const expeditionDates = useMemo(() => {
+    if (!processId) {
+      return computeSequentialExpeditionDates(
+        scheduleQueues,
+        rows.map((row) => row.orderId),
+      );
+    }
+
+    const selectedProcessCode = processes.find((process) => process.id === processId)?.code;
+    const selectedQueue = scheduleQueues.find(
+      (queue) => queue.processId === processId || queue.processCode === selectedProcessCode,
+    );
+    const completedDates = new Map(
+      (selectedQueue?.rows ?? [])
+        .filter((row) => row.processConcluded)
+        .map((row) => [row.orderId, businessISODate(row.processCompletedAt)]),
+    );
+
+    return Object.fromEntries(
+      scheduledRows.map((row) => [
+        row.orderId,
+        row.endDate ?? completedDates.get(row.orderId) ?? null,
+      ]),
+    );
+  }, [processId, processes, rows, scheduleQueues, scheduledRows]);
 
   const goTo = (nextProcessId: string | null, nextFamilyId: number | null) => {
     const params = new URLSearchParams();
@@ -205,8 +255,9 @@ export function ProcessScheduling({
 
       {!processId ? (
         <p className="shrink-0 rounded border border-blue-500/30 bg-blue-50 px-3 py-2 text-xs text-blue-950 dark:bg-blue-950/20 dark:text-blue-100">
-          Você pode salvar esta sequência global sem selecionar um processo. Selecione um processo
-          para filtrar as OFs por etapa e calcular a capacidade.
+          Sem processo selecionado, a previsão considera as etapas aplicáveis de cada OF em
+          sequência e a capacidade de cada processo. OFs com dados de peso, família ou capacidade
+          incompletos ficam sem previsão.
         </p>
       ) : null}
 
@@ -285,7 +336,7 @@ export function ProcessScheduling({
                   </td>
                   <td className="border-b px-2 py-1.5 tabular-nums">{formatDate(row.deliveryDate)}</td>
                   <td className="border-b px-2 py-1.5 tabular-nums">
-                    {formatDate(expeditionByOrder[row.orderId] ?? null)}
+                    {formatDate(expeditionDates[row.orderId] ?? null)}
                   </td>
                   <td className="border-b px-2 py-1.5">
                     {row.groupType ? (

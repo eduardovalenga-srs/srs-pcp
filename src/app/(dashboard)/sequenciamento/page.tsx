@@ -9,8 +9,10 @@ import { can } from "@/lib/auth/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { getAllProcesses } from "@/lib/repositories/production.repository";
 import { getAllProductGroups } from "@/lib/repositories/product-groups.repository";
-import { getProcessScheduling } from "@/lib/repositories/scheduling.repository";
-import { getScheduleIndex } from "@/lib/services/scheduling.service";
+import {
+  getAllProcessScheduling,
+  getProcessScheduling,
+} from "@/lib/repositories/scheduling.repository";
 import { createClient } from "@/lib/supabase/server";
 import type { ProcessDefinition } from "@/lib/types/production";
 import type { ProductGroupDefinition } from "@/lib/types/product-group";
@@ -65,13 +67,13 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
     : null;
 
   let scheduling: Awaited<ReturnType<typeof getProcessScheduling>> | null = null;
-  let schedule: Awaited<ReturnType<typeof getScheduleIndex>> | null = null;
+  let scheduleQueues: Awaited<ReturnType<typeof getAllProcessScheduling>> = [];
   let loadError: unknown = null;
   try {
     const client = await createClient();
-    [scheduling, schedule] = await Promise.all([
+    [scheduling, scheduleQueues] = await Promise.all([
       getProcessScheduling(client, { processId, familyGroupId }),
-      getScheduleIndex(client),
+      getAllProcessScheduling(client),
     ]);
   } catch (error) {
     loadError = error;
@@ -111,7 +113,7 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
           familyGroupId={familyGroupId}
           initialAnchorDate={scheduling.anchorDate}
           initialRows={scheduling.rows}
-          expeditionByOrder={schedule?.expeditionByOrder ?? {}}
+          scheduleQueues={scheduleQueues}
           canEdit={canEdit}
         />
       )}
