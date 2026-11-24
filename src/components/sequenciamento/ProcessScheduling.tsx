@@ -17,12 +17,12 @@ import type { ProcessDefinition } from "@/lib/types/production";
 import type { ProductGroupDefinition } from "@/lib/types/product-group";
 import type { MpReceiptState } from "@/lib/types/mp-receipt";
 import type { ProcessScheduleQueue, SchedulingOrderRow } from "@/lib/types/scheduling";
-import { businessISODate, formatDate } from "@/lib/utils/dates";
+import { formatDate } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { MP_RECEIPT_STATE_LABELS, mpReceiptClass } from "@/lib/utils/mp-receipt";
 import {
   computeScheduleRows,
-  computeSequentialExpeditionDates,
+  computeProductionChainSchedule,
   formatLoadDays,
   moveSchedulingRow,
 } from "@/lib/utils/scheduling";
@@ -53,6 +53,17 @@ export function ProcessScheduling({
   const [rows, setRows] = useState(initialRows);
   const [saving, setSaving] = useState(false);
 
+  const chainSchedule = useMemo(
+    () =>
+      computeProductionChainSchedule(
+        scheduleQueues,
+        processes,
+        rows.map((row) => row.orderId),
+        processId ? { processId, anchorDate } : null,
+      ),
+    [scheduleQueues, processes, rows, processId, anchorDate],
+  );
+
   const scheduledRows = useMemo(() => {
     if (!processId) {
       return rows.map((row) => ({
@@ -65,26 +76,16 @@ export function ProcessScheduling({
     }
 
     const processCode = processes.find((process) => process.id === processId)?.code;
-    const queue = scheduleQueues.find(
-      (candidate) => candidate.processId === processId || candidate.processCode === processCode,
-    );
-    const visibleOrder = new Map(rows.map((row, index) => [row.orderId, index]));
-    const queueRows = [...(queue?.rows ?? rows)].sort((left, right) => {
-      const leftPosition = visibleOrder.get(left.orderId) ?? Number.MAX_SAFE_INTEGER;
-      const rightPosition = visibleOrder.get(right.orderId) ?? Number.MAX_SAFE_INTEGER;
-      return leftPosition - rightPosition;
-    });
-    const calculatedByOrder = new Map(
-      computeScheduleRows(queueRows, anchorDate).map((row) => [row.orderId, row]),
-    );
 
     return rows.map((row) => {
-      const calculated = calculatedByOrder.get(row.orderId);
+      const calculated = processCode
+        ? chainSchedule.windowsByOrder[row.orderId]?.[processCode]
+        : undefined;
       return calculated
         ? { ...row, ...calculated }
         : computeScheduleRows([row], anchorDate)[0];
     });
-  }, [rows, anchorDate, processId, processes, scheduleQueues]);
+  }, [rows, anchorDate, processId, processes, chainSchedule]);
 
   const totals = useMemo(() => {
     return scheduledRows.reduce(
@@ -96,31 +97,7 @@ export function ProcessScheduling({
     );
   }, [scheduledRows]);
 
-  const expeditionDates = useMemo(() => {
-    if (!processId) {
-      return computeSequentialExpeditionDates(
-        scheduleQueues,
-        rows.map((row) => row.orderId),
-      );
-    }
-
-    const selectedProcessCode = processes.find((process) => process.id === processId)?.code;
-    const selectedQueue = scheduleQueues.find(
-      (queue) => queue.processId === processId || queue.processCode === selectedProcessCode,
-    );
-    const completedDates = new Map(
-      (selectedQueue?.rows ?? [])
-        .filter((row) => row.processConcluded)
-        .map((row) => [row.orderId, businessISODate(row.processCompletedAt)]),
-    );
-
-    return Object.fromEntries(
-      scheduledRows.map((row) => [
-        row.orderId,
-        row.endDate ?? completedDates.get(row.orderId) ?? null,
-      ]),
-    );
-  }, [processId, processes, rows, scheduleQueues, scheduledRows]);
+  const expeditionDates = chainSchedule.expeditionByOrder;
 
   const goTo = (nextProcessId: string | null, nextFamilyId: number | null) => {
     const params = new URLSearchParams();
@@ -256,8 +233,15 @@ export function ProcessScheduling({
       {!processId ? (
         <p className="shrink-0 rounded border border-blue-500/30 bg-blue-50 px-3 py-2 text-xs text-blue-950 dark:bg-blue-950/20 dark:text-blue-100">
           Sem processo selecionado, a previsão considera as etapas aplicáveis de cada OF em
-          sequência e a capacidade de cada processo. OFs com dados de peso, família ou capacidade
-          incompletos ficam sem previsão.
+          sequência, a capacidade de cada processo e seu lead time cadastrado. OFs com dados de
+          peso, família ou capacidade incompletos ficam sem previsão.
+        </p>
+      ) : null}
+
+      {processId ? (
+        <p className="shrink-0 text-xs text-muted-foreground">
+          A previsão de expedição considera toda a cadeia. A data selecionada é o início mínimo
+          deste processo; etapas anteriores podem adiá-lo.
         </p>
       ) : null}
 
