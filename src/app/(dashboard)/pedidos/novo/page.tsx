@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
@@ -13,6 +13,7 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { OrderForm, type OrderProcessOption } from "@/components/pedidos/OrderForm";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Novo pedido" };
 
@@ -20,7 +21,7 @@ export default async function NovoPedidoPage() {
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");
 
-  if (!can(sessionUser.role, "orders.create")) {
+  if (!hasPermission(sessionUser.access, "orders.create")) {
     return (
       <>
         <Header title="Novo pedido" description="Crie um pedido (OF/OS) com seus itens." />

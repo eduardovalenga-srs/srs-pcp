@@ -1,4 +1,4 @@
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { gestaoEntregasSheet } from "@/lib/export/columns";
 import { EXPORT_PAGE_SIZE, collectAllPages, exportFileName, searchParamsRecord } from "@/lib/export/common";
@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import { todayISODate } from "@/lib/utils/dates";
 import { parseProductionFilters } from "@/lib/utils/filters";
 import { errorMessage } from "@/lib/utils/supabase-result";
+import { hasPermission } from "@/lib/auth/access";
 
 /**
  * GET /api/export/gestao-entregas — .xlsx da gestão de OF com a lista
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
     if (!user) {
       return Response.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
     }
-    if (!can(user.role, "production.view")) {
+    if (!hasPermission(user.access, "production.view")) {
       return Response.json({ error: "Seu perfil não tem permissão para exportar esta lista." }, { status: 403 });
     }
 

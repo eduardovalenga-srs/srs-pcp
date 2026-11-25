@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
@@ -15,6 +15,7 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { RomaneioNewForm } from "@/components/romaneio/RomaneioNewForm";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Novo romaneio" };
 
@@ -31,7 +32,7 @@ export default async function NovoRomaneioPage() {
     </Button>
   );
 
-  if (!can(sessionUser.role, "romaneio.edit")) {
+  if (!hasPermission(sessionUser.access, "romaneio.edit")) {
     return (
       <>
         <Header

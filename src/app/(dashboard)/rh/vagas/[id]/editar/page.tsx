@@ -4,12 +4,13 @@ import { Header } from "@/components/layout/Header";
 import { RecruitmentVacancyForm } from "@/components/rh/RecruitmentVacancyForm";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { getRecruitmentFormOptions, getRecruitmentVacancy } from "@/lib/repositories/recruitment.repository";
 import { createClient } from "@/lib/supabase/server";
 import type { RecruitmentVacancyRow } from "@/lib/types/database";
 import type { RecruitmentFormOptions } from "@/lib/types/recruitment";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Editar vaga" };
 
@@ -18,7 +19,7 @@ export default async function EditRecruitmentVacancyPage({
 }: PageProps<"/rh/vagas/[id]/editar">) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  if (!can(user.role, "rh.recruitment.manage")) {
+  if (!hasPermission(user.access, "rh.recruitment.manage")) {
     return <><Header title="Editar vaga" /><AccessDenied /></>;
   }
 

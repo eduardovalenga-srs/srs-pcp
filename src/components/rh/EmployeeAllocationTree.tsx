@@ -39,6 +39,7 @@ import {
   ALLOCATION_CHILD_KIND,
   ALLOCATION_KIND_LABEL,
   type AllocationEmployee,
+  type EmployeeAllocationKind,
   type EmployeeAllocationNode,
 } from "@/lib/types/employee-allocation";
 
@@ -59,11 +60,21 @@ function classNames(...values: (string | false | null | undefined)[]) {
 export function EmployeeAllocationTree({
   nodes,
   employees,
-  canManage,
+  canCreateClient,
+  canCreate,
+  canEdit,
+  canDeactivate,
+  canDelete,
+  canAssign,
 }: {
   nodes: EmployeeAllocationNode[];
   employees: AllocationEmployee[];
-  canManage: boolean;
+  canCreateClient: boolean;
+  canCreate: Record<EmployeeAllocationKind, boolean>;
+  canEdit: boolean;
+  canDeactivate: boolean;
+  canDelete: boolean;
+  canAssign: boolean;
 }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -400,7 +411,7 @@ export function EmployeeAllocationTree({
           {!effectiveActive ? (
             <span className="whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs">Inativa</span>
           ) : null}
-          {canManage && effectiveActive && childKind ? (
+          {effectiveActive && childKind && canCreate[childKind] ? (
             <Button
               type="button"
               size="sm"
@@ -414,46 +425,52 @@ export function EmployeeAllocationTree({
               <span className="hidden sm:inline">Adicionar</span>
             </Button>
           ) : null}
-          {canManage && node.node_type !== "COMPANY" ? (
+          {node.node_type !== "COMPANY" && (canEdit || canDeactivate || canDelete) ? (
             <>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8"
-                onClick={() => openEdit(node)}
-                disabled={pending}
-                aria-label={`Editar ${node.name}`}
-              >
-                <Pencil className="h-4 w-4" aria-hidden />
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-8"
-                onClick={() => void toggleActive(node)}
-                disabled={pending}
-                aria-label={`${node.active ? "Inativar" : "Reativar"} ${node.name}`}
-              >
-                {node.active ? <Minus className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
-                <span className="hidden sm:inline">{node.active ? "Inativar" : "Reativar"}</span>
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8 text-destructive hover:text-destructive"
-                onClick={() => void deleteNode(node)}
-                disabled={pending}
-                aria-label={`Excluir ${node.name}`}
-                title="Excluir este nível e toda a estrutura abaixo"
-              >
-                <Trash2 className="h-4 w-4" aria-hidden />
-              </Button>
+              {canEdit ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8"
+                  onClick={() => openEdit(node)}
+                  disabled={pending}
+                  aria-label={`Editar ${node.name}`}
+                >
+                  <Pencil className="h-4 w-4" aria-hidden />
+                </Button>
+              ) : null}
+              {canDeactivate ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8"
+                  onClick={() => void toggleActive(node)}
+                  disabled={pending}
+                  aria-label={`${node.active ? "Inativar" : "Reativar"} ${node.name}`}
+                >
+                  {node.active ? <Minus className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
+                  <span className="hidden sm:inline">{node.active ? "Inativar" : "Reativar"}</span>
+                </Button>
+              ) : null}
+              {canDelete ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 text-destructive hover:text-destructive"
+                  onClick={() => void deleteNode(node)}
+                  disabled={pending}
+                  aria-label={`Excluir ${node.name}`}
+                  title="Excluir este nível e toda a estrutura abaixo"
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                </Button>
+              ) : null}
             </>
           ) : null}
-          {canManage && isPosition && effectiveActive ? (
+          {canAssign && isPosition && effectiveActive ? (
             occupant ? (
               <>
                 <Button
@@ -532,7 +549,7 @@ export function EmployeeAllocationTree({
           </p>
         </div>
         <div className="flex gap-2">
-          {canManage ? (
+          {canCreateClient ? (
             <Button type="button" size="sm" variant="outline" onClick={openCreateClient} disabled={pending}>
               <Plus className="h-3.5 w-3.5" aria-hidden />
               Adicionar cliente

@@ -46,6 +46,8 @@ function profile(overrides: Partial<ProfileRow> = {}): ProfileRow {
     role: "GESTOR",
     active: true,
     must_change_password: false,
+    account_type: "INTERNAL",
+    access_profile_id: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     ...overrides,

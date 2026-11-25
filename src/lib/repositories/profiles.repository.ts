@@ -1,3 +1,4 @@
+import type { AccessAccountTypeValue } from "@/lib/types/database";
 import type { Role } from "@/lib/constants/orders";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseServer } from "@/lib/supabase/types";
@@ -10,13 +11,19 @@ export interface ProfileEntry {
   role: Role;
   active: boolean;
   mustChangePassword: boolean;
+  /** 101: tipo de conta e perfil-modelo de acesso. */
+  accountType: AccessAccountTypeValue;
+  accessProfileId: string | null;
 }
+
+const PROFILE_COLUMNS =
+  "id, name, email, role, active, must_change_password, account_type, access_profile_id";
 
 /** Lista de perfis (para configurações e exibição de responsáveis). */
 export async function listProfiles(client: SupabaseServer): Promise<ProfileEntry[]> {
   const { data, error } = await client
     .from("profiles")
-    .select("id, name, email, role, active, must_change_password")
+    .select(PROFILE_COLUMNS)
     .order("name", { ascending: true });
 
   assertOk(error, "Não foi possível carregar os usuários");
@@ -27,6 +34,8 @@ export async function listProfiles(client: SupabaseServer): Promise<ProfileEntry
     role: row.role,
     active: row.active,
     mustChangePassword: row.must_change_password,
+    accountType: row.account_type,
+    accessProfileId: row.access_profile_id,
   }));
 }
 
@@ -37,7 +46,7 @@ export async function getProfileById(
 ): Promise<ProfileEntry | null> {
   const { data, error } = await client
     .from("profiles")
-    .select("id, name, email, role, active, must_change_password")
+    .select(PROFILE_COLUMNS)
     .eq("id", profileId)
     .maybeSingle();
 
@@ -50,6 +59,8 @@ export async function getProfileById(
     role: data.role,
     active: data.active,
     mustChangePassword: data.must_change_password,
+    accountType: data.account_type,
+    accessProfileId: data.access_profile_id,
   };
 }
 
@@ -60,7 +71,7 @@ export async function findProfileByEmail(
 ): Promise<ProfileEntry | null> {
   const { data, error } = await client
     .from("profiles")
-    .select("id, name, email, role, active, must_change_password")
+    .select(PROFILE_COLUMNS)
     .ilike("email", email)
     .maybeSingle();
 
@@ -73,6 +84,8 @@ export async function findProfileByEmail(
     role: data.role,
     active: data.active,
     mustChangePassword: data.must_change_password,
+    accountType: data.account_type,
+    accessProfileId: data.access_profile_id,
   };
 }
 
@@ -118,6 +131,7 @@ export async function countActiveAdmins(client: SupabaseServer): Promise<number>
     .from("profiles")
     .select("id", { count: "exact", head: true })
     .eq("role", "ADMIN")
+    .eq("account_type", "INTERNAL")
     .eq("active", true);
 
   assertOk(error, "Não foi possível verificar administradores");
@@ -125,7 +139,7 @@ export async function countActiveAdmins(client: SupabaseServer): Promise<number>
 }
 
 export async function hasAdmin(client: SupabaseServer): Promise<boolean> {
-  const { data, error } = await client.from("profiles").select("id").eq("role", "ADMIN").limit(1);
+  const { data, error } = await client.rpc("current_system_has_admin");
   assertOk(error, "Não foi possível verificar permissões");
-  return (data ?? []).length > 0;
+  return data === true;
 }

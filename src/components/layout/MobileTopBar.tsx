@@ -52,7 +52,7 @@ export function MobileTopBar({ user }: MobileTopBarProps) {
           </SheetHeader>
 
           <nav aria-label="Navegação principal" className="min-h-0 flex-1 overflow-y-auto p-2">
-            <SidebarNav role={user.role} pathname={pathname} onNavigate={() => setOpen(false)} />
+            <SidebarNav role={user.role} permissions={user.permissions} pathname={pathname} onNavigate={() => setOpen(false)} />
           </nav>
 
           <div className="border-t p-2">

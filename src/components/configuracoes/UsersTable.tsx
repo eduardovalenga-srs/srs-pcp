@@ -2,17 +2,21 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, KeyRound, Loader2, UserCheck, UserX } from "lucide-react";
+import { Copy, KeyRound, Loader2, ShieldCheck, UserCheck, UserX } from "lucide-react";
 import { toast } from "sonner";
 
 import {
   changeUserRoleAction,
   generateRecoveryLinkAction,
   setUserActiveAction,
+  updateUserAccessAction,
 } from "@/lib/actions/users.actions";
+import { type AccessConfig } from "@/lib/auth/access";
 import { ROLES, ROLE_LABELS, type Role } from "@/lib/constants/orders";
+import type { ClientRootOption } from "@/lib/repositories/access.repository";
 import type { ManagedUser } from "@/lib/services/users.service";
 import { formatDateTime } from "@/lib/utils/dates";
+import { AccessEditor } from "@/components/configuracoes/AccessEditor";
 import { CreateUserDialog } from "@/components/configuracoes/CreateUserDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,18 +41,62 @@ interface UsersTableProps {
   users: ManagedUser[];
   currentUser: { id: string; email: string };
   canManageUsers: boolean;
+  clientRoots: ClientRootOption[];
 }
 
 type ToggleTarget = { user: ManagedUser; active: boolean } | null;
 
 /** Tabela de usuários: perfil, status, acesso e ações de administração. */
-export function UsersTable({ users, currentUser, canManageUsers }: UsersTableProps) {
+export function UsersTable({ users, currentUser, canManageUsers, clientRoots }: UsersTableProps) {
   const router = useRouter();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [toggleTarget, setToggleTarget] = useState<ToggleTarget>(null);
   const [recoveryTarget, setRecoveryTarget] = useState<ManagedUser | null>(null);
   const [recoveryLink, setRecoveryLink] = useState<string | null>(null);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [accessTarget, setAccessTarget] = useState<ManagedUser | null>(null);
+  const [accessValue, setAccessValue] = useState<AccessConfig | null>(null);
+  const [accessBusy, setAccessBusy] = useState(false);
+
+  const openAccess = (user: ManagedUser) => {
+    setAccessTarget(user);
+    setAccessValue({
+      accountType: user.access.accountType,
+      accessProfileId: user.access.accessProfileId,
+      permissions: user.access.permissions,
+      clientIds: user.access.clientIds,
+      companyCodes: user.access.companyCodes,
+    });
+  };
+
+  const closeAccess = () => {
+    if (accessBusy) return;
+    setAccessTarget(null);
+    setAccessValue(null);
+  };
+
+  const saveAccess = async () => {
+    if (!accessTarget || !accessValue) return;
+    setAccessBusy(true);
+    try {
+      const result = await updateUserAccessAction(accessTarget.id, {
+        accountType: accessValue.accountType,
+        permissions: accessValue.permissions,
+        clientIds: accessValue.clientIds,
+        companyCodes: accessValue.companyCodes,
+      });
+      if (!result.success) {
+        toast.error(result.message);
+        return;
+      }
+      toast.success(result.message);
+      setAccessTarget(null);
+      setAccessValue(null);
+      router.refresh();
+    } finally {
+      setAccessBusy(false);
+    }
+  };
 
   const changeRole = async (profileId: string, role: Role) => {
     setPendingId(profileId);
@@ -125,11 +173,11 @@ export function UsersTable({ users, currentUser, canManageUsers }: UsersTablePro
         <div>
           <h2 className="text-sm font-semibold">Usuários</h2>
           <p className="text-xs text-muted-foreground">
-            O perfil define o que cada pessoa pode ver e editar. Contas desativadas não entram e
-            perdem a sessão na hora.
+            O perfil é o modelo inicial; mudar o perfil reaplica suas permissões-padrão.
+            Contas desativadas não entram e perdem a sessão na hora.
           </p>
         </div>
-        {canManageUsers ? <CreateUserDialog /> : null}
+        {canManageUsers ? <CreateUserDialog clientRoots={clientRoots} /> : null}
       </div>
       <div className="overflow-auto lg:max-h-[calc(100dvh-15rem)]">
         <table className="w-full text-sm">
@@ -139,6 +187,7 @@ export function UsersTable({ users, currentUser, canManageUsers }: UsersTablePro
             <th scope="col" className="px-3 py-2 font-semibold">Nome</th>
             <th scope="col" className="px-3 py-2 font-semibold">E-mail</th>
             <th scope="col" className="px-3 py-2 font-semibold">Perfil</th>
+            <th scope="col" className="px-3 py-2 font-semibold">Acesso</th>
             <th scope="col" className="px-3 py-2 font-semibold">Status</th>
             <th scope="col" className="px-3 py-2 font-semibold">Último acesso</th>
             {canManageUsers ? (
@@ -190,6 +239,11 @@ export function UsersTable({ users, currentUser, canManageUsers }: UsersTablePro
                   </div>
                 </td>
                 <td className="px-3 py-2">
+                  <Badge variant={user.access.accountType === "EXTERNAL" ? "secondary" : "outline"}>
+                    {user.access.accountType === "EXTERNAL" ? "Externo" : "Interno"}
+                  </Badge>
+                </td>
+                <td className="px-3 py-2">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Badge variant={user.active ? "success" : "muted"}>
                       {user.active ? "Ativo" : "Inativo"}
@@ -217,6 +271,20 @@ export function UsersTable({ users, currentUser, canManageUsers }: UsersTablePro
                       >
                         <KeyRound className="h-4 w-4" aria-hidden />
                       </Button>
+                      {isSelf ? null : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => openAccess(user)}
+                          disabled={rowBusy}
+                          aria-label={`Configurar acesso de ${user.email ?? user.name ?? ""}`}
+                          title="Configurar acesso"
+                        >
+                          <ShieldCheck className="h-4 w-4" aria-hidden />
+                        </Button>
+                      )}
                       {isSelf ? null : (
                         <Button
                           type="button"
@@ -336,6 +404,39 @@ export function UsersTable({ users, currentUser, canManageUsers }: UsersTablePro
               </Button>
             </div>
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {/* Acesso personalizado por tela */}
+      <Dialog open={accessTarget !== null} onOpenChange={(open) => (open ? null : closeAccess())}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Configurar acesso</DialogTitle>
+            <DialogDescription>
+              {accessTarget?.name || accessTarget?.email} — perfil {accessTarget ? ROLE_LABELS[accessTarget.role] : ""}.
+              A interface esconde o que não é permitido e o banco bloqueia o acesso direto.
+            </DialogDescription>
+          </DialogHeader>
+
+          {accessValue ? (
+            <AccessEditor
+              value={accessValue}
+              onChange={setAccessValue}
+              clientRoots={clientRoots}
+              isAdmin={accessTarget?.role === "ADMIN"}
+              disabled={accessBusy}
+            />
+          ) : null}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closeAccess} disabled={accessBusy}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={() => void saveAccess()} disabled={accessBusy}>
+              {accessBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+              {accessBusy ? "Salvando…" : "Salvar acesso"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </section>

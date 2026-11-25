@@ -1,4 +1,4 @@
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { dashboardWeightSheets } from "@/lib/export/columns";
 import { exportFileName, searchParamsRecord } from "@/lib/export/common";
@@ -11,6 +11,7 @@ import { todayISODate } from "@/lib/utils/dates";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { weightProcessColumns } from "@/lib/utils/weight-columns";
 import { parseWeightSelection } from "@/lib/utils/weight-selection";
+import { hasPermission } from "@/lib/auth/access";
 
 /** Parâmetro único (a query string pode repetir a chave). */
 function single(value: string | string[] | undefined): string {
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
     if (!user) {
       return Response.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
     }
-    if (!can(user.role, "dashboard.view")) {
+    if (!hasPermission(user.access, "dashboard.view")) {
       return Response.json({ error: "Seu perfil não tem permissão para exportar esta lista." }, { status: 403 });
     }
 

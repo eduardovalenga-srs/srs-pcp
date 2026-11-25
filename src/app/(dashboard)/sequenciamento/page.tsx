@@ -5,7 +5,7 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
 import { ListPage } from "@/components/layout/ListPage";
 import { ProcessScheduling } from "@/components/sequenciamento/ProcessScheduling";
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { getAllProcesses } from "@/lib/repositories/production.repository";
 import { getAllProductGroups } from "@/lib/repositories/product-groups.repository";
@@ -17,6 +17,7 @@ import { createClient } from "@/lib/supabase/server";
 import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { ProcessDefinition } from "@/lib/types/production";
 import type { ProductGroupDefinition } from "@/lib/types/product-group";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Sequenciamento" };
 
@@ -28,7 +29,7 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");
 
-  if (!can(sessionUser.role, "menu.sequenciamento")) {
+  if (!hasPermission(sessionUser.access, "menu.sequenciamento")) {
     return (
       <>
         <Header title="Sequenciamento" description="Prioridade global das OFs e planejamento por capacidade." />
@@ -82,7 +83,7 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
     loadError = error;
   }
 
-  const canEdit = can(sessionUser.role, "production.edit");
+  const canEdit = hasPermission(sessionUser.access, "production.edit");
 
   if (loadError) {
     return (

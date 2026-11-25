@@ -16,12 +16,18 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   const sessionUser = await DashboardLayoutGuard();
 
   const supabase = await createClient();
-  const adminExists = await hasAdmin(supabase).catch(() => true);
+  const isInternal = sessionUser.access.accountType === "INTERNAL";
+  // Contas externas não devem depender de visibilidade sobre a tabela
+  // profiles para decidir se existe administrador, nem podem reivindicá-lo.
+  const adminExists = isInternal ? await hasAdmin(supabase).catch(() => true) : true;
+  const showClaimFirstAdmin = isInternal && !adminExists;
 
   const user = {
     name: sessionUser.profile.name ?? sessionUser.email,
     email: sessionUser.email,
     role: sessionUser.role,
+    permissions: sessionUser.access.permissions,
+    accountType: sessionUser.access.accountType,
   };
 
   // 084: shell de altura fixa. O documento não rola mais — a sidebar
@@ -38,10 +44,10 @@ export default async function DashboardLayout({ children }: { children: ReactNod
         <MobileTopBar user={user} />
 
         <main className="flex min-h-0 flex-1 flex-col p-3 sm:p-4 lg:p-5">
-          {sessionUser.profile.must_change_password || !adminExists ? (
+          {sessionUser.profile.must_change_password || showClaimFirstAdmin ? (
             <div className="shrink-0">
               {sessionUser.profile.must_change_password ? <PasswordBanner /> : null}
-              {!adminExists ? <AdminClaimBanner /> : null}
+              {showClaimFirstAdmin ? <AdminClaimBanner /> : null}
             </div>
           ) : null}
 

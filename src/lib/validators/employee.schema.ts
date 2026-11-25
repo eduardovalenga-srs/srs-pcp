@@ -1,11 +1,14 @@
 import { z } from "zod";
 
+import { EMPLOYEE_BILLING_MODELS } from "@/lib/types/employee";
+
 export const saveEmployeeSchema = z.object({
   id: z.string().uuid().nullable().optional(),
   companyCode: z.string().trim().min(1, "Selecione a empresa").max(12),
   companyName: z.string().trim().min(1, "Informe a empresa").max(150),
   registration: z.string().trim().min(1, "Informe a matrícula").max(40),
   name: z.string().trim().min(1, "Informe o nome").max(180),
+  billingModel: z.enum(EMPLOYEE_BILLING_MODELS).default("HORA"),
   admissionDate: z.string().date().nullable().optional(),
   dismissalDate: z.string().date().nullable().optional(),
   location: z.string().trim().max(180).nullable().optional(),

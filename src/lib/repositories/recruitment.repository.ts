@@ -25,6 +25,7 @@ import {
 import type {
   CreateRecruitmentCandidateOutput,
   CreateRecruitmentApprovedRoleInput,
+  UpdateRecruitmentApprovedRoleInput,
   SaveRecruitmentVacancyOutput,
   SaveRecruitmentCandidateScheduleOutput,
 } from "@/lib/validators/recruitment.schema";
@@ -99,21 +100,23 @@ export async function getRecruitmentFormOptions(
 export async function getRecruitmentApprovedRoleManagementData(
   client: SupabaseServer,
 ): Promise<RecruitmentApprovedRoleManagementData> {
-  const [allocationNodes, roleResult] = await Promise.all([
-    getEmployeeAllocationNodes(client),
+  const [clientResult, roleResult] = await Promise.all([
+    client.rpc("current_profile_recruitment_clients"),
     client.from("recruitment_approved_roles").select(APPROVED_ROLE_COLUMNS).order("name", { ascending: true }),
   ]);
+  assertOk(clientResult.error, "Não foi possível carregar os clientes vinculados");
   assertOk(roleResult.error, "Não foi possível carregar os cargos aprovados");
 
-  const byId = new Map(allocationNodes.map((node) => [node.id, node]));
-  const clients = allocationNodes
-    .filter((node) => node.node_type === "CLIENT" && isNodePathActive(node, byId))
-    .map((node) => ({ id: node.id, name: node.name }))
-    .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
+  const clients = (clientResult.data ?? []).map((client) => ({
+    id: client.id,
+    name: client.name,
+    active: client.active,
+  }));
+  const clientNames = new Map(clients.map((client) => [client.id, client.name]));
   const roles = ((roleResult.data ?? []) as unknown as RecruitmentApprovedRoleRow[])
     .map((role) => ({
       ...role,
-      client_name: byId.get(role.client_id)?.name ?? "Cliente não encontrado",
+      client_name: clientNames.get(role.client_id) ?? "Cliente não encontrado",
     }))
     .sort((left, right) =>
       `${left.client_name} ${left.name}`.localeCompare(`${right.client_name} ${right.name}`, "pt-BR"),
@@ -180,6 +183,41 @@ export async function setRecruitmentApprovedRoleActive(
     .select("id")
     .single();
   assertOk(error, "Não foi possível atualizar o cargo aprovado");
+}
+
+export async function updateRecruitmentApprovedRole(
+  client: SupabaseServer,
+  input: UpdateRecruitmentApprovedRoleInput,
+  userId: string,
+): Promise<void> {
+  const { error } = await client
+    .from("recruitment_approved_roles")
+    .update({ name: input.name, updated_by: userId })
+    .eq("id", input.id)
+    .select("id")
+    .single();
+
+  if (error?.code === "23505") {
+    throw new Error("Já existe um cargo com esse nome para o cliente.");
+  }
+  assertOk(error, "Não foi possível editar o cargo aprovado");
+}
+
+export async function deleteRecruitmentApprovedRole(
+  client: SupabaseServer,
+  id: string,
+): Promise<void> {
+  const { error } = await client
+    .from("recruitment_approved_roles")
+    .delete()
+    .eq("id", id)
+    .select("id")
+    .single();
+
+  if (error?.code === "23503") {
+    throw new Error("Este cargo está vinculado a uma ou mais vagas e não pode ser excluído. Inative-o para preservar o histórico.");
+  }
+  assertOk(error, "Não foi possível excluir o cargo aprovado");
 }
 
 export async function getRecruitmentVacancy(

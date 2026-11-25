@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { getOrderForEditAction } from "@/lib/actions/orders.actions";
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
@@ -14,6 +14,7 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { OrderForm, type OrderProcessOption } from "@/components/pedidos/OrderForm";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Editar pedido" };
 
@@ -23,7 +24,7 @@ export default async function EditarPedidoPage({ params }: PageProps<"/pedidos/[
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");
 
-  if (!can(sessionUser.role, "orders.edit")) {
+  if (!hasPermission(sessionUser.access, "orders.edit")) {
     return (
       <>
         <Header title="Editar pedido" description="Atualize os dados do pedido e de seus itens." />

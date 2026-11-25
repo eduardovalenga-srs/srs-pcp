@@ -16,6 +16,10 @@ import {
 } from "lucide-react";
 
 import { can, type Capability } from "@/lib/auth/permissions";
+import {
+  roleDefaultPermissions,
+  type PermissionKey,
+} from "@/lib/auth/access";
 import type { Role } from "@/lib/constants/orders";
 
 /** Ícone de navegação. */
@@ -31,6 +35,8 @@ export interface NavItem {
   icon: NavIcon;
   /** Capacidade de menu ausente = sempre visível. */
   capability?: Capability;
+  /** 101: permissão efetiva (tem precedência sobre a capability). */
+  permission?: PermissionKey;
 }
 
 /**
@@ -44,6 +50,7 @@ export interface NavGroup {
   label: string;
   icon: NavIcon;
   capability?: Capability;
+  permission?: PermissionKey;
   items: NavEntry[];
 }
 
@@ -133,42 +140,41 @@ export const NAV_ENTRIES: NavEntry[] = [
     id: "rh",
     label: "RH",
     icon: Users,
-    capability: "menu.rh",
     items: [
       {
         type: "item",
         href: "/rh/vagas",
         label: "Vagas",
         icon: BriefcaseBusiness,
-        capability: "rh.recruitment.view",
+        permission: "rh.recruitment.view",
       },
       {
         type: "item",
         href: "/rh/cargos-aprovados",
         label: "Cargos aprovados",
         icon: BriefcaseBusiness,
-        capability: "rh.recruitment.manage",
+        permission: "rh.recruitment.view",
       },
       {
         type: "item",
         href: "/rh/funcionarios",
         label: "Funcionários",
         icon: UserRound,
-        capability: "rh.view",
+        permission: "rh.employees.view",
       },
       {
         type: "item",
         href: "/rh/funcionarios/importacao",
         label: "Importar funcionários",
         icon: FileUp,
-        capability: "rh.manage",
+        permission: "rh.employees.import",
       },
       {
         type: "item",
         href: "/rh/alocacoes",
         label: "Alocações",
         icon: Network,
-        capability: "rh.allocation.view",
+        permission: "rh.allocations.view",
       },
     ],
   },
@@ -177,19 +183,34 @@ export const NAV_ENTRIES: NavEntry[] = [
 /**
  * Entradas visíveis para o papel.
  *
- * Regras: o item some sem a sua capability; o GRUPO some quando a sua
- * capability nega (ex.: RH para OPERADOR_F2) ou quando nenhum item sobra —
- * assim um módulo sem permissão nunca deixa um grupo vazio na tela.
+ * Regras: o item some sem a sua permissão/capability; o GRUPO some quando
+ * nenhum item sobra — assim um módulo sem permissão nunca deixa um grupo
+ * vazio na tela. Quando `permissions` é informado (sessão com acesso
+ * personalizado), ele é a fonte de verdade; caso contrário, usa o padrão
+ * legado do papel.
  */
-export function visibleEntries(role: Role | null | undefined): NavEntry[] {
+export function visibleEntries(
+  role: Role | null | undefined,
+  permissions?: readonly PermissionKey[],
+): NavEntry[] {
+  const granted = new Set<PermissionKey>(permissions ?? roleDefaultPermissions(role));
+
+  const isAllowed = (entry: NavItem | NavGroup): boolean => {
+    if (entry.permission) return granted.has(entry.permission);
+    if (entry.capability) {
+      return permissions ? granted.has(entry.capability) : can(role, entry.capability);
+    }
+    return true;
+  };
+
   const filterEntries = (source: readonly NavEntry[]): NavEntry[] => {
     const entries: NavEntry[] = [];
     for (const entry of source) {
       if (entry.type === "item") {
-        if (!entry.capability || can(role, entry.capability)) entries.push(entry);
+        if (isAllowed(entry)) entries.push(entry);
         continue;
       }
-      if (entry.capability && !can(role, entry.capability)) continue;
+      if (!isAllowed(entry)) continue;
       const items = filterEntries(entry.items);
       if (items.length === 0) continue;
       entries.push({ ...entry, items });

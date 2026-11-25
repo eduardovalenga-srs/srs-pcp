@@ -34,20 +34,30 @@ export async function getEmployeeAllocationNodeById(
   return data as unknown as EmployeeAllocationNodeRow | null;
 }
 
+type CreateEmployeeAllocationNodeInput = {
+  companyCode: string;
+  companyName: string;
+  parentId: string | null;
+  nodeType: Exclude<EmployeeAllocationNodeRow["node_type"], "COMPANY">;
+  name: string;
+  locationLeader?: string | null;
+  locationSupervisor?: string | null;
+  userId: string;
+};
+
+export function createEmployeeAllocationNode(
+  client: SupabaseServer,
+  input: CreateEmployeeAllocationNodeInput & { returnId?: true },
+): Promise<string>;
+export function createEmployeeAllocationNode(
+  client: SupabaseServer,
+  input: CreateEmployeeAllocationNodeInput & { returnId: false },
+): Promise<void>;
 export async function createEmployeeAllocationNode(
   client: SupabaseServer,
-  input: {
-    companyCode: string;
-    companyName: string;
-    parentId: string | null;
-    nodeType: Exclude<EmployeeAllocationNodeRow["node_type"], "COMPANY">;
-    name: string;
-    locationLeader?: string | null;
-    locationSupervisor?: string | null;
-    userId: string;
-  },
-): Promise<string> {
-  const { data, error } = await client.from("employee_allocation_nodes").insert({
+  input: CreateEmployeeAllocationNodeInput & { returnId?: boolean },
+): Promise<string | void> {
+  const values = {
     company_code: input.companyCode,
     company_name: input.companyName,
     parent_id: input.parentId,
@@ -57,7 +67,19 @@ export async function createEmployeeAllocationNode(
     location_supervisor: input.nodeType === "LOCATION" ? input.locationSupervisor || null : null,
     created_by: input.userId,
     updated_by: input.userId,
-  }).select("id").single();
+  };
+
+  if (input.returnId === false) {
+    const { error } = await client.from("employee_allocation_nodes").insert(values);
+    assertOk(error, "Não foi possível criar o item da árvore");
+    return;
+  }
+
+  const { data, error } = await client
+    .from("employee_allocation_nodes")
+    .insert(values)
+    .select("id")
+    .single();
   assertOk(error, "Não foi possível criar o item da árvore");
   if (!data) throw new Error("O item da árvore não foi retornado após o cadastro.");
   return data.id;

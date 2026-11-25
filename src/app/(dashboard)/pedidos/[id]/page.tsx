@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, Pencil } from "lucide-react";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getOrder } from "@/lib/services/orders.service";
@@ -24,6 +24,7 @@ import { OrderStatusBadge } from "@/components/shared/StatusBadges";
 import { DeleteOrderButton } from "@/components/pedidos/DeleteOrderButton";
 import { ItemProcesses } from "@/components/pedidos/ItemProcesses";
 import { OrderDetailMaterials } from "@/components/pedidos/OrderDetailMaterials";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Pedido" };
 
@@ -84,12 +85,12 @@ export default async function PedidoDetalhePage({ params }: PageProps<"/pedidos/
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");
 
-  const canEdit = can(sessionUser.role, "orders.edit");
-  const canDelete = can(sessionUser.role, "orders.delete");
+  const canEdit = hasPermission(sessionUser.access, "orders.edit");
+  const canDelete = hasPermission(sessionUser.access, "orders.delete");
   const productionCapabilities = {
-    canUpdateStatus: can(sessionUser.role, "production.update_status"),
-    canEditQuantities: can(sessionUser.role, "production.edit"),
-    canViewHistory: can(sessionUser.role, "production.view_history"),
+    canUpdateStatus: hasPermission(sessionUser.access, "production.update_status"),
+    canEditQuantities: hasPermission(sessionUser.access, "production.edit"),
+    canViewHistory: hasPermission(sessionUser.access, "production.view_history"),
     canEditDelivery: canEdit,
   };
 

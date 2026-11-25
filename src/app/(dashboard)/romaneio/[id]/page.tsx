@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getRomaneioView } from "@/lib/services/romaneio.service";
@@ -15,6 +15,7 @@ import { ExportButton } from "@/components/shared/ExportButton";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { RomaneioDetail } from "@/components/romaneio/RomaneioDetail";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Romaneio" };
 
@@ -33,7 +34,7 @@ export default async function RomaneioDetalhePage({ params }: PageProps<"/romane
     </Button>
   );
 
-  if (!can(sessionUser.role, "romaneio.view")) {
+  if (!hasPermission(sessionUser.access, "romaneio.view")) {
     return (
       <>
         <Header title="Romaneio" description="Expedição por OF." actions={backAction} />
@@ -48,7 +49,7 @@ export default async function RomaneioDetalhePage({ params }: PageProps<"/romane
     view = await getRomaneioView(
       client,
       id,
-      can(sessionUser.role, "romaneio.edit"),
+      hasPermission(sessionUser.access, "romaneio.edit"),
     );
   } catch (error) {
     return (
@@ -95,7 +96,7 @@ export default async function RomaneioDetalhePage({ params }: PageProps<"/romane
 
       <RomaneioDetail
         view={view}
-        canEditCapability={can(sessionUser.role, "romaneio.edit")}
+        canEditCapability={hasPermission(sessionUser.access, "romaneio.edit")}
       />
     </>
   );

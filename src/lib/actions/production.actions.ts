@@ -3,13 +3,14 @@
 import { revalidatePath } from "next/cache";
 
 import { requireCapability } from "@/lib/auth/guards";
-import { can } from "@/lib/auth/permissions";
+
 import { isProcessStatus } from "@/lib/constants/production";
 import { createClient } from "@/lib/supabase/server";
 import type { CompletedWeightStats, ProductionEvent } from "@/lib/types/production";
 import { getDashboardCompletedWeight, getItemHistory, updateProcess, updateProcessBatch } from "@/lib/services/production.service";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { parseWeightSelection } from "@/lib/utils/weight-selection";
+import { hasPermission } from "@/lib/auth/access";
 
 /** Normaliza valor de formulário para o texto esperado pelos schemas. */
 function toText(value: string | number | null | undefined): string {
@@ -93,7 +94,7 @@ export async function updateProcessAction(input: {
         quantityCompleted: toText(input.quantityCompleted),
         notes: toText(input.notes),
       },
-      { canEditQuantities: can(sessionUser.role, "production.edit") },
+      { canEditQuantities: hasPermission(sessionUser.access, "production.edit") },
     );
 
     if (result.changed) {

@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 
-import { can } from "@/lib/auth/permissions";
+import { hasPermission, isExternalAccess } from "@/lib/auth/access";
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getEmployees } from "@/lib/repositories/employees.repository";
+import type { EmployeeListRow } from "@/lib/utils/employee-list";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
@@ -16,7 +17,7 @@ export default async function FuncionariosPage() {
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");
 
-  if (!can(sessionUser.role, "rh.view")) {
+  if (!hasPermission(sessionUser.access, "rh.employees.view")) {
     return (
       <>
         <Header title="Funcionários" description="Cadastro e consulta de funcionários." />
@@ -41,13 +42,31 @@ export default async function FuncionariosPage() {
     );
   }
 
+  const external = isExternalAccess(sessionUser.access);
+  const visibleEmployees: EmployeeListRow[] = external
+    ? employees.map(({ billing_model, ...employee }) => {
+        void billing_model;
+        return employee;
+      })
+    : employees;
+
   return (
     <ListPage>
       <Header
         title="Funcionários"
-        description="Cadastro e consulta de funcionários."
+        description={
+          external
+            ? "Funcionários alocados à operação ou vinculados ao cliente cadastrado na folha."
+            : "Cadastro e consulta de funcionários."
+        }
       />
-      <EmployeesList employees={employees} canManage={can(sessionUser.role, "rh.manage")} />
+      <EmployeesList
+        employees={visibleEmployees}
+        canCreate={hasPermission(sessionUser.access, "rh.employees.create")}
+        canEdit={hasPermission(sessionUser.access, "rh.employees.edit")}
+        canImport={hasPermission(sessionUser.access, "rh.employees.import")}
+        restricted={external}
+      />
     </ListPage>
   );
 }

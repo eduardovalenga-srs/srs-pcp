@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireCapability } from "@/lib/auth/guards";
+import { normalizeAccessConfig } from "@/lib/auth/access";
 import { requireSessionUser } from "@/lib/auth/session";
 import { ROLES, ROLE_LABELS, type Role } from "@/lib/constants/orders";
 import { getProfileById } from "@/lib/repositories/profiles.repository";
@@ -13,10 +13,15 @@ import {
   createTempPasswordUser,
   generateRecoveryLink,
   setProfileActiveWithRules,
+  updateUserAccess,
 } from "@/lib/services/users.service";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { firstZodMessage } from "@/lib/validators/common";
-import { changePasswordSchema, createUserSchema } from "@/lib/validators/user.schema";
+import {
+  changePasswordSchema,
+  createUserSchema,
+  updateUserAccessSchema,
+} from "@/lib/validators/user.schema";
 
 export interface UserActionResult {
   success: boolean;
@@ -27,17 +32,25 @@ export interface UserActionResult {
   recoveryLink?: string;
 }
 
+async function requireAdminUser() {
+  const user = await requireSessionUser();
+  if (user.role !== "ADMIN" || user.access.accountType !== "INTERNAL") {
+    throw new Error("Somente administradores podem gerenciar acessos de usuários.");
+  }
+  return user;
+}
+
 /** Cria a conta com senha temporária e aplica o perfil (ADMIN). */
 export async function createUserAction(input: unknown): Promise<UserActionResult> {
   try {
-    await requireCapability("users.manage");
+    const sessionUser = await requireAdminUser();
     const parsed = createUserSchema.safeParse(input);
     if (!parsed.success) {
       return { success: false, message: firstZodMessage(parsed.error) ?? "Dados inválidos." };
     }
 
     const client = await createClient();
-    const result = await createTempPasswordUser(client, parsed.data);
+    const result = await createTempPasswordUser(client, parsed.data, sessionUser.id);
 
     revalidatePath("/configuracoes");
     return {
@@ -57,7 +70,7 @@ export async function setUserActiveAction(
   active: boolean,
 ): Promise<UserActionResult> {
   try {
-    const sessionUser = await requireCapability("users.manage");
+    const sessionUser = await requireAdminUser();
     const client = await createClient();
     await setProfileActiveWithRules(client, sessionUser.id, profileId, active);
 
@@ -83,14 +96,45 @@ export async function changeUserRoleAction(
     if (!ROLES.includes(role)) {
       return { success: false, message: "Permissão inválida." };
     }
-    const sessionUser = await requireCapability("users.manage");
+    const sessionUser = await requireAdminUser();
     const client = await createClient();
     await changeRoleWithRules(client, sessionUser.id, profileId, role);
 
     revalidatePath("/configuracoes");
-    return { success: true, message: `Perfil alterado para ${ROLE_LABELS[role]}.` };
+    return {
+      success: true,
+      message: `Perfil alterado para ${ROLE_LABELS[role]}; as permissões voltaram ao modelo desse perfil.`,
+    };
   } catch (error) {
     console.error("[changeUserRoleAction]", error);
+    return { success: false, message: errorMessage(error) };
+  }
+}
+
+/** Altera o acesso personalizado de um usuário (ADMIN). */
+export async function updateUserAccessAction(
+  profileId: string,
+  input: unknown,
+): Promise<UserActionResult> {
+  try {
+    const sessionUser = await requireAdminUser();
+    if (sessionUser.id === profileId) {
+      return { success: false, message: "Você não pode alterar o próprio acesso." };
+    }
+
+    const parsed = updateUserAccessSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false, message: firstZodMessage(parsed.error) ?? "Dados inválidos." };
+    }
+
+    const normalized = normalizeAccessConfig(parsed.data);
+    if (!normalized.ok) return { success: false, message: normalized.message };
+
+    await updateUserAccess(profileId, sessionUser.id, normalized.value);
+    revalidatePath("/", "layout");
+    return { success: true, message: "Acesso atualizado." };
+  } catch (error) {
+    console.error("[updateUserAccessAction]", error);
     return { success: false, message: errorMessage(error) };
   }
 }
@@ -101,7 +145,7 @@ export async function changeUserRoleAction(
  */
 export async function generateRecoveryLinkAction(profileId: string): Promise<UserActionResult> {
   try {
-    await requireCapability("users.manage");
+    await requireAdminUser();
     const client = await createClient();
 
     const profile = await getProfileById(client, profileId);

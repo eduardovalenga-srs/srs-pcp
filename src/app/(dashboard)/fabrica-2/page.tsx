@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getProductionPage } from "@/lib/services/production.service";
@@ -15,6 +15,7 @@ import { Fabrica2FiltersBar } from "@/components/fabrica2/Fabrica2Filters";
 import { Fabrica2Summary } from "@/components/fabrica2/Fabrica2Summary";
 import { Fabrica2Table } from "@/components/fabrica2/Fabrica2Table";
 import { Fabrica2Pagination } from "@/components/fabrica2/Fabrica2Pagination";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Fábrica 2" };
 
@@ -27,7 +28,7 @@ export default async function Fabrica2Page({ searchParams }: PageProps<"/fabrica
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");
 
-  if (!can(sessionUser.role, "fabrica2.view")) {
+  if (!hasPermission(sessionUser.access, "fabrica2.view")) {
     return (
       <>
         <Header title="Fábrica 2" description="Acompanhamento etapa a etapa dos itens." />
@@ -57,10 +58,10 @@ export default async function Fabrica2Page({ searchParams }: PageProps<"/fabrica
   }
 
   const capabilities = {
-    canUpdateStatus: can(sessionUser.role, "production.update_status"),
-    canEditQuantities: can(sessionUser.role, "production.edit"),
-    canViewHistory: can(sessionUser.role, "production.view_history"),
-    canEditDelivery: can(sessionUser.role, "orders.edit"),
+    canUpdateStatus: hasPermission(sessionUser.access, "production.update_status"),
+    canEditQuantities: hasPermission(sessionUser.access, "production.edit"),
+    canViewHistory: hasPermission(sessionUser.access, "production.view_history"),
+    canEditDelivery: hasPermission(sessionUser.access, "orders.edit"),
   };
 
   return (

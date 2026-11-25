@@ -1,4 +1,11 @@
-import type { EmployeeRow } from "@/lib/types/database";
+import type { EmployeeBillingModelValue, EmployeeRow } from "@/lib/types/database";
+
+export const EMPLOYEE_BILLING_MODELS = ["HORA", "KG"] as const satisfies readonly EmployeeBillingModelValue[];
+
+export const EMPLOYEE_BILLING_MODEL_LABELS: Record<EmployeeBillingModelValue, string> = {
+  HORA: "Hora",
+  KG: "KG",
+};
 
 export type EmployeeCompany = {
   code: string;

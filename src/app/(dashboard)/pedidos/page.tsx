@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getOrdersPage } from "@/lib/services/orders.service";
@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { OrderFilters } from "@/components/pedidos/OrderFilters";
 import { OrderList } from "@/components/pedidos/OrderList";
 import { OrderPagination } from "@/components/pedidos/OrderPagination";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Pedidos" };
 
@@ -27,9 +28,9 @@ export default async function PedidosPage({ searchParams }: PageProps<"/pedidos"
   if (!sessionUser) redirect("/login");
 
   const filters = parseOrderFilters(await searchParams);
-  const canCreate = can(sessionUser.role, "orders.create");
+  const canCreate = hasPermission(sessionUser.access, "orders.create");
 
-  if (!can(sessionUser.role, "orders.view")) {
+  if (!hasPermission(sessionUser.access, "orders.view")) {
     return (
       <>
         <Header title="Pedidos" description="Planejamento dos pedidos (OF/OS) e seus itens." />
@@ -103,7 +104,7 @@ export default async function PedidosPage({ searchParams }: PageProps<"/pedidos"
           <ListScroll>
             <OrderList
               orders={orders}
-              canDelete={can(sessionUser.role, "orders.delete")}
+              canDelete={hasPermission(sessionUser.access, "orders.delete")}
               filters={filters}
               proposalByOrder={data.proposalByOrder}
             />

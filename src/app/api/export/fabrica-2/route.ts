@@ -1,4 +1,4 @@
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { fabrica2Sheet } from "@/lib/export/columns";
 import { exportFileName, searchParamsRecord } from "@/lib/export/common";
@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import { todayISODate } from "@/lib/utils/dates";
 import { parseProductionFilters } from "@/lib/utils/filters";
 import { errorMessage } from "@/lib/utils/supabase-result";
+import { hasPermission } from "@/lib/auth/access";
 
 /**
  * GET /api/export/fabrica-2 — .xlsx da lista filtrada INTEIRA da Fábrica 2
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
     if (!user) {
       return Response.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
     }
-    if (!can(user.role, "fabrica2.view")) {
+    if (!hasPermission(user.access, "fabrica2.view")) {
       return Response.json({ error: "Seu perfil não tem permissão para exportar esta lista." }, { status: 403 });
     }
 

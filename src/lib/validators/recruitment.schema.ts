@@ -63,6 +63,17 @@ export const createRecruitmentApprovedRoleSchema = z.object({
 });
 export type CreateRecruitmentApprovedRoleInput = z.input<typeof createRecruitmentApprovedRoleSchema>;
 
+export const updateRecruitmentApprovedRoleSchema = z.object({
+  id: z.string().uuid("Cargo inválido."),
+  name: z.string().trim().min(1, "Informe o cargo").max(120, "Máximo de 120 caracteres"),
+});
+export type UpdateRecruitmentApprovedRoleInput = z.input<typeof updateRecruitmentApprovedRoleSchema>;
+
+export const deleteRecruitmentApprovedRoleSchema = z.object({
+  id: z.string().uuid("Cargo inválido."),
+});
+export type DeleteRecruitmentApprovedRoleInput = z.input<typeof deleteRecruitmentApprovedRoleSchema>;
+
 export const setRecruitmentApprovedRoleActiveSchema = z.object({
   id: z.string().uuid("Cargo inválido."),
   active: z.boolean(),

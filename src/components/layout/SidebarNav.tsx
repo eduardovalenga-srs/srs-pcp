@@ -1,11 +1,14 @@
 "use client";
 
 import { activeGroupIds, isNavGroup, visibleEntries, type NavEntry } from "@/lib/navigation";
+import type { PermissionKey } from "@/lib/auth/access";
 import { SidebarGroup } from "@/components/layout/SidebarGroup";
 import { SidebarNavItem } from "@/components/layout/SidebarNavItem";
 
 interface SidebarNavProps {
   role: Parameters<typeof visibleEntries>[0];
+  /** 101: permissões efetivas do usuário (menu personalizado). */
+  permissions?: readonly PermissionKey[];
   /** Rota atual — define que grupo nasce aberto. */
   pathname: string;
   /** Sidebar em modo trilha de ícones (só no desktop recolhido). */
@@ -23,8 +26,8 @@ interface SidebarNavProps {
  * Compartilhada pela sidebar fixa (desktop) e pelo drawer mobile — mesmo
  * modelo, mesma filtragem de capabilities, mesmos rótulos.
  */
-export function SidebarNav({ role, pathname, collapsed = false, onExpand, onNavigate }: SidebarNavProps) {
-  const entries: NavEntry[] = visibleEntries(role);
+export function SidebarNav({ role, permissions, pathname, collapsed = false, onExpand, onNavigate }: SidebarNavProps) {
+  const entries: NavEntry[] = visibleEntries(role, permissions);
   const openIds = activeGroupIds(pathname, entries);
 
   return (

@@ -1,4 +1,4 @@
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { searchParamsRecord } from "@/lib/export/common";
 import { getChildItemsKitOverdueTotals } from "@/lib/repositories/order-items.repository";
@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { todayISODate } from "@/lib/utils/dates";
 import { parseChildItemFilters } from "@/lib/utils/filters";
 import { errorMessage } from "@/lib/utils/supabase-result";
+import { hasPermission } from "@/lib/auth/access";
 
 /** Resumo do card Atrasados da Fábrica 1 — executado somente sob demanda. */
 export async function GET(request: Request) {
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
     if (!user) {
       return Response.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
     }
-    if (!can(user.role, "orders.view")) {
+    if (!hasPermission(user.access, "menu.fabrica1")) {
       return Response.json({ error: "Seu perfil não tem permissão para ver esta lista." }, { status: 403 });
     }
 

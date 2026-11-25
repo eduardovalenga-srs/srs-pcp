@@ -44,6 +44,7 @@ function employee(overrides: Partial<EmployeeRow> = {}): EmployeeRow {
     company_name: "SRS DESENVOLVIMENTO LTDA",
     registration: "2",
     name: "ADRIANO CARDOSO DE OLIVEIRA",
+    billing_model: "HORA",
     admission_date: "2023-04-13",
     dismissal_date: null,
     registered_client: "GERAL/BRAFER",
@@ -69,6 +70,7 @@ const second = employee({
   company_name: "SRS PROJETOS E DESENVOLVIMENTOS LTDA",
   registration: "7",
   name: "JOAREZ DE OLIVEIRA",
+  billing_model: "KG",
   admission_date: "2024-01-10",
   dismissal_date: "2024-06-01",
   registered_client: "GERAL/FABRICA SRS",
@@ -161,6 +163,7 @@ describe("employeesSheet", () => {
       "Matrícula",
       "Nome",
       "Empresa",
+      "Modelo de cobrança",
       "Admissão",
       "Demissão",
       "Status",
@@ -172,13 +175,15 @@ describe("employeesSheet", () => {
       "Líder",
       "Encarregado",
     ]);
-    expect(sheet.rows[0]?.[5]).toBe("Ativo");
-    expect(sheet.rows[0]?.[6]).toBe("GERAL/BRAFER");
-    expect(sheet.rows[0]?.[7]).toBe("CLIENTE A");
-    expect(sheet.rows[0]?.[8]).toBe("UNIDADE A");
-    expect(sheet.rows[0]?.[3]).toBeInstanceOf(Date);
-    expect(sheet.rows[0]?.[4]).toBe("—");
-    expect(sheet.dateColumns).toEqual([3, 4]);
+    expect(sheet.rows[0]?.[3]).toBe("Hora");
+    expect(sheet.rows[1]?.[3]).toBe("KG");
+    expect(sheet.rows[0]?.[6]).toBe("Ativo");
+    expect(sheet.rows[0]?.[7]).toBe("GERAL/BRAFER");
+    expect(sheet.rows[0]?.[8]).toBe("CLIENTE A");
+    expect(sheet.rows[0]?.[9]).toBe("UNIDADE A");
+    expect(sheet.rows[0]?.[4]).toBeInstanceOf(Date);
+    expect(sheet.rows[0]?.[5]).toBe("—");
+    expect(sheet.dateColumns).toEqual([4, 5]);
   });
 });
 
@@ -193,7 +198,19 @@ describe("EmployeesList", () => {
     expect(markup).toContain("1 funcionário(s)");
     expect(markup).not.toContain("JOAREZ DE OLIVEIRA");
     expect(markup).toContain("Exportar Excel");
+    expect(markup).toContain("Modelo de cobrança");
+    expect(markup).toContain("Hora");
     expect(markup).toContain("Ordenar por Matrícula");
     expect(markup).toContain('aria-sort="ascending"');
+  });
+
+  it("não envia o modelo de cobrança na visão externa restrita", () => {
+    const markup = html(
+      createElement(EmployeesList, { employees, canManage: false, restricted: true }),
+    );
+
+    expect(markup).not.toContain("Modelo de cobrança");
+    expect(markup).not.toContain(">Hora<");
+    expect(markup).not.toContain(">KG<");
   });
 });

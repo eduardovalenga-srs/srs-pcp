@@ -7,7 +7,11 @@ import { ArrowLeft, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveEmployeeAction } from "@/lib/actions/employees.actions";
-import { EMPLOYEE_COMPANIES } from "@/lib/types/employee";
+import {
+  EMPLOYEE_BILLING_MODEL_LABELS,
+  EMPLOYEE_BILLING_MODELS,
+  EMPLOYEE_COMPANIES,
+} from "@/lib/types/employee";
 import type { EmployeeRow } from "@/lib/types/database";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +35,7 @@ export function EmployeeForm({ employee = null }: EmployeeFormProps) {
         companyName: company.name,
         registration: String(formData.get("registration") ?? ""),
         name: String(formData.get("name") ?? ""),
+        billingModel: String(formData.get("billingModel") ?? "HORA") as "HORA" | "KG",
         admissionDate: String(formData.get("admissionDate") ?? "") || null,
         dismissalDate: String(formData.get("dismissalDate") ?? "") || null,
       });
@@ -73,6 +78,22 @@ export function EmployeeForm({ employee = null }: EmployeeFormProps) {
         <div className={fieldClass}>
           <Label htmlFor="name">Nome</Label>
           <Input id="name" name="name" defaultValue={employee?.name} maxLength={180} required />
+        </div>
+        <div className={fieldClass}>
+          <Label htmlFor="billingModel">Modelo de cobrança</Label>
+          <select
+            id="billingModel"
+            name="billingModel"
+            defaultValue={employee?.billing_model ?? "HORA"}
+            disabled={pending}
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+          >
+            {EMPLOYEE_BILLING_MODELS.map((model) => (
+              <option key={model} value={model}>
+                {EMPLOYEE_BILLING_MODEL_LABELS[model]}
+              </option>
+            ))}
+          </select>
         </div>
         <div className={fieldClass}>
           <Label htmlFor="admissionDate">Data de admissão</Label>

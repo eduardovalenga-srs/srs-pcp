@@ -1,4 +1,4 @@
-import { can } from "@/lib/auth/permissions";
+import { hasPermission, isExternalAccess } from "@/lib/auth/access";
 import { getSessionUser } from "@/lib/auth/session";
 import { employeesSheet } from "@/lib/export/columns";
 import { exportFileName, searchParamsRecord } from "@/lib/export/common";
@@ -21,9 +21,15 @@ export async function GET(request: Request) {
     if (!user) {
       return Response.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
     }
-    if (!can(user.role, "rh.view")) {
+    if (!hasPermission(user.access, "rh.employees.view")) {
       return Response.json(
         { error: "Seu perfil não tem permissão para exportar esta lista." },
+        { status: 403 },
+      );
+    }
+    if (isExternalAccess(user.access)) {
+      return Response.json(
+        { error: "A exportação da lista de funcionários não está disponível para usuários externos." },
         { status: 403 },
       );
     }

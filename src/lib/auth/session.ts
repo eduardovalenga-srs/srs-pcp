@@ -3,6 +3,8 @@ import "server-only";
 import { cache } from "react";
 
 import { createClient } from "@/lib/supabase/server";
+import { loadAccessContext } from "@/lib/auth/access-loader";
+import type { AccessContext } from "@/lib/auth/access";
 import type { Role } from "@/lib/constants/orders";
 import type { ProfileRow } from "@/lib/types/database";
 
@@ -11,6 +13,8 @@ export interface SessionUser {
   email: string;
   profile: ProfileRow;
   role: Role;
+  /** 101: permissões efetivas + escopo de dados. */
+  access: AccessContext;
 }
 
 /**
@@ -61,6 +65,8 @@ export const getSessionState = cache(async (): Promise<SessionState> => {
     return { status: "inativo" };
   }
 
+  const access = await loadAccessContext(supabase, profile);
+
   return {
     status: "ok",
     user: {
@@ -68,6 +74,7 @@ export const getSessionState = cache(async (): Promise<SessionState> => {
       email: (typeof claims.email === "string" ? claims.email : null) ?? profile.email ?? "",
       profile,
       role: profile.role,
+      access,
     },
   };
 });

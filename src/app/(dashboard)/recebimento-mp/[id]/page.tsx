@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getMpReceiptEntry } from "@/lib/services/mp-receipt.service";
@@ -12,6 +12,7 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { RecebimentoMpDetail } from "@/components/recebimento-mp/RecebimentoMpDetail";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Consulta de recebimento de MP" };
 
@@ -31,7 +32,7 @@ export default async function RecebimentoMpDetalhePage({
     </Button>
   );
 
-  if (!can(sessionUser.role, "menu.recebimento_mp")) {
+  if (!hasPermission(sessionUser.access, "menu.recebimento_mp")) {
     return (
       <>
         <Header

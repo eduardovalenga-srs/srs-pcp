@@ -283,6 +283,9 @@ describe("migrations", () => {
         where id = $1`,
       [clientId],
     );
+    // GESTOR não tem rh.employees.view no perfil-modelo; asserções do
+    // snapshot sincronizado devem consultar como dono da tabela.
+    await asSuperUser(db);
     const { rows: renamedSnapshot } = await db.query<{ client: string | null }>(
       `select client from public.employees where id = $1`,
       [firstEmployee],

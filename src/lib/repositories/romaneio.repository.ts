@@ -311,13 +311,10 @@ export async function listConfirmedQuantityByItem(
 }
 
 /**
- * 054 — Quantidade já EXPEDIDA por um CONJUNTO de itens (Σ de romaneios
- * CONFIRMADOS, cruzando por `order_item_id`): base da baixa proporcional
- * dos FILHOS da Fábrica 1, cujos pais podem estar em OFs diferentes.
- *
- * A RLS de `romaneio_items`/`romaneios` é `using (true)` para select
- * (042), então a leitura vale para qualquer papel autenticado — o helper
- * é revogado do `anon` na migração 054.
+ * 054/103 — Quantidade já EXPEDIDA por um CONJUNTO de itens (Σ dos
+ * romaneios CONFIRMADOS), agregada no banco por `order_item_id`. Evita
+ * transportar todas as linhas de expedição via PostgREST; o RPC aplica a
+ * autorização de leitura dos módulos que precisam desse total.
  */
 export async function listConfirmedQuantityByItemIds(
   client: SupabaseServer,
@@ -326,15 +323,13 @@ export async function listConfirmedQuantityByItemIds(
   const totals = new Map<string, number>();
   if (itemIds.length === 0) return totals;
 
-  const { data, error } = await client
-    .from("romaneio_items")
-    .select("order_item_id, quantity, romaneios!inner ( status )")
-    .in("order_item_id", itemIds)
-    .eq("romaneios.status", "CONFIRMADO");
+  const { data, error } = await client.rpc("get_confirmed_quantity_by_item_ids", {
+    p_item_ids: [...new Set(itemIds)],
+  });
   assertOk(error, "Não foi possível calcular a expedição já confirmada");
 
-  for (const row of (data ?? []) as { order_item_id: string; quantity: number | string }[]) {
-    totals.set(row.order_item_id, (totals.get(row.order_item_id) ?? 0) + (toNumber(row.quantity) ?? 0));
+  for (const row of data ?? []) {
+    totals.set(row.order_item_id, toNumber(row.quantity) ?? 0);
   }
   return totals;
 }

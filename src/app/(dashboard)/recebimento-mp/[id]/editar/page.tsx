@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getMpReceiptEntry, getMpReceiptMaterials } from "@/lib/services/mp-receipt.service";
@@ -13,6 +13,7 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { RecebimentoMpForm } from "@/components/recebimento-mp/RecebimentoMpForm";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Editar nota de entrada" };
 
@@ -33,8 +34,8 @@ export default async function EditarRecebimentoMpPage({
   );
 
   if (
-    !can(sessionUser.role, "menu.recebimento_mp") ||
-    !can(sessionUser.role, "mp_receipt.edit")
+    !hasPermission(sessionUser.access, "menu.recebimento_mp") ||
+    !hasPermission(sessionUser.access, "mp_receipt.edit")
   ) {
     return (
       <>

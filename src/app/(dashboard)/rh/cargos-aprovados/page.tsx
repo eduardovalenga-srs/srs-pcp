@@ -4,18 +4,23 @@ import { Header } from "@/components/layout/Header";
 import { RecruitmentApprovedRolesManager } from "@/components/rh/RecruitmentApprovedRolesManager";
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { getRecruitmentApprovedRoleManagementData } from "@/lib/repositories/recruitment.repository";
 import { createClient } from "@/lib/supabase/server";
 import type { RecruitmentApprovedRoleManagementData } from "@/lib/types/recruitment";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Cargos aprovados" };
 
 export default async function RecruitmentApprovedRolesPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  if (!can(user.role, "rh.recruitment.manage")) {
+  const canManage = hasPermission(user.access, "rh.recruitment.manage");
+  if (
+    !hasPermission(user.access, "rh.recruitment.view") &&
+    !canManage
+  ) {
     return <><Header title="Cargos aprovados" /><AccessDenied /></>;
   }
 
@@ -46,7 +51,7 @@ export default async function RecruitmentApprovedRolesPage() {
         title="Cargos aprovados"
         description="Cadastre os cargos aprovados por cliente para usar na abertura de vagas."
       />
-      <RecruitmentApprovedRolesManager data={data} />
+      <RecruitmentApprovedRolesManager data={data} canManage={canManage} />
     </>
   );
 }

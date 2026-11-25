@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireCapability } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { parseEmployeeImportFiles } from "@/lib/import/employee-files";
 import { errorMessage } from "@/lib/utils/supabase-result";
 
@@ -11,7 +11,7 @@ const MAX_PDF_BYTES = 25 * 1024 * 1024;
 
 export async function POST(request: Request) {
   try {
-    await requireCapability("rh.manage");
+    await requirePermission("rh.employees.import");
     const form = await request.formData();
     const spreadsheet = form.get("spreadsheet");
     const pdf = form.get("pdf");

@@ -87,7 +87,7 @@ export type RecruitmentApprovedRoleListItem = RecruitmentApprovedRoleRow & {
 };
 
 export type RecruitmentApprovedRoleManagementData = {
-  clients: { id: string; name: string }[];
+  clients: { id: string; name: string; active: boolean }[];
   roles: RecruitmentApprovedRoleListItem[];
 };
 

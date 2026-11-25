@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getRomaneiosPage } from "@/lib/services/romaneio.service";
@@ -21,6 +21,7 @@ import { RomaneioActiveFilters } from "@/components/romaneio/RomaneioColumnHeade
 import { RomaneioFilters } from "@/components/romaneio/RomaneioFilters";
 import { RomaneioList } from "@/components/romaneio/RomaneioList";
 import { RomaneioPagination } from "@/components/romaneio/RomaneioPagination";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Romaneio" };
 
@@ -47,7 +48,7 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");
 
-  if (!can(sessionUser.role, "romaneio.view")) {
+  if (!hasPermission(sessionUser.access, "romaneio.view")) {
     return (
       <>
         <Header
@@ -60,7 +61,7 @@ export default async function RomaneioPage({ searchParams }: PageProps<"/romanei
   }
 
   const filters = parseRomaneioFilters(await searchParams);
-  const canEdit = can(sessionUser.role, "romaneio.edit");
+  const canEdit = hasPermission(sessionUser.access, "romaneio.edit");
 
   let data: RomaneiosPage;
   try {

@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Pencil, Plus, RotateCcw, Upload } from "lucide-react";
 
-import type { EmployeeRow } from "@/lib/types/database";
+import { EMPLOYEE_BILLING_MODEL_LABELS } from "@/lib/types/employee";
 import {
   DEFAULT_EMPLOYEE_FILTERS,
   filterEmployees,
   sortEmployees,
+  type EmployeeListRow,
   type EmployeeListFilters,
   type EmployeeSortKey,
   type EmployeeSortState,
@@ -89,7 +90,23 @@ function ariaSort(
   return sort.direction === "asc" ? "ascending" : "descending";
 }
 
-export function EmployeesList({ employees, canManage }: { employees: EmployeeRow[]; canManage: boolean }) {
+export function EmployeesList({
+  employees,
+  canManage = false,
+  canCreate = canManage,
+  canEdit = canManage,
+  canImport = canManage,
+  restricted = false,
+}: {
+  employees: EmployeeListRow[];
+  /** Compatibilidade: habilita todas as ações de cadastro. */
+  canManage?: boolean;
+  canCreate?: boolean;
+  canEdit?: boolean;
+  canImport?: boolean;
+  /** Usuário externo: somente dados operacionais aprovados. */
+  restricted?: boolean;
+}) {
   const [filters, setFilters] = useState<EmployeeListFilters>(DEFAULT_EMPLOYEE_FILTERS);
   const [sort, setSort] = useState<EmployeeSortState>({ key: "name", direction: "asc" });
   const [page, setPage] = useState(1);
@@ -100,6 +117,8 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
 
   const companies = [...new Map(employees.map((employee) => [employee.company_code, employee.company_name])).entries()]
     .sort(([codeA], [codeB]) => codeA.localeCompare(codeB, "pt-BR"));
+
+  const columnCount = 7 + (restricted ? 0 : 7) + (canEdit ? 1 : 0);
 
   function apply(overrides: Partial<EmployeeListFilters>) {
     setFilters((current) => ({ ...current, ...overrides }));
@@ -164,35 +183,37 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
           ) : null}
         </div>
         <div className="flex gap-2">
-          <ExportButton
-            endpoint="/api/export/funcionarios"
-            fallbackFileName="export-funcionarios.xlsx"
-            params={{
-              registration: filters.registration,
-              name: filters.name,
-              company: filters.company,
-              status: filters.status,
-              registeredClient: filters.registeredClient,
-              location: filters.location,
-              shift: filters.shift,
-              area: filters.area,
-              client: filters.client,
-              responsible1: filters.responsible1,
-              responsible2: filters.responsible2,
-              admissionFrom: filters.admissionFrom,
-              admissionTo: filters.admissionTo,
-              dismissalFrom: filters.dismissalFrom,
-              dismissalTo: filters.dismissalTo,
-              sort: sort.key,
-              sortDir: sort.direction,
-            }}
-          />
-          {canManage ? (
+          {!restricted ? (
+            <ExportButton
+              endpoint="/api/export/funcionarios"
+              fallbackFileName="export-funcionarios.xlsx"
+              params={{
+                registration: filters.registration,
+                name: filters.name,
+                company: filters.company,
+                status: filters.status,
+                registeredClient: filters.registeredClient,
+                location: filters.location,
+                shift: filters.shift,
+                area: filters.area,
+                client: filters.client,
+                responsible1: filters.responsible1,
+                responsible2: filters.responsible2,
+                admissionFrom: filters.admissionFrom,
+                admissionTo: filters.admissionTo,
+                dismissalFrom: filters.dismissalFrom,
+                dismissalTo: filters.dismissalTo,
+                sort: sort.key,
+                sortDir: sort.direction,
+              }}
+            />
+          ) : null}
+          {canImport ? (
             <Button size="sm" variant="outline" asChild>
               <Link href="/rh/funcionarios/importacao"><Upload className="h-4 w-4" aria-hidden />Importar</Link>
             </Button>
           ) : null}
-          {canManage ? (
+          {canCreate ? (
             <Button size="sm" asChild>
               <Link href="/rh/funcionarios/novo"><Plus className="h-4 w-4" aria-hidden />Novo funcionário</Link>
             </Button>
@@ -210,53 +231,64 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
               <TableHead aria-sort={ariaSort(sort, "name")}>
                 <HeaderLabel sort={sortHeader("name", "Nome")} filter={textFilter("name", "Nome", "nome")} />
               </TableHead>
-              <TableHead aria-sort={ariaSort(sort, "company_name")}>
-                <HeaderLabel
-                  sort={sortHeader("company_name", "Empresa")}
-                  filter={
-                    <FilterMenu
-                      context="empresa"
-                      value={filters.company}
-                      active={filters.company !== ""}
-                      options={[
-                        { value: "", label: "Todas as empresas" },
-                        ...companies.map(([code, name]) => ({ value: code, label: `${code} — ${name}` })),
-                      ]}
-                      onValueChange={(value) => apply({ company: value })}
-                    />
-                  }
-                />
-              </TableHead>
-              <TableHead aria-sort={ariaSort(sort, "admission_date")}>
-                <HeaderLabel
-                  sort={sortHeader("admission_date", "Admissão")}
-                  filter={
-                    <DeliveryPeriodPopover
-                      context="admissão"
-                      idPrefix="funcionarios-admissao"
-                      from={filters.admissionFrom}
-                      to={filters.admissionTo}
-                      active={filters.admissionFrom !== null || filters.admissionTo !== null}
-                      onApply={(from, to) => apply({ admissionFrom: from, admissionTo: to })}
-                    />
-                  }
-                />
-              </TableHead>
-              <TableHead aria-sort={ariaSort(sort, "dismissal_date")}>
-                <HeaderLabel
-                  sort={sortHeader("dismissal_date", "Demissão")}
-                  filter={
-                    <DeliveryPeriodPopover
-                      context="demissão"
-                      idPrefix="funcionarios-demissao"
-                      from={filters.dismissalFrom}
-                      to={filters.dismissalTo}
-                      active={filters.dismissalFrom !== null || filters.dismissalTo !== null}
-                      onApply={(from, to) => apply({ dismissalFrom: from, dismissalTo: to })}
-                    />
-                  }
-                />
-              </TableHead>
+              {!restricted ? (
+                <TableHead aria-sort={ariaSort(sort, "company_name")}>
+                  <HeaderLabel
+                    sort={sortHeader("company_name", "Empresa")}
+                    filter={
+                      <FilterMenu
+                        context="empresa"
+                        value={filters.company}
+                        active={filters.company !== ""}
+                        options={[
+                          { value: "", label: "Todas as empresas" },
+                          ...companies.map(([code, name]) => ({ value: code, label: `${code} — ${name}` })),
+                        ]}
+                        onValueChange={(value) => apply({ company: value })}
+                      />
+                    }
+                  />
+                </TableHead>
+              ) : null}
+              {!restricted ? (
+                <TableHead aria-sort={ariaSort(sort, "billing_model")}>
+                  {sortHeader("billing_model", "Modelo de cobrança")}
+                </TableHead>
+              ) : null}
+              {!restricted ? (
+                <TableHead aria-sort={ariaSort(sort, "admission_date")}>
+                  <HeaderLabel
+                    sort={sortHeader("admission_date", "Admissão")}
+                    filter={
+                      <DeliveryPeriodPopover
+                        context="admissão"
+                        idPrefix="funcionarios-admissao"
+                        from={filters.admissionFrom}
+                        to={filters.admissionTo}
+                        active={filters.admissionFrom !== null || filters.admissionTo !== null}
+                        onApply={(from, to) => apply({ admissionFrom: from, admissionTo: to })}
+                      />
+                    }
+                  />
+                </TableHead>
+              ) : null}
+              {!restricted ? (
+                <TableHead aria-sort={ariaSort(sort, "dismissal_date")}>
+                  <HeaderLabel
+                    sort={sortHeader("dismissal_date", "Demissão")}
+                    filter={
+                      <DeliveryPeriodPopover
+                        context="demissão"
+                        idPrefix="funcionarios-demissao"
+                        from={filters.dismissalFrom}
+                        to={filters.dismissalTo}
+                        active={filters.dismissalFrom !== null || filters.dismissalTo !== null}
+                        onApply={(from, to) => apply({ dismissalFrom: from, dismissalTo: to })}
+                      />
+                    }
+                  />
+                </TableHead>
+              ) : null}
               <TableHead aria-sort={ariaSort(sort, "status")}>
                 <HeaderLabel
                   sort={sortHeader("status", "Status")}
@@ -275,12 +307,14 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
                   }
                 />
               </TableHead>
-              <TableHead aria-sort={ariaSort(sort, "registered_client")}>
-                <HeaderLabel
-                  sort={sortHeader("registered_client", "Cliente Cadastrado")}
-                  filter={textFilter("registeredClient", "Cliente Cadastrado", "cliente cadastrado")}
-                />
-              </TableHead>
+              {!restricted ? (
+                <TableHead aria-sort={ariaSort(sort, "registered_client")}>
+                  <HeaderLabel
+                    sort={sortHeader("registered_client", "Cliente Cadastrado")}
+                    filter={textFilter("registeredClient", "Cliente Cadastrado", "cliente cadastrado")}
+                  />
+                </TableHead>
+              ) : null}
               <TableHead aria-sort={ariaSort(sort, "client")}>
                 <HeaderLabel sort={sortHeader("client", "Cliente")} filter={textFilter("client", "Cliente", "cliente")} />
               </TableHead>
@@ -293,16 +327,20 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
               <TableHead aria-sort={ariaSort(sort, "area")}>
                 <HeaderLabel sort={sortHeader("area", "Área")} filter={textFilter("area", "Área", "área")} />
               </TableHead>
-              <TableHead aria-sort={ariaSort(sort, "responsible_1")}>
-                <HeaderLabel sort={sortHeader("responsible_1", "Lid.", "Líder")} filter={textFilter("responsible1", "Líder", "líder")} />
-              </TableHead>
-              <TableHead aria-sort={ariaSort(sort, "responsible_2")}>
-                <HeaderLabel
-                  sort={sortHeader("responsible_2", "Enc.", "Encarregado")}
-                  filter={textFilter("responsible2", "Encarregado", "encarregado")}
-                />
-              </TableHead>
-              {canManage ? <TableHead className="text-right">Ações</TableHead> : null}
+              {!restricted ? (
+                <TableHead aria-sort={ariaSort(sort, "responsible_1")}>
+                  <HeaderLabel sort={sortHeader("responsible_1", "Lid.", "Líder")} filter={textFilter("responsible1", "Líder", "líder")} />
+                </TableHead>
+              ) : null}
+              {!restricted ? (
+                <TableHead aria-sort={ariaSort(sort, "responsible_2")}>
+                  <HeaderLabel
+                    sort={sortHeader("responsible_2", "Enc.", "Encarregado")}
+                    filter={textFilter("responsible2", "Encarregado", "encarregado")}
+                  />
+                </TableHead>
+              ) : null}
+              {canEdit ? <TableHead className="text-right">Ações</TableHead> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -310,22 +348,27 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
               <TableRow key={employee.id}>
                 <TableCell className="font-medium">{employee.registration}</TableCell>
                 <TableCell>{employee.name}</TableCell>
-                <TableCell>{employee.company_name}</TableCell>
-                <TableCell>{dateLabel(employee.admission_date)}</TableCell>
-                <TableCell>{dateLabel(employee.dismissal_date)}</TableCell>
+                {!restricted ? <TableCell>{employee.company_name}</TableCell> : null}
+                {!restricted ? (
+                  <TableCell>
+                    {employee.billing_model ? EMPLOYEE_BILLING_MODEL_LABELS[employee.billing_model] : "—"}
+                  </TableCell>
+                ) : null}
+                {!restricted ? <TableCell>{dateLabel(employee.admission_date)}</TableCell> : null}
+                {!restricted ? <TableCell>{dateLabel(employee.dismissal_date)}</TableCell> : null}
                 <TableCell>
                   <span className={`rounded-full px-2 py-1 text-xs ${employee.status === "ATIVO" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-muted text-muted-foreground"}`}>
                     {employee.status === "ATIVO" ? "Ativo" : "Inativo"}
                   </span>
                 </TableCell>
-                <TableCell>{employee.registered_client ?? "—"}</TableCell>
+                {!restricted ? <TableCell>{employee.registered_client ?? "—"}</TableCell> : null}
                 <TableCell>{employee.client ?? "—"}</TableCell>
                 <TableCell>{employee.location ?? "—"}</TableCell>
                 <TableCell>{employee.shift ?? "—"}</TableCell>
                 <TableCell>{employee.area ?? "—"}</TableCell>
-                <TableCell>{employee.responsible_1 ?? "—"}</TableCell>
-                <TableCell>{employee.responsible_2 ?? "—"}</TableCell>
-                {canManage ? (
+                {!restricted ? <TableCell>{employee.responsible_1 ?? "—"}</TableCell> : null}
+                {!restricted ? <TableCell>{employee.responsible_2 ?? "—"}</TableCell> : null}
+                {canEdit ? (
                   <TableCell className="text-right">
                     <Button size="sm" variant="outline" asChild>
                       <Link href={`/rh/funcionarios/${employee.id}/editar`}><Pencil className="h-3.5 w-3.5" aria-hidden />Editar</Link>
@@ -336,7 +379,7 @@ export function EmployeesList({ employees, canManage }: { employees: EmployeeRow
             ))}
             {pageRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={canManage ? 14 : 13} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={columnCount} className="py-8 text-center text-muted-foreground">
                   Nenhum funcionário encontrado para os filtros informados.
                 </TableCell>
               </TableRow>

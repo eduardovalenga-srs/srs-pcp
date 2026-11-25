@@ -4,7 +4,7 @@ import type { SaveEmployeeOutput } from "@/lib/validators/employee.schema";
 import { assertOk } from "@/lib/utils/supabase-result";
 
 const EMPLOYEE_COLUMNS =
-  "id, company_code, company_name, registration, name, admission_date, dismissal_date, registered_client, location, status, shift, area, client, responsible_1, responsible_2, allocation_position_id, created_at, updated_at, created_by, updated_by";
+  "id, company_code, company_name, registration, name, billing_model, admission_date, dismissal_date, registered_client, location, status, shift, area, client, responsible_1, responsible_2, allocation_position_id, created_at, updated_at, created_by, updated_by";
 
 export async function getEmployees(client: SupabaseServer): Promise<EmployeeRow[]> {
   const { data, error } = await client
@@ -67,6 +67,7 @@ export async function saveEmployee(
     company_name: input.companyName,
     registration: input.registration,
     name: input.name,
+    billing_model: input.billingModel,
     admission_date: input.admissionDate || null,
     dismissal_date: input.dismissalDate || null,
     updated_by: userId,

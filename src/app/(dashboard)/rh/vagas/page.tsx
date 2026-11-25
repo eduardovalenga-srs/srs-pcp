@@ -6,17 +6,18 @@ import { RecruitmentVacanciesList } from "@/components/rh/RecruitmentVacanciesLi
 import { AccessDenied } from "@/components/shared/AccessDenied";
 import { ErrorState } from "@/components/shared/ErrorState";
 import type { VacancyListItem } from "@/lib/types/recruitment";
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { getRecruitmentVacancies } from "@/lib/repositories/recruitment.repository";
 import { createClient } from "@/lib/supabase/server";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Vagas de trabalho" };
 
 export default async function RecruitmentVacanciesPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  if (!can(user.role, "rh.recruitment.view")) {
+  if (!hasPermission(user.access, "rh.recruitment.view")) {
     return <><Header title="Vagas de trabalho" /><AccessDenied /></>;
   }
 
@@ -45,7 +46,7 @@ export default async function RecruitmentVacanciesPage() {
       <ListPage>
         <Header title="Vagas de trabalho" description="Abertura de vagas e acompanhamento do processo seletivo." />
         <div className="min-h-0 lg:flex-1 lg:overflow-auto">
-          <RecruitmentVacanciesList vacancies={vacancies} canManage={can(user.role, "rh.recruitment.manage")} />
+          <RecruitmentVacanciesList vacancies={vacancies} canManage={hasPermission(user.access, "rh.recruitment.manage")} />
         </div>
       </ListPage>
   );

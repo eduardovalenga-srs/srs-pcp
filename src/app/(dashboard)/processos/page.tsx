@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getAllProcesses } from "@/lib/repositories/production.repository";
@@ -9,6 +9,7 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
 import { ListPage } from "@/components/layout/ListPage";
 import { ProcessCatalog } from "@/components/processos/ProcessCatalog";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Processos" };
 
@@ -16,7 +17,7 @@ export default async function ProcessosPage() {
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");
 
-  if (!can(sessionUser.role, "processes.view")) {
+  if (!hasPermission(sessionUser.access, "processes.view")) {
     return (
       <>
         <Header title="Processos" description="Catálogo de etapas do fluxo fabril." />
@@ -47,7 +48,7 @@ export default async function ProcessosPage() {
         title="Processos"
         description="As colunas da tela de gestão de OF vêm daqui — nenhum processo é fixo no código."
       />
-      <ProcessCatalog processes={processes} canManage={can(sessionUser.role, "processes.manage")} />
+      <ProcessCatalog processes={processes} canManage={hasPermission(sessionUser.access, "processes.manage")} />
     </ListPage>
   );
 }

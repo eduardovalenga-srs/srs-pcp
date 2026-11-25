@@ -10,6 +10,8 @@
  */
 
 export type RoleValue = "ADMIN" | "GESTOR" | "OPERADOR_F1" | "OPERADOR_F2" | "VISUALIZADOR";
+/** 101: tipo de conta no modelo de acesso personalizado. */
+export type AccessAccountTypeValue = "INTERNAL" | "EXTERNAL";
 export type OrderTypeValue = "OF" | "OS";
 export type OrderStatusValue = "PLANEJADO" | "EM_PRODUCAO" | "CONCLUIDO" | "CANCELADO";
 export type ProcessStatusValue =
@@ -20,6 +22,7 @@ export type ProcessStatusValue =
 export type MpReceiptStateValue = "NONE" | "PARCIAL" | "TOTAL";
 export type ImportBatchStatusValue = "PENDENTE" | "PROCESSANDO" | "CONCLUIDO" | "COM_ERROS" | "FALHOU";
 export type EmployeeStatusValue = "ATIVO" | "INATIVO";
+export type EmployeeBillingModelValue = "HORA" | "KG";
 export type RecruitmentVacancyStatusValue =
   | "VAGAS_ABERTAS"
   | "TRIAGEM"
@@ -94,6 +97,7 @@ export type EmployeeRow = {
   company_name: string;
   registration: string;
   name: string;
+  billing_model: EmployeeBillingModelValue;
   admission_date: string | null;
   dismissal_date: string | null;
   registered_client: string | null;
@@ -154,8 +158,58 @@ export type ProfileRow = {
   role: RoleValue;
   active: boolean;
   must_change_password: boolean;
+  /** 101: usuário interno ou vinculado a cliente. */
+  account_type: AccessAccountTypeValue;
+  /** 101: perfil-modelo de permissões. */
+  access_profile_id: string | null;
   created_at: string;
   updated_at: string;
+};
+
+/** 101: perfil-modelo reutilizável de permissões. */
+export type AccessProfileRow = {
+  id: string;
+  name: string;
+  role_key: string | null;
+  account_type: AccessAccountTypeValue;
+  is_system: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AccessProfilePermissionRow = {
+  access_profile_id: string;
+  permission_key: string;
+  created_at: string;
+};
+
+export type UserPermissionOverrideRow = {
+  profile_id: string;
+  permission_key: string;
+  allowed: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProfileClientAccessRow = {
+  profile_id: string;
+  client_node_id: string;
+  created_at: string;
+};
+
+export type ProfileCompanyAccessRow = {
+  profile_id: string;
+  company_code: string;
+  created_at: string;
+};
+
+export type AccessAuditLogRow = {
+  id: string;
+  actor_profile_id: string | null;
+  target_profile_id: string | null;
+  action: string;
+  details: Json;
+  created_at: string;
 };
 
 export type OrderRow = {
@@ -722,6 +776,7 @@ export type Database = {
           company_name: string;
           registration: string;
           name: string;
+          billing_model?: EmployeeBillingModelValue;
           admission_date?: string | null;
           dismissal_date?: string | null;
           registered_client?: string | null;
@@ -740,6 +795,7 @@ export type Database = {
           company_name: string;
           registration: string;
           name: string;
+          billing_model?: EmployeeBillingModelValue;
           admission_date: string | null;
           dismissal_date: string | null;
           registered_client: string | null;
@@ -967,6 +1023,8 @@ export type Database = {
           role?: RoleValue;
           active?: boolean;
           must_change_password?: boolean;
+          account_type?: AccessAccountTypeValue;
+          access_profile_id?: string | null;
         };
         Update: {
           name?: string | null;
@@ -974,7 +1032,80 @@ export type Database = {
           role?: RoleValue;
           active?: boolean;
           must_change_password?: boolean;
+          account_type?: AccessAccountTypeValue;
+          access_profile_id?: string | null;
         };
+        Relationships: [];
+      };
+      access_profiles: {
+        Row: AccessProfileRow;
+        Insert: {
+          id?: string;
+          name: string;
+          role_key?: string | null;
+          account_type?: AccessAccountTypeValue;
+          is_system?: boolean;
+        };
+        Update: Partial<{
+          name: string;
+          role_key: string | null;
+          account_type: AccessAccountTypeValue;
+          is_system: boolean;
+        }>;
+        Relationships: [];
+      };
+      access_profile_permissions: {
+        Row: AccessProfilePermissionRow;
+        Insert: {
+          access_profile_id: string;
+          permission_key: string;
+        };
+        Update: Partial<{ permission_key: string }>;
+        Relationships: [];
+      };
+      user_permission_overrides: {
+        Row: UserPermissionOverrideRow;
+        Insert: {
+          profile_id: string;
+          permission_key: string;
+          allowed: boolean;
+        };
+        Update: Partial<{ allowed: boolean }>;
+        Relationships: [];
+      };
+      profile_client_access: {
+        Row: ProfileClientAccessRow;
+        Insert: {
+          profile_id: string;
+          client_node_id: string;
+        };
+        Update: Partial<{ client_node_id: string }>;
+        Relationships: [];
+      };
+      profile_company_access: {
+        Row: ProfileCompanyAccessRow;
+        Insert: {
+          profile_id: string;
+          company_code: string;
+        };
+        Update: Partial<{ company_code: string }>;
+        Relationships: [];
+      };
+      access_audit_log: {
+        Row: AccessAuditLogRow;
+        Insert: {
+          id?: string;
+          actor_profile_id?: string | null;
+          target_profile_id?: string | null;
+          action: string;
+          details?: Json;
+        };
+        Update: Partial<{
+          actor_profile_id: string | null;
+          target_profile_id: string | null;
+          action: string;
+          details: Json;
+        }>;
         Relationships: [];
       };
       orders: {
@@ -1559,6 +1690,34 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      current_profile_is_internal: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      current_profile_access_context: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
+      current_profile_has_permission: {
+        Args: { p_key: string };
+        Returns: boolean;
+      };
+      current_profile_can_access_node: {
+        Args: { p_node_id: string };
+        Returns: boolean;
+      };
+      current_system_has_admin: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      current_profile_recruitment_clients: {
+        Args: Record<string, never>;
+        Returns: { id: string; name: string; active: boolean }[];
+      };
+      get_confirmed_quantity_by_item_ids: {
+        Args: { p_item_ids: string[] };
+        Returns: { order_item_id: string; quantity: number }[];
+      };
       assign_employee_allocation: {
         Args: { p_employee_id: string; p_position_id: string | null };
         Returns: undefined;

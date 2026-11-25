@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser, type SessionUser } from "@/lib/auth/session";
 import type { OfDecisionMap } from "@/lib/types/import";
 import { errorMessage } from "@/lib/utils/supabase-result";
@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import { firstZodMessage } from "@/lib/validators/common";
 import { importDecisionsSchema, importFormSchema } from "@/lib/validators/import.schema";
+import { hasPermission } from "@/lib/auth/access";
 
 /**
  * API da importação (layout novo — estrutura OF). Aceita planilha
@@ -44,7 +45,7 @@ async function authorize(): Promise<{ supabase: SupabaseServer; user: SessionUse
   if (!user) {
     return jsonError("Sessão expirada. Entre novamente.", 401);
   }
-  if (!can(user.role, "import.access")) {
+  if (!hasPermission(user.access, "import.access")) {
     return jsonError("Seu perfil não tem permissão para importar planilhas.", 403);
   }
   return { supabase, user };

@@ -1,4 +1,4 @@
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { romaneioDocumentSheet, romaneiosListSheet } from "@/lib/export/columns";
 import { exportFileName, searchParamsRecord } from "@/lib/export/common";
@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { firstValue, parseRomaneioFilters } from "@/lib/utils/filters";
 import { todayISODate } from "@/lib/utils/dates";
 import { errorMessage } from "@/lib/utils/supabase-result";
+import { hasPermission } from "@/lib/auth/access";
 
 /**
  * GET /api/export/romaneio — .xlsx do romaneio de expedição:
@@ -26,7 +27,7 @@ export async function GET(request: Request) {
     if (!user) {
       return Response.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
     }
-    if (!can(user.role, "romaneio.view")) {
+    if (!hasPermission(user.access, "romaneio.view")) {
       return Response.json(
         { error: "Seu perfil não tem permissão para exportar esta lista." },
         { status: 403 },

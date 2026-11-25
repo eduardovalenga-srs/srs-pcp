@@ -10,7 +10,7 @@ import {
   Truck,
 } from "lucide-react";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getDashboardCompletedWeight, getDashboardData } from "@/lib/services/production.service";
@@ -26,6 +26,7 @@ import { Header } from "@/components/layout/Header";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { ProcessLoadTable } from "@/components/dashboard/ProcessLoadTable";
 import { CompletedWeightPanel } from "@/components/dashboard/CompletedWeightPanel";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Dashboard" };
 
@@ -49,7 +50,7 @@ export default async function DashboardPage() {
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");
 
-  if (!can(sessionUser.role, "dashboard.view")) {
+  if (!hasPermission(sessionUser.access, "dashboard.view")) {
     return (
       <>
         <Header title="Dashboard" description="Indicadores da produção." />

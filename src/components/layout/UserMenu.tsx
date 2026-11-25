@@ -7,7 +7,7 @@ import { ChevronDown, Cog, KeyRound, LogOut, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { logoutAction } from "@/lib/actions/auth.actions";
-import { can } from "@/lib/auth/permissions";
+import type { PermissionKey } from "@/lib/auth/access";
 import { ROLE_LABELS, type Role } from "@/lib/constants/orders";
 import { cn } from "@/lib/utils";
 import { ChangePasswordDialog } from "@/components/auth/ChangePasswordDialog";
@@ -26,6 +26,9 @@ export interface MenuUser {
   name: string;
   email: string;
   role: Role;
+  accountType?: "INTERNAL" | "EXTERNAL";
+  /** 101: permissões efetivas (menu e atalhos personalizados). */
+  permissions?: readonly PermissionKey[];
 }
 
 interface UserMenuProps {
@@ -97,7 +100,7 @@ export function UserMenu({ user, showLabel = true, className }: UserMenuProps) {
             Alterar senha
           </DropdownMenuItem>
 
-          {can(user.role, "menu.settings") ? (
+          {user.role === "ADMIN" && user.accountType !== "EXTERNAL" ? (
             <DropdownMenuItem asChild>
               <Link href="/configuracoes">
                 <Cog aria-hidden />

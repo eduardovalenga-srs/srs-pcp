@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getChildItemsPage } from "@/lib/services/orders.service";
@@ -17,6 +17,7 @@ import { Fabrica1Summary } from "@/components/fabrica1/Fabrica1Summary";
 import { Fabrica1Table } from "@/components/fabrica1/Fabrica1Table";
 import { Fabrica1ActiveFilters } from "@/components/fabrica1/Fabrica1ColumnHeaders";
 import { ChildItemsPagination } from "@/components/fabrica1/ChildItemsPagination";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Fábrica 1" };
 
@@ -34,7 +35,7 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
 
   const filters = parseChildItemFilters(await searchParams);
 
-  if (!can(sessionUser.role, "orders.view")) {
+  if (!hasPermission(sessionUser.access, "menu.fabrica1")) {
     return (
       <>
         <Header
@@ -69,10 +70,10 @@ export default async function Fabrica1Page({ searchParams }: PageProps<"/fabrica
   }
 
   const capabilities = {
-    canUpdateStatus: can(sessionUser.role, "production.update_status"),
-    canEditQuantities: can(sessionUser.role, "production.edit"),
-    canViewHistory: can(sessionUser.role, "production.view_history"),
-    canEditDelivery: can(sessionUser.role, "orders.edit"),
+    canUpdateStatus: hasPermission(sessionUser.access, "production.update_status"),
+    canEditQuantities: hasPermission(sessionUser.access, "production.edit"),
+    canViewHistory: hasPermission(sessionUser.access, "production.view_history"),
+    canEditDelivery: hasPermission(sessionUser.access, "orders.edit"),
   };
 
   return (

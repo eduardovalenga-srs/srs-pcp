@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, Plus } from "lucide-react";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getMpReceiptEntries } from "@/lib/services/mp-receipt.service";
@@ -14,6 +14,7 @@ import { Header } from "@/components/layout/Header";
 import { ListPage, ListScroll } from "@/components/layout/ListPage";
 import { Button } from "@/components/ui/button";
 import { RecebimentoMpList } from "@/components/recebimento-mp/RecebimentoMpList";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Recebimento de MP" };
 
@@ -30,7 +31,7 @@ export default async function RecebimentoMpPage() {
     </Button>
   );
 
-  if (!can(sessionUser.role, "menu.recebimento_mp")) {
+  if (!hasPermission(sessionUser.access, "menu.recebimento_mp")) {
     return (
       <>
         <Header
@@ -43,7 +44,7 @@ export default async function RecebimentoMpPage() {
     );
   }
 
-  const canEdit = can(sessionUser.role, "mp_receipt.edit");
+  const canEdit = hasPermission(sessionUser.access, "mp_receipt.edit");
   let entries: MpReceiptListEntry[];
   try {
     const client = await createClient();

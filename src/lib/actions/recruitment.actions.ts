@@ -7,9 +7,11 @@ import {
   createRecruitmentApprovedRole,
   createRecruitmentCandidate,
   createRecruitmentCustomer,
+  deleteRecruitmentApprovedRole,
   saveRecruitmentVacancy,
   saveRecruitmentCandidateSchedule,
   setRecruitmentApprovedRoleActive,
+  updateRecruitmentApprovedRole,
   updateRecruitmentCandidateStage,
   updateRecruitmentVacancyStatus,
 } from "@/lib/repositories/recruitment.repository";
@@ -20,14 +22,17 @@ import {
   createRecruitmentApprovedRoleSchema,
   createRecruitmentCandidateSchema,
   createRecruitmentClientSchema,
+  deleteRecruitmentApprovedRoleSchema,
   setRecruitmentApprovedRoleActiveSchema,
   saveRecruitmentVacancySchema,
   saveRecruitmentCandidateScheduleSchema,
+  updateRecruitmentApprovedRoleSchema,
   updateRecruitmentCandidateStageSchema,
   updateRecruitmentVacancyStatusSchema,
   type CreateRecruitmentCandidateInput,
   type CreateRecruitmentApprovedRoleInput,
   type CreateRecruitmentClientInput,
+  type UpdateRecruitmentApprovedRoleInput,
   type SaveRecruitmentVacancyInput,
 } from "@/lib/validators/recruitment.schema";
 
@@ -81,6 +86,42 @@ export async function setRecruitmentApprovedRoleActiveAction(input: {
     revalidatePath("/rh/cargos-aprovados");
     revalidatePath("/rh/vagas/novo");
     return { success: true, message: parsed.data.active ? "Cargo aprovado reativado." : "Cargo aprovado inativado." };
+  } catch (error) {
+    return { success: false, message: errorMessage(error) };
+  }
+}
+
+export async function updateRecruitmentApprovedRoleAction(
+  input: UpdateRecruitmentApprovedRoleInput,
+): Promise<RecruitmentActionResult> {
+  try {
+    const user = await requireCapability("rh.recruitment.manage");
+    const parsed = updateRecruitmentApprovedRoleSchema.safeParse(input);
+    if (!parsed.success) return { success: false, message: firstZodMessage(parsed.error) };
+    const client = await createClient();
+    await updateRecruitmentApprovedRole(client, parsed.data, user.id);
+    revalidatePath("/rh/cargos-aprovados");
+    revalidatePath("/rh/vagas");
+    revalidatePath("/rh/vagas/novo");
+    return { success: true, message: "Cargo aprovado atualizado." };
+  } catch (error) {
+    return { success: false, message: errorMessage(error) };
+  }
+}
+
+export async function deleteRecruitmentApprovedRoleAction(
+  input: unknown,
+): Promise<RecruitmentActionResult> {
+  try {
+    await requireCapability("rh.recruitment.manage");
+    const parsed = deleteRecruitmentApprovedRoleSchema.safeParse(input);
+    if (!parsed.success) return { success: false, message: firstZodMessage(parsed.error) };
+    const client = await createClient();
+    await deleteRecruitmentApprovedRole(client, parsed.data.id);
+    revalidatePath("/rh/cargos-aprovados");
+    revalidatePath("/rh/vagas");
+    revalidatePath("/rh/vagas/novo");
+    return { success: true, message: "Cargo aprovado excluído." };
   } catch (error) {
     return { success: false, message: errorMessage(error) };
   }

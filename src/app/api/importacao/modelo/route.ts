@@ -1,8 +1,9 @@
 import * as XLSX from "xlsx";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { errorMessage } from "@/lib/utils/supabase-result";
+import { hasPermission } from "@/lib/auth/access";
 
 /**
  * GET /api/importacao/modelo — planilha modelo (.xlsx) do layout novo.
@@ -74,7 +75,7 @@ export async function GET() {
     if (!user) {
       return Response.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
     }
-    if (!can(user.role, "import.access")) {
+    if (!hasPermission(user.access, "import.access")) {
       return Response.json({ error: "Seu perfil não tem permissão para baixar o modelo." }, { status: 403 });
     }
 

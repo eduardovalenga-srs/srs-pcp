@@ -1,4 +1,4 @@
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { listBatchErrors, listBatches } from "@/lib/repositories/import.repository";
@@ -10,13 +10,14 @@ import { Header } from "@/components/layout/Header";
 import { ImportHistory } from "@/components/importacao/ImportHistory";
 import { ImportWizard } from "@/components/importacao/ImportWizard";
 import { AccessDenied } from "@/components/shared/AccessDenied";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Importar planilha" };
 
 export default async function ImportacaoPage() {
   const sessionUser = await getSessionUser();
 
-  if (!sessionUser || !can(sessionUser.role, "import.access")) {
+  if (!sessionUser || !hasPermission(sessionUser.access, "import.access")) {
     return (
       <>
         <Header title="Importar planilha" description="Importe a planilha da fábrica com a estrutura completa da OF." />
@@ -26,8 +27,8 @@ export default async function ImportacaoPage() {
   }
 
   const capabilities = {
-    canViewOrders: can(sessionUser.role, "orders.view"),
-    canViewProduction: can(sessionUser.role, "production.view"),
+    canViewOrders: hasPermission(sessionUser.access, "orders.view"),
+    canViewProduction: hasPermission(sessionUser.access, "production.view"),
   };
 
   let batches: ImportBatchHistory[] = [];

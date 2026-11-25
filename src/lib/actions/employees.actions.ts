@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireCapability } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
+import { hasPermission } from "@/lib/auth/access";
+import { requireSessionUser } from "@/lib/auth/session";
 import { importEmployees, saveEmployee } from "@/lib/repositories/employees.repository";
 import { createClient } from "@/lib/supabase/server";
 import { errorMessage } from "@/lib/utils/supabase-result";
@@ -18,9 +20,14 @@ export type EmployeeActionResult = { success: boolean; message: string; id?: str
 
 export async function saveEmployeeAction(input: SaveEmployeeInput): Promise<EmployeeActionResult> {
   try {
-    const user = await requireCapability("rh.manage");
+    const user = await requireSessionUser();
     const parsed = saveEmployeeSchema.safeParse(input);
     if (!parsed.success) return { success: false, message: firstZodMessage(parsed.error) };
+
+    const required = parsed.data.id ? "rh.employees.edit" : "rh.employees.create";
+    if (!hasPermission(user.access, required)) {
+      return { success: false, message: "Você não tem permissão para executar esta ação." };
+    }
 
     const client = await createClient();
     const saved = await saveEmployee(client, parsed.data, user.id);
@@ -37,7 +44,7 @@ export async function saveEmployeeAction(input: SaveEmployeeInput): Promise<Empl
 
 export async function importEmployeesAction(rows: EmployeeImportRow[]): Promise<EmployeeActionResult> {
   try {
-    await requireCapability("rh.manage");
+    await requirePermission("rh.employees.import");
     const parsed = importEmployeeRowsSchema.safeParse(
       rows.map((row) => ({
         company_code: row.company_code,

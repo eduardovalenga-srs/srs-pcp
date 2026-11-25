@@ -1,6 +1,19 @@
 import { z } from "zod";
 
+import { ACCOUNT_TYPES } from "@/lib/auth/access";
 import { ROLES } from "@/lib/constants/orders";
+
+/**
+ * Configuração de acesso personalizado (migration 101).
+ * A validação semântica (permissão x tipo de conta, cliente obrigatório
+ * para externo) fica em `normalizeAccessConfig`.
+ */
+export const accessConfigSchema = z.object({
+  accountType: z.enum(ACCOUNT_TYPES, { message: "Selecione o tipo de conta" }),
+  permissions: z.array(z.string().trim().min(1)).default([]),
+  clientIds: z.array(z.string().uuid("Cliente inválido")).default([]),
+  companyCodes: z.array(z.string().trim().min(1)).default([]),
+});
 
 /** Novo usuário criado pelo ADMIN (recebe senha temporária). */
 export const createUserSchema = z.object({
@@ -17,10 +30,17 @@ export const createUserSchema = z.object({
     .email("E-mail inválido")
     .transform((value) => value.toLowerCase()),
   role: z.enum(ROLES, { message: "Selecione um perfil válido" }),
+  access: accessConfigSchema.optional(),
 });
 
 export type CreateUserInput = z.input<typeof createUserSchema>;
 export type CreateUserValues = z.output<typeof createUserSchema>;
+
+/** Atualização do acesso de um usuário existente. */
+export const updateUserAccessSchema = accessConfigSchema;
+
+export type UpdateUserAccessInput = z.input<typeof updateUserAccessSchema>;
+export type UpdateUserAccessValues = z.output<typeof updateUserAccessSchema>;
 
 /** Troca de senha (própria conta — diálogo/banner ou fluxo de recuperação). */
 export const changePasswordSchema = z

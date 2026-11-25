@@ -21,7 +21,16 @@ vi.mock("server-only", () => ({}));
 
 const { sessionMock, findOrderStructuresMock, getProductGroupByIdMock, applyOfPlanMock, createBatchMock, insertBatchErrorsMock, completeBatchMock } =
   vi.hoisted(() => ({
-    sessionMock: { user: null as { id: string; role: string; name: string } | null },
+    sessionMock: {
+      user: null as
+        | {
+            id: string;
+            role: string;
+            name: string;
+            access: { accountType: "INTERNAL" | "EXTERNAL"; permissions: string[] };
+          }
+        | null,
+    },
     findOrderStructuresMock: vi.fn(),
     getProductGroupByIdMock: vi.fn(),
     applyOfPlanMock: vi.fn(),
@@ -131,7 +140,12 @@ function existingStructure(): ExistingOfStructure {
 }
 
 beforeEach(() => {
-  sessionMock.user = { id: "user-1", role: "GESTOR", name: "Gestor" };
+  sessionMock.user = {
+    id: "user-1",
+    role: "GESTOR",
+    name: "Gestor",
+    access: { accountType: "INTERNAL", permissions: ["import.access"] },
+  };
   findOrderStructuresMock.mockReset().mockResolvedValue(new Map());
   getProductGroupByIdMock.mockReset().mockResolvedValue({
     id: 12,
@@ -163,7 +177,12 @@ describe("POST /api/importacao — autenticação e entrada", () => {
   });
 
   it("responde 403 para perfil sem import.access", async () => {
-    sessionMock.user = { id: "op-1", role: "OPERADOR_F1", name: "Operador" };
+    sessionMock.user = {
+      id: "op-1",
+      role: "OPERADOR_F1",
+      name: "Operador",
+      access: { accountType: "INTERNAL", permissions: [] },
+    };
     const response = await postForm({ file: factoryFile(), step: "analyze" });
     expect(response.status).toBe(403);
     expect((await response.json()).error).toMatch(/não tem permissão/);
@@ -532,7 +551,12 @@ describe("GET /api/importacao/modelo", () => {
     const semSessao = await getModelo();
     expect(semSessao.status).toBe(401);
 
-    sessionMock.user = { id: "op-1", role: "OPERADOR_F1", name: "Operador" };
+    sessionMock.user = {
+      id: "op-1",
+      role: "OPERADOR_F1",
+      name: "Operador",
+      access: { accountType: "INTERNAL", permissions: [] },
+    };
     const semPermissao = await getModelo();
     expect(semPermissao.status).toBe(403);
   });

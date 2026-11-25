@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getRomaneioView } from "@/lib/services/romaneio.service";
@@ -13,6 +13,7 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { RomaneioConferenceSheet } from "@/components/romaneio/RomaneioConferenceSheet";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Conferência do romaneio" };
 
@@ -33,7 +34,7 @@ export default async function RomaneioConferenciaPage({
     </Button>
   );
 
-  if (!can(sessionUser.role, "romaneio.view")) {
+  if (!hasPermission(sessionUser.access, "romaneio.view")) {
     return (
       <>
         <Header title="Conferência do romaneio" description="Folha de conferência da carga." />
@@ -48,7 +49,7 @@ export default async function RomaneioConferenciaPage({
     view = await getRomaneioView(
       client,
       id,
-      can(sessionUser.role, "romaneio.edit"),
+      hasPermission(sessionUser.access, "romaneio.edit"),
     );
   } catch (error) {
     return (
@@ -84,7 +85,7 @@ export default async function RomaneioConferenciaPage({
       />
       <RomaneioConferenceSheet
         view={view}
-        canEdit={can(sessionUser.role, "romaneio.edit")}
+        canEdit={hasPermission(sessionUser.access, "romaneio.edit")}
       />
     </>
   );

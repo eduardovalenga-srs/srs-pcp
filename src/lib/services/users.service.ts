@@ -1,5 +1,10 @@
 import { randomInt } from "node:crypto";
 
+import {
+  defaultAccessConfig,
+  normalizeAccessConfig,
+  type AccessConfig,
+} from "@/lib/auth/access";
 import type { Role } from "@/lib/constants/orders";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseServer } from "@/lib/supabase/types";
@@ -13,6 +18,13 @@ import {
   updateProfileRole,
   type ProfileEntry,
 } from "@/lib/repositories/profiles.repository";
+import {
+  listUserAccessSummaries,
+  resetUserPermissionOverrides,
+  saveUserAccessConfig,
+  writeAccessAuditLog,
+  type UserAccessSummary,
+} from "@/lib/repositories/access.repository";
 import type { CreateUserValues } from "@/lib/validators/user.schema";
 
 // ------------------------------------------------------------------
@@ -91,6 +103,8 @@ export function generateTempPassword(length = 12): string {
 export interface ManagedUser extends ProfileEntry {
   /** Último login no Supabase Auth (null = nunca entrou). */
   lastSignInAt: string | null;
+  /** 101: permissões efetivas + escopo de dados. */
+  access: UserAccessSummary;
 }
 
 /**
@@ -99,7 +113,10 @@ export interface ManagedUser extends ProfileEntry {
  * continua útil, apenas sem a coluna de acesso).
  */
 export async function listManagedUsers(client: SupabaseServer): Promise<ManagedUser[]> {
-  const profiles = await listProfiles(client);
+  const [profiles, accessByUser] = await Promise.all([
+    listProfiles(client),
+    listUserAccessSummaries(client),
+  ]);
   const lastSignIn = new Map<string, string>();
 
   try {
@@ -116,6 +133,13 @@ export async function listManagedUsers(client: SupabaseServer): Promise<ManagedU
   return profiles.map((profile) => ({
     ...profile,
     lastSignInAt: lastSignIn.get(profile.id) ?? null,
+    access: accessByUser.get(profile.id) ?? {
+      accountType: "INTERNAL",
+      accessProfileId: profile.accessProfileId,
+      permissions: [],
+      clientIds: [],
+      companyCodes: [],
+    },
   }));
 }
 
@@ -137,12 +161,14 @@ export interface CreateTempPasswordResult {
 export async function createTempPasswordUser(
   client: SupabaseServer,
   input: CreateUserValues,
+  actorProfileId: string,
 ): Promise<CreateTempPasswordResult> {
   const existing = await findProfileByEmail(client, input.email);
   if (existing) {
     throw new Error("Já existe um usuário com este e-mail.");
   }
 
+  const accessConfig = resolveCreateAccessConfig(input);
   const tempPassword = generateTempPassword();
   const admin = createAdminClient();
   const { data, error } = await admin.auth.admin.createUser({
@@ -167,7 +193,38 @@ export async function createTempPasswordUser(
     .eq("id", data.user.id);
   if (flagError) throw new Error(flagError.message);
 
+  await saveUserAccessConfig(data.user.id, actorProfileId, accessConfig);
+
   return { userId: data.user.id, email: input.email, tempPassword };
+}
+
+/** Configuração inicial: a enviada pelo ADMIN ou o padrão do papel. */
+function resolveCreateAccessConfig(input: CreateUserValues): AccessConfig {
+  if (input.access) {
+    const normalized = normalizeAccessConfig(input.access);
+    if (!normalized.ok) throw new Error(normalized.message);
+    if (input.role === "ADMIN" && normalized.value.accountType !== "INTERNAL") {
+      throw new Error("A conta de administrador deve permanecer interna.");
+    }
+    if (
+      input.role !== "ADMIN" &&
+      (normalized.value.permissions.includes("users.manage") ||
+        normalized.value.permissions.includes("settings.manage"))
+    ) {
+      throw new Error("Somente administradores podem receber acesso ao gerenciamento de usuários.");
+    }
+    return normalized.value;
+  }
+  return defaultAccessConfig(input.role);
+}
+
+/** Atualiza o acesso personalizado de um usuário existente. */
+export async function updateUserAccess(
+  profileId: string,
+  actorProfileId: string,
+  config: AccessConfig,
+): Promise<void> {
+  await saveUserAccessConfig(profileId, actorProfileId, config);
 }
 
 // ------------------------------------------------------------------
@@ -197,6 +254,12 @@ export async function changeRoleWithRules(
   if (problem) throw new Error(problem);
 
   await updateProfileRole(profileId, newRole);
+  await resetUserPermissionOverrides(profileId);
+  await writeAccessAuditLog(sessionUserId, profileId, "USER_ROLE_CHANGED", {
+    previousRole: target.role,
+    newRole,
+    customPermissionsReset: true,
+  });
 }
 
 /** Ativa/desativa uma conta aplicando as proteções. */
@@ -222,6 +285,10 @@ export async function setProfileActiveWithRules(
   if (problem) throw new Error(problem);
 
   await setProfileActive(profileId, active);
+  await writeAccessAuditLog(sessionUserId, profileId, "USER_ACTIVE_CHANGED", {
+    previousActive: target.active,
+    active,
+  });
 }
 
 /**

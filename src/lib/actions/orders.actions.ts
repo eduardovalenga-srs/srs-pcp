@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { requireCapability } from "@/lib/auth/guards";
-import { can } from "@/lib/auth/permissions";
+
 import { createClient } from "@/lib/supabase/server";
 import { replaceItemMaterials } from "@/lib/repositories/materials.repository";
 import {
@@ -17,6 +17,7 @@ import { firstZodMessage, nullableDate } from "@/lib/validators/common";
 import { materialsSchema } from "@/lib/validators/material.schema";
 import { isValidISODate } from "@/lib/utils/dates";
 import { errorMessage } from "@/lib/utils/supabase-result";
+import { hasPermission } from "@/lib/auth/access";
 
 /**
  * Família da OF: id de `product_groups` ou null para
@@ -69,7 +70,7 @@ export async function saveOrderAction(input: unknown): Promise<OrderActionResult
 export async function deleteOrderAction(orderId: string): Promise<OrderActionResult> {
   try {
     const sessionUser = await requireCapability("orders.delete");
-    if (!can(sessionUser.role, "orders.delete")) {
+    if (!hasPermission(sessionUser.access, "orders.delete")) {
       return { success: false, message: "Você não tem permissão para excluir pedidos.", orderId: null, code: "" };
     }
 

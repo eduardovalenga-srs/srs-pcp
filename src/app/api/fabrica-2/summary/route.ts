@@ -1,10 +1,11 @@
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { searchParamsRecord } from "@/lib/export/common";
 import { getFabrica2FilteredSummary } from "@/lib/services/production.service";
 import { createClient } from "@/lib/supabase/server";
 import { parseProductionFilters } from "@/lib/utils/filters";
 import { errorMessage } from "@/lib/utils/supabase-result";
+import { hasPermission } from "@/lib/auth/access";
 
 /** KPIs da Fábrica 2 — executados sob demanda, fora da renderização da página. */
 export async function GET(request: Request) {
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
     if (!user) {
       return Response.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
     }
-    if (!can(user.role, "fabrica2.view")) {
+    if (!hasPermission(user.access, "fabrica2.view")) {
       return Response.json({ error: "Seu perfil não tem permissão para ver esta lista." }, { status: 403 });
     }
 

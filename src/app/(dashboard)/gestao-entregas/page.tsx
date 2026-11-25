@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { FileSpreadsheet, Plus } from "lucide-react";
 
-import { can } from "@/lib/auth/permissions";
+
 import { getSessionUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { getProductionOrdersPage } from "@/lib/services/production.service";
@@ -18,6 +18,7 @@ import { ProductionFiltersBar } from "@/components/producao/ProductionFilters";
 import { ProductionSummary } from "@/components/producao/ProductionSummary";
 import { ProductionTable } from "@/components/producao/ProductionTable";
 import { ProductionPagination } from "@/components/producao/ProductionPagination";
+import { hasPermission } from "@/lib/auth/access";
 
 export const metadata = { title: "Gestão de OF" };
 
@@ -25,7 +26,7 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
   const sessionUser = await getSessionUser();
   if (!sessionUser) redirect("/login");
 
-  if (!can(sessionUser.role, "production.view")) {
+  if (!hasPermission(sessionUser.access, "production.view")) {
     return (
       <>
         <Header title="Gestão de OF" description="Acompanhamento etapa a etapa dos itens." />
@@ -58,8 +59,8 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
   // do pedido são editáveis aqui — quantidades/observações por item
   // seguem na Fábrica 2 e no detalhe do pedido.
   const capabilities = {
-    canUpdateStatus: can(sessionUser.role, "production.update_status"),
-    canEditDelivery: can(sessionUser.role, "orders.edit"),
+    canUpdateStatus: hasPermission(sessionUser.access, "production.update_status"),
+    canEditDelivery: hasPermission(sessionUser.access, "orders.edit"),
   };
 
   return (
@@ -70,7 +71,7 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
         actions={
           <>
             <ExportButton endpoint="/api/export/gestao-entregas" fallbackFileName="export-gestao-entregas.xlsx" />
-            {can(sessionUser.role, "orders.create") ? (
+            {hasPermission(sessionUser.access, "orders.create") ? (
               <Button type="button" variant="outline" size="sm" asChild>
                 <Link href="/pedidos/novo">
                   <Plus className="h-4 w-4" aria-hidden />
@@ -78,7 +79,7 @@ export default async function GestaoEntregasPage({ searchParams }: PageProps<"/g
                 </Link>
               </Button>
             ) : null}
-            {can(sessionUser.role, "import.access") ? (
+            {hasPermission(sessionUser.access, "import.access") ? (
               <Button type="button" size="sm" asChild>
                 <Link href="/importacao">
                   <FileSpreadsheet className="h-4 w-4" aria-hidden />

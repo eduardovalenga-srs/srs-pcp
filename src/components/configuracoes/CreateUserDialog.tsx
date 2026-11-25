@@ -6,7 +6,10 @@ import { Check, Copy, KeyRound, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { createUserAction } from "@/lib/actions/users.actions";
+import { defaultAccessConfig, type AccessConfig } from "@/lib/auth/access";
 import { ROLES, ROLE_LABELS, type Role } from "@/lib/constants/orders";
+import type { ClientRootOption } from "@/lib/repositories/access.repository";
+import { AccessEditor } from "@/components/configuracoes/AccessEditor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -32,14 +35,19 @@ interface CreatedAccount {
   tempPassword: string;
 }
 
+interface CreateUserDialogProps {
+  clientRoots: ClientRootOption[];
+}
+
 /** Criação de conta com senha temporária (entregue fora do app). */
-export function CreateUserDialog() {
+export function CreateUserDialog({ clientRoots }: CreateUserDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("OPERADOR_F1");
+  const [access, setAccess] = useState<AccessConfig>(() => defaultAccessConfig("OPERADOR_F1"));
   const [created, setCreated] = useState<CreatedAccount | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -47,8 +55,15 @@ export function CreateUserDialog() {
     setName("");
     setEmail("");
     setRole("OPERADOR_F1");
+    setAccess(defaultAccessConfig("OPERADOR_F1"));
     setCreated(null);
     setCopied(false);
+  };
+
+  const changeRole = (next: Role) => {
+    setRole(next);
+    // O perfil-modelo é o ponto de partida; o ADMIN pode ajustar tela a tela.
+    setAccess(defaultAccessConfig(next));
   };
 
   const close = (nextOpen: boolean) => {
@@ -59,7 +74,7 @@ export function CreateUserDialog() {
   const submit = async () => {
     setBusy(true);
     try {
-      const result = await createUserAction({ name, email, role });
+      const result = await createUserAction({ name, email, role, access });
       if (!result.success || !result.tempPassword) {
         toast.error(result.message);
         return;
@@ -90,7 +105,7 @@ export function CreateUserDialog() {
           Novo usuário
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
         {created ? (
           <>
             <DialogHeader>
@@ -182,7 +197,7 @@ export function CreateUserDialog() {
 
               <div className="grid gap-2">
                 <Label htmlFor="novo-usuario-perfil">Perfil</Label>
-                <Select value={role} onValueChange={(value) => setRole(value as Role)}>
+                <Select value={role} onValueChange={(value) => changeRole(value as Role)}>
                   <SelectTrigger id="novo-usuario-perfil" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
@@ -195,9 +210,16 @@ export function CreateUserDialog() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  O perfil define o que a pessoa pode ver e editar.
+                  O perfil serve de modelo inicial; ajuste o acesso por tela abaixo.
                 </p>
               </div>
+
+              <AccessEditor
+                value={access}
+                onChange={setAccess}
+                clientRoots={clientRoots}
+                isAdmin={role === "ADMIN"}
+              />
 
               <DialogFooter>
                 <Button

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { saveRecruitmentVacancySchema } from "@/lib/validators/recruitment.schema";
+import {
+  deleteRecruitmentApprovedRoleSchema,
+  saveRecruitmentVacancySchema,
+  updateRecruitmentApprovedRoleSchema,
+} from "@/lib/validators/recruitment.schema";
 
 const validVacancy = {
   customer: "Cliente da OF",
@@ -67,5 +71,18 @@ describe("formulário de solicitação de vaga", () => {
         replacementEmployeeId: "55555555-5555-4555-8555-555555555555",
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("ações de cargos aprovados", () => {
+  it("valida a edição do nome e o id usado para exclusão", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    expect(updateRecruitmentApprovedRoleSchema.parse({ id, name: "  Soldador  " })).toEqual({
+      id,
+      name: "Soldador",
+    });
+    expect(updateRecruitmentApprovedRoleSchema.safeParse({ id, name: " " }).success).toBe(false);
+    expect(deleteRecruitmentApprovedRoleSchema.parse({ id })).toEqual({ id });
+    expect(deleteRecruitmentApprovedRoleSchema.safeParse({ id: "inválido" }).success).toBe(false);
   });
 });

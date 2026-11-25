@@ -87,7 +87,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
       </div>
 
       <nav aria-label="Navegação principal" className="min-h-0 flex-1 overflow-y-auto p-2">
-        <SidebarNav role={user.role} pathname={pathname} collapsed={collapsed} onExpand={expand} />
+        <SidebarNav role={user.role} permissions={user.permissions} pathname={pathname} collapsed={collapsed} onExpand={expand} />
       </nav>
 
       {/* Rodapé: expandir (só na trilha de ícones) + menu do usuário. */}

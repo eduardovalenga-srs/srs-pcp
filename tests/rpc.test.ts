@@ -966,6 +966,7 @@ describe("refresh_order_statuses (013)", () => {
       db.query("select public.refresh_order_statuses($1::uuid, 'CONCLUIDO')", [target.id]),
     ).rejects.toThrow(/Sem permissão/);
 
+    await asSuperUser(db);
     const operadorId = (await db.query<{ id: string }>(
       `select id from public.profiles where email = 'op.refresh@serralheria.com'`,
     )).rows[0]?.id as string;
@@ -1093,6 +1094,7 @@ describe("refresh_order_statuses_bulk (092 — lote de processos)", () => {
       db.query("select public.refresh_order_statuses_bulk($1::jsonb)", [payload]),
     ).rejects.toThrow(/Sem permissão/);
 
+    await asSuperUser(db);
     const operadorId = (await db.query<{ id: string }>(
       `select id from public.profiles where email = 'op.bulk@serralheria.com'`,
     )).rows[0]?.id as string;

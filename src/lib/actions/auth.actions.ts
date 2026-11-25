@@ -3,7 +3,8 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { homePathFor } from "@/lib/auth/permissions";
+import { homePathForAccess } from "@/lib/auth/access";
+import { loadAccessContext } from "@/lib/auth/access-loader";
 import { createClient } from "@/lib/supabase/server";
 import { forgotPasswordSchema } from "@/lib/validators/user.schema";
 
@@ -41,14 +42,14 @@ export async function loginAction(_previousState: AuthFormState, formData: FormD
   // desativada (migração 012) — derruba a sessão recém-criada. Sem o
   // signOut no caso "sem perfil", o cookie ficaria válido e o guard do
   // dashboard entraria em loop /login ↔ painel (ERR_TOO_MANY_REDIRECTS).
-  let homePath = homePathFor(null);
+  let homePath = "/login";
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("active, role")
+      .select("id, active, role, account_type, access_profile_id")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -62,9 +63,9 @@ export async function loginAction(_previousState: AuthFormState, formData: FormD
       };
     }
 
-    // Destino por papel: OPERADOR_F1/VISUALIZADOR (sem production.view)
-    // vão à Fábrica 1; OPERADOR_F2 vai à Fábrica 2 (ver homePathFor).
-    homePath = homePathFor(profile?.role ?? null);
+    // Destino coerente com o acesso personalizado (externos entram no RH).
+    const access = await loadAccessContext(supabase, profile);
+    homePath = homePathForAccess(access, profile.role);
   }
 
   redirect(homePath);

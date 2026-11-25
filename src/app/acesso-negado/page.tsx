@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { homePathFor } from "@/lib/auth/permissions";
+import { homePathForAccess } from "@/lib/auth/access";
 import { getSessionState } from "@/lib/auth/session";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 
@@ -18,7 +18,7 @@ export default async function AcessoNegadoPage() {
 
   // Estados que não devem parar aqui: segue o fluxo normal.
   if (sessionState.status === "anonimo") redirect("/login");
-  if (sessionState.status === "ok") redirect(homePathFor(sessionState.user.role));
+  if (sessionState.status === "ok") redirect(homePathForAccess(sessionState.user.access, sessionState.user.role));
 
   const message =
     sessionState.status === "inativo"

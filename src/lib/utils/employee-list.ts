@@ -1,4 +1,9 @@
-import type { EmployeeRow } from "@/lib/types/database";
+import type { EmployeeBillingModelValue, EmployeeRow } from "@/lib/types/database";
+
+/** A visão externa omite campos internos de cobrança antes de chegar ao cliente. */
+export type EmployeeListRow = Omit<EmployeeRow, "billing_model"> & {
+  billing_model?: EmployeeBillingModelValue;
+};
 
 export interface EmployeeListFilters {
   registration: string;
@@ -46,6 +51,7 @@ export const EMPLOYEE_SORT_KEYS = [
   "registration",
   "name",
   "company_name",
+  "billing_model",
   "admission_date",
   "dismissal_date",
   "status",
@@ -56,7 +62,7 @@ export const EMPLOYEE_SORT_KEYS = [
   "area",
   "responsible_1",
   "responsible_2",
-] as const satisfies readonly (keyof EmployeeRow)[];
+] as const satisfies readonly (keyof EmployeeListRow)[];
 
 export type EmployeeSortKey = (typeof EMPLOYEE_SORT_KEYS)[number];
 export type EmployeeSortDirection = "asc" | "desc";
@@ -83,10 +89,10 @@ function matchesText(value: string | null | undefined, query: string): boolean {
 }
 
 /** Aplica os filtros das colunas à lista já carregada no servidor. */
-export function filterEmployees(
-  employees: readonly EmployeeRow[],
+export function filterEmployees<T extends EmployeeListRow>(
+  employees: readonly T[],
   filters: EmployeeListFilters,
-): EmployeeRow[] {
+): T[] {
   return employees.filter((employee) => {
     if (!matchesText(employee.registration, filters.registration)) return false;
     if (!matchesText(employee.name, filters.name)) return false;
@@ -113,15 +119,15 @@ export function filterEmployees(
 }
 
 /** Ordena a lista filtrada antes da paginação, mantendo valores vazios no fim. */
-export function sortEmployees(
-  employees: readonly EmployeeRow[],
+export function sortEmployees<T extends EmployeeListRow>(
+  employees: readonly T[],
   sort: EmployeeSortState,
-): EmployeeRow[] {
+): T[] {
   return [...employees].sort((left, right) => {
     const leftValue = left[sort.key];
     const rightValue = right[sort.key];
-    const leftEmpty = leftValue === null || leftValue === "";
-    const rightEmpty = rightValue === null || rightValue === "";
+    const leftEmpty = leftValue === null || leftValue === undefined || leftValue === "";
+    const rightEmpty = rightValue === null || rightValue === undefined || rightValue === "";
 
     if (leftEmpty || rightEmpty) {
       if (leftEmpty && rightEmpty) return 0;

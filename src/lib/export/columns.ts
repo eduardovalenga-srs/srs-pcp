@@ -9,6 +9,7 @@ import { PROCESS_STATUS_SYMBOLS, WEIGHT_GRANULARITY_LABELS, type ProcessStatus }
 import type { ChildItemGroup, OrderSummary } from "@/lib/types/order";
 import type { RomaneioSummary, RomaneioView } from "@/lib/types/romaneio";
 import type { EmployeeRow } from "@/lib/types/database";
+import { EMPLOYEE_BILLING_MODEL_LABELS } from "@/lib/types/employee";
 import type {
   CompletedWeightCell,
   CompletedWeightColumn,
@@ -56,6 +57,7 @@ export function employeesSheet(employees: readonly EmployeeRow[]): ExportSheet {
       "Matrícula",
       "Nome",
       "Empresa",
+      "Modelo de cobrança",
       "Admissão",
       "Demissão",
       "Status",
@@ -71,6 +73,7 @@ export function employeesSheet(employees: readonly EmployeeRow[]): ExportSheet {
       employee.registration,
       employee.name,
       employee.company_name,
+      EMPLOYEE_BILLING_MODEL_LABELS[employee.billing_model],
       dateCell(employee.admission_date),
       dateCell(employee.dismissal_date),
       employee.status === "ATIVO" ? "Ativo" : "Inativo",
@@ -82,7 +85,7 @@ export function employeesSheet(employees: readonly EmployeeRow[]): ExportSheet {
       text(employee.responsible_1),
       text(employee.responsible_2),
     ]),
-    dateColumns: [3, 4],
+    dateColumns: [4, 5],
   };
 }
 
