@@ -21,20 +21,20 @@ export type MpReceiptStateValue = "NONE" | "PARCIAL" | "TOTAL";
 export type ImportBatchStatusValue = "PENDENTE" | "PROCESSANDO" | "CONCLUIDO" | "COM_ERROS" | "FALHOU";
 export type EmployeeStatusValue = "ATIVO" | "INATIVO";
 export type RecruitmentVacancyStatusValue =
-  | "RASCUNHO"
-  | "ABERTA"
-  | "PAUSADA"
-  | "PREENCHIDA"
-  | "ENCERRADA"
-  | "CANCELADA";
-export type RecruitmentRequestReasonValue = "NOVA_VAGA" | "SUBSTITUICAO" | "REFORCO";
-export type RecruitmentCandidateStageValue =
-  | "NOVO"
+  | "VAGAS_ABERTAS"
   | "TRIAGEM"
   | "ENTREVISTA"
-  | "APROVADO"
-  | "REPROVADO"
-  | "CONTRATADO";
+  | "AGENDAMENTO_ASO"
+  | "INTEGRACAO"
+  | "CONTRATADOS";
+export type RecruitmentRequestReasonValue = "NOVA_VAGA" | "SUBSTITUICAO" | "REFORCO";
+export type RecruitmentCandidateStageValue =
+  | "TRIAGEM"
+  | "ENTREVISTA"
+  | "AGENDAMENTO_ASO"
+  | "INTEGRACAO"
+  | "CONTRATADO"
+  | "REPROVADO";
 
 export type RecruitmentVacancyRow = {
   id: string;
@@ -46,6 +46,8 @@ export type RecruitmentVacancyRow = {
   allocation_location_id: string | null;
   allocation_area_id: string | null;
   allocation_position_id: string | null;
+  approved_role_id: string | null;
+  selected_candidate_id: string | null;
   department: string;
   location: string | null;
   employment_type: string;
@@ -74,6 +76,11 @@ export type RecruitmentCandidateRow = {
   phone: string | null;
   source: string | null;
   stage: RecruitmentCandidateStageValue;
+  triage_scheduled_at: string | null;
+  interview_scheduled_at: string | null;
+  aso_scheduled_at: string | null;
+  integration_scheduled_at: string | null;
+  hired_at: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -123,6 +130,17 @@ export type EmployeeAllocationNodeRow = {
   location_supervisor: string | null;
   active: boolean;
   sort_order: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+};
+
+export type RecruitmentApprovedRoleRow = {
+  id: string;
+  client_id: string;
+  name: string;
+  active: boolean;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -770,6 +788,8 @@ export type Database = {
           allocation_location_id?: string | null;
           allocation_area_id?: string | null;
           allocation_position_id?: string | null;
+          approved_role_id?: string | null;
+          selected_candidate_id?: string | null;
           department: string;
           location?: string | null;
           employment_type?: string;
@@ -838,6 +858,60 @@ export type Database = {
             referencedRelation: "employee_allocation_nodes";
             referencedColumns: ["id"];
           },
+          {
+            foreignKeyName: "recruitment_vacancies_approved_role_id_fkey";
+            columns: ["approved_role_id"];
+            isOneToOne: false;
+            referencedRelation: "recruitment_approved_roles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recruitment_vacancies_selected_candidate_id_fkey";
+            columns: ["selected_candidate_id"];
+            isOneToOne: false;
+            referencedRelation: "recruitment_candidates";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      recruitment_approved_roles: {
+        Row: RecruitmentApprovedRoleRow;
+        Insert: {
+          id?: string;
+          client_id: string;
+          name: string;
+          active?: boolean;
+          created_by?: string | null;
+          updated_by?: string | null;
+        };
+        Update: Partial<{
+          client_id: string;
+          name: string;
+          active: boolean;
+          updated_by: string | null;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "recruitment_approved_roles_client_id_fkey";
+            columns: ["client_id"];
+            isOneToOne: false;
+            referencedRelation: "employee_allocation_nodes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recruitment_approved_roles_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recruitment_approved_roles_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
         ];
       };
       recruitment_candidates: {
@@ -851,6 +925,11 @@ export type Database = {
           source?: string | null;
           stage?: RecruitmentCandidateStageValue;
           notes?: string | null;
+          triage_scheduled_at?: string | null;
+          interview_scheduled_at?: string | null;
+          aso_scheduled_at?: string | null;
+          integration_scheduled_at?: string | null;
+          hired_at?: string | null;
           created_by?: string | null;
           updated_by?: string | null;
         };

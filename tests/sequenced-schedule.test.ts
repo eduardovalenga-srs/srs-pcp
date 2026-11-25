@@ -35,8 +35,10 @@ function queue(overrides: Partial<ProcessScheduleQueue> = {}): ProcessScheduleQu
 }
 
 describe("buildScheduleIndex", () => {
-  it("calculates each process queue cumulatively and uses the EXP window end for DP", () => {
-    const schedule = buildScheduleIndex([queue()]);
+  it("calculates the chain cumulatively and uses the next business day after EXP for DP", () => {
+    const schedule = buildScheduleIndex([queue()], [
+      { id: "process-exp", code: "EXP", displayOrder: 10, durationDays: 1 },
+    ]);
 
     expect(schedule.windowsByOrder.o1.EXP).toEqual({
       start: "2026-10-19",
@@ -47,52 +49,186 @@ describe("buildScheduleIndex", () => {
       end: "2026-10-20",
     });
     expect(schedule.expeditionByOrder).toEqual({
-      o1: "2026-10-19",
-      o2: "2026-10-20",
+      o1: "2026-10-20",
+      o2: "2026-10-21",
     });
   });
 
+  it("uses the saved process anchor as a fixed date in the shared index", () => {
+    const schedule = buildScheduleIndex(
+      [queue()],
+      [{ id: "process-exp", code: "EXP", displayOrder: 10, durationDays: 1 }],
+      { processId: "process-exp", anchorDate: "2026-10-22" },
+    );
+
+    expect(schedule.windowsByOrder.o1.EXP?.start).toBe("2026-10-22");
+    expect(schedule.expeditionByOrder.o1).toBe("2026-10-23");
+  });
+
+  it("reflects back-calculated predecessor dates and the saved anchor in shared screens", () => {
+    const schedule = buildScheduleIndex(
+      [
+        queue({
+          processId: "process-CORTE",
+          processCode: "CORTE",
+          rows: [
+            {
+              orderId: "o1",
+              productGroupId: 1,
+              weightKg: 8,
+              capacityKg: 2,
+              processConcluded: false,
+              processCompletedAt: null,
+              expConcluded: false,
+              expCompletedAt: null,
+            },
+          ],
+        }),
+        queue({
+          processId: "process-PREMONT",
+          processCode: "PREMONT",
+          rows: [
+            {
+              orderId: "o1",
+              productGroupId: 1,
+              weightKg: 2,
+              capacityKg: 2,
+              processConcluded: false,
+              processCompletedAt: null,
+              expConcluded: false,
+              expCompletedAt: null,
+            },
+          ],
+        }),
+        queue({
+          processId: "process-EXP",
+          processCode: "EXP",
+          rows: [
+            {
+              orderId: "o1",
+              productGroupId: 1,
+              weightKg: 2,
+              capacityKg: 2,
+              processConcluded: false,
+              processCompletedAt: null,
+              expConcluded: false,
+              expCompletedAt: null,
+            },
+          ],
+        }),
+      ],
+      [
+        { id: "process-CORTE", code: "CORTE", displayOrder: 10, durationDays: 1 },
+        { id: "process-PREMONT", code: "PREMONT", displayOrder: 20, durationDays: 1 },
+        { id: "process-EXP", code: "EXP", displayOrder: 30, durationDays: 1 },
+      ],
+      { processId: "process-PREMONT", anchorDate: "2026-10-22" },
+    );
+
+    expect(schedule.windowsByOrder.o1.CORTE).toEqual({
+      start: "2026-10-16",
+      end: "2026-10-21",
+    });
+    expect(schedule.windowsByOrder.o1.PREMONT?.start).toBe("2026-10-22");
+    expect(schedule.expeditionByOrder.o1).toBe("2026-10-26");
+  });
+
+  it("exposes MP as a receipt-date marker without requiring MP capacity", () => {
+    const schedule = buildScheduleIndex(
+      [
+        queue({
+          processId: "process-MP",
+          processCode: "MP",
+          rows: [
+            {
+              orderId: "o1",
+              productGroupId: 1,
+              weightKg: 10,
+              capacityKg: 0,
+              processConcluded: false,
+              processCompletedAt: null,
+              expConcluded: false,
+              expCompletedAt: null,
+            },
+          ],
+        }),
+        queue({
+          processId: "process-CORTE",
+          processCode: "CORTE",
+          rows: [
+            {
+              orderId: "o1",
+              productGroupId: 1,
+              weightKg: 10,
+              capacityKg: 10,
+              processConcluded: false,
+              processCompletedAt: null,
+              expConcluded: false,
+              expCompletedAt: null,
+            },
+          ],
+        }),
+      ],
+      [
+        { id: "process-MP", code: "MP", displayOrder: 5, durationDays: 2 },
+        { id: "process-CORTE", code: "CORTE", displayOrder: 10, durationDays: 1 },
+      ],
+    );
+
+    expect(schedule.windowsByOrder.o1.MP).toEqual({
+      start: "2026-10-16",
+      end: "2026-10-16",
+    });
+    expect(schedule.windowsByOrder.o1.CORTE?.start).toBe("2026-10-19");
+  });
+
   it("shares one OF window across items and omits an uncalculable process", () => {
-    const schedule = buildScheduleIndex([
-      queue({
-        processCode: "ACAB",
-        rows: [
-          {
-            orderId: "o1",
-            productGroupId: null,
-            weightKg: 100,
-            capacityKg: 20,
-            processConcluded: false,
-            processCompletedAt: null,
-            expConcluded: false,
-            expCompletedAt: null,
-          },
-        ],
-      }),
-    ]);
+    const schedule = buildScheduleIndex(
+      [
+        queue({
+          processCode: "ACAB",
+          rows: [
+            {
+              orderId: "o1",
+              productGroupId: null,
+              weightKg: 100,
+              capacityKg: 20,
+              processConcluded: false,
+              processCompletedAt: null,
+              expConcluded: false,
+              expCompletedAt: null,
+            },
+          ],
+        }),
+      ],
+      [{ id: "process-ACAB", code: "ACAB", displayOrder: 10, durationDays: 1 }],
+    );
 
     expect(schedule.windowsByOrder.o1.ACAB).toBeUndefined();
     expect(schedule.expeditionByOrder.o1 ?? null).toBeNull();
   });
 
   it("uses the business-local effective EXP completion date for shipped orders", () => {
-    const schedule = buildScheduleIndex([
-      queue({
-        rows: [
-          {
-            orderId: "shipped",
-            productGroupId: 1,
-            weightKg: 0,
-            capacityKg: 10,
-            processConcluded: true,
-            processCompletedAt: "2026-10-20T02:00:00.000Z",
-            expConcluded: true,
-            // 02:00 UTC is still the prior calendar date in São Paulo.
-            expCompletedAt: "2026-10-20T02:00:00.000Z",
-          },
-        ],
-      }),
-    ]);
+    const schedule = buildScheduleIndex(
+      [
+        queue({
+          rows: [
+            {
+              orderId: "shipped",
+              productGroupId: 1,
+              weightKg: 0,
+              capacityKg: 10,
+              processConcluded: true,
+              processCompletedAt: "2026-10-20T02:00:00.000Z",
+              expConcluded: true,
+              // 02:00 UTC is still the prior calendar date in São Paulo.
+              expCompletedAt: "2026-10-20T02:00:00.000Z",
+            },
+          ],
+        }),
+      ],
+      [{ id: "process-exp", code: "EXP", displayOrder: 10, durationDays: 1 }],
+    );
 
     expect(schedule.windowsByOrder.shipped.EXP).toEqual({
       start: "2026-10-19",
@@ -102,27 +238,31 @@ describe("buildScheduleIndex", () => {
   });
 
   it("uses the effective completion date for completed applicable processes", () => {
-    const schedule = buildScheduleIndex([
-      queue({
-        processCode: "SOLDA",
-        rows: [
-          {
-            orderId: "completed",
-            productGroupId: 1,
-            weightKg: 0,
-            capacityKg: 10,
-            processConcluded: true,
-            processCompletedAt: "2026-10-20T02:00:00.000Z",
-            expConcluded: false,
-            expCompletedAt: null,
-          },
-        ],
-      }),
-    ]);
+    const schedule = buildScheduleIndex(
+      [
+        queue({
+          processCode: "SOLDA",
+          rows: [
+            {
+              orderId: "completed",
+              productGroupId: 1,
+              weightKg: 0,
+              capacityKg: 10,
+              processConcluded: true,
+              processCompletedAt: "2026-10-20T02:00:00.000Z",
+              expConcluded: false,
+              expCompletedAt: null,
+            },
+          ],
+        }),
+      ],
+      [{ id: "process-SOLDA", code: "SOLDA", displayOrder: 10, durationDays: 1 }],
+    );
 
     expect(schedule.windowsByOrder.completed.SOLDA).toEqual({
       start: "2026-10-19",
       end: "2026-10-19",
     });
+    expect(schedule.expeditionByOrder.completed).toBe("2026-10-20");
   });
 });

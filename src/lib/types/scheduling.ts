@@ -101,6 +101,6 @@ export interface ProcessScheduleQueue {
 export interface OrderScheduleIndex {
   /** orderId -> código do processo -> janela prevista. */
   windowsByOrder: Record<string, Record<string, ProcessScheduleWindow>>;
-  /** orderId -> data de expedição (fim do EXP planejado ou conclusão efetiva). */
+  /** orderId -> dia útil após a cadeia ou data efetiva, se já expedida. */
   expeditionByOrder: Record<string, string | null>;
 }

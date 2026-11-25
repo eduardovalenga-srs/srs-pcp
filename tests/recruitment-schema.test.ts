@@ -7,7 +7,8 @@ const validVacancy = {
   allocationClientId: "11111111-1111-4111-8111-111111111111",
   allocationLocationId: "22222222-2222-4222-8222-222222222222",
   allocationAreaId: "33333333-3333-4333-8333-333333333333",
-  allocationPositionId: "44444444-4444-4444-8444-444444444444",
+  approvedRoleId: "44444444-4444-4444-8444-444444444444",
+  allocationPositionId: null,
   requestReason: "NOVA_VAGA",
   replacementEmployeeId: null,
   employmentType: "CLT",
@@ -17,18 +18,31 @@ const validVacancy = {
   requester: "Gestor da área",
   recruiter: null,
   priority: "NORMAL",
-  status: "RASCUNHO",
+  status: "VAGAS_ABERTAS",
   openingDate: "2026-11-23",
   targetDate: null,
   closedReason: null,
 };
 
 describe("formulário de solicitação de vaga", () => {
-  it("exige cliente, local, área, cargo e solicitante sem quantidade", () => {
+  it("exige cliente, local, área, cargo aprovado e solicitante sem quantidade", () => {
     expect(saveRecruitmentVacancySchema.safeParse(validVacancy).success).toBe(true);
     expect(saveRecruitmentVacancySchema.safeParse({ ...validVacancy, customer: "" }).success).toBe(false);
     expect(saveRecruitmentVacancySchema.safeParse({ ...validVacancy, requester: "" }).success).toBe(false);
-    expect(saveRecruitmentVacancySchema.safeParse({ ...validVacancy, allocationPositionId: "" }).success).toBe(false);
+    expect(saveRecruitmentVacancySchema.safeParse({ ...validVacancy, approvedRoleId: null }).success).toBe(false);
+    expect(
+      saveRecruitmentVacancySchema.safeParse({
+        ...validVacancy,
+        approvedRoleId: null,
+        allocationPositionId: "55555555-5555-4555-8555-555555555555",
+      }).success,
+    ).toBe(true);
+    expect(
+      saveRecruitmentVacancySchema.safeParse({
+        ...validVacancy,
+        allocationPositionId: "55555555-5555-4555-8555-555555555555",
+      }).success,
+    ).toBe(false);
   });
 
   it("exige funcionário vinculado somente quando o motivo for substituição", () => {

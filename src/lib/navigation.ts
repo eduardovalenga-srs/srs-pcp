@@ -144,6 +144,13 @@ export const NAV_ENTRIES: NavEntry[] = [
       },
       {
         type: "item",
+        href: "/rh/cargos-aprovados",
+        label: "Cargos aprovados",
+        icon: BriefcaseBusiness,
+        capability: "rh.recruitment.manage",
+      },
+      {
+        type: "item",
         href: "/rh/funcionarios",
         label: "Funcionários",
         icon: UserRound,

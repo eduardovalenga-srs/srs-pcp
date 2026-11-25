@@ -14,6 +14,7 @@ import {
   getProcessScheduling,
 } from "@/lib/repositories/scheduling.repository";
 import { createClient } from "@/lib/supabase/server";
+import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import type { ProcessDefinition } from "@/lib/types/production";
 import type { ProductGroupDefinition } from "@/lib/types/product-group";
 
@@ -58,7 +59,9 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
     );
   }
 
-  const activeProcesses = processes.filter((process) => process.active);
+  const activeProcesses = processes.filter(
+    (process) => process.active && process.code !== MP_PROCESS_CODE,
+  );
   const requestedProcess = typeof params.processo === "string" ? params.processo : null;
   const processId = activeProcesses.find((process) => process.id === requestedProcess)?.id ?? null;
   const requestedFamily = typeof params.familia === "string" ? Number(params.familia) : Number.NaN;
@@ -97,7 +100,7 @@ export default async function SequenciamentoPage({ searchParams }: PageProps) {
     <ListPage>
       <Header
         title="Sequenciamento"
-        description="Defina a prioridade global das OFs. A previsão de expedição considera a cadeia de processos aplicáveis, capacidade por família, lead time cadastrado e a sequência global. Ao selecionar um processo, veja as OFs com essa etapa pendente ou concluída. OFs com a expedição concluída saem da fila e ficam no fim da Gestão de OF."
+        description="Simule a prioridade global sem alterar a sequência salva. As previsões consideram a cadeia aplicável, capacidade por família e dias úteis; a data fixa do processo selecionado ancora a simulação, a MP é prevista um dia útil antes da fabricação e a expedição um dia útil após a cadeia. Só Salvar sequência reflete as alterações na Gestão de OF."
       />
 
       {!scheduling ? (

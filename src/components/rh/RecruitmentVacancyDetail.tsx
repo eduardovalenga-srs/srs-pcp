@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import {
   createRecruitmentCandidateAction,
+  saveRecruitmentCandidateScheduleAction,
   updateRecruitmentCandidateStageAction,
   updateRecruitmentVacancyStatusAction,
 } from "@/lib/actions/recruitment.actions";
@@ -52,8 +53,13 @@ export function RecruitmentVacancyDetail({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [status, setStatus] = useState(vacancy.status);
-  const [closedReason, setClosedReason] = useState(vacancy.closed_reason ?? "");
-  const closed = status === "ENCERRADA" || status === "CANCELADA";
+  const [selectedCandidateId, setSelectedCandidateId] = useState(vacancy.selected_candidate_id ?? "");
+  const requiresSelectedCandidate = ["AGENDAMENTO_ASO", "INTEGRACAO", "CONTRATADOS"].includes(status);
+  const selectedCandidateLocked =
+    Boolean(vacancy.selected_candidate_id) &&
+    ["AGENDAMENTO_ASO", "INTEGRACAO", "CONTRATADOS"].includes(vacancy.status) &&
+    ["AGENDAMENTO_ASO", "INTEGRACAO", "CONTRATADOS"].includes(status);
+  const selectedStageIsControlledByVacancy = ["AGENDAMENTO_ASO", "INTEGRACAO", "CONTRATADOS"].includes(vacancy.status);
   const requestReasonLabel =
     RECRUITMENT_REQUEST_REASONS.find((reason) => reason.value === vacancy.request_reason)?.label ?? vacancy.request_reason;
 
@@ -63,7 +69,7 @@ export function RecruitmentVacancyDetail({
       const result = await updateRecruitmentVacancyStatusAction({
         id: vacancy.id,
         status,
-        closedReason: closedReason || null,
+        selectedCandidateId: requiresSelectedCandidate ? selectedCandidateId || null : null,
       });
       if (!result.success) {
         toast.error(result.message);
@@ -99,7 +105,7 @@ export function RecruitmentVacancyDetail({
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-base font-semibold">{vacancy.title}</h2>
-              <Badge variant={vacancy.status === "ABERTA" ? "success" : vacancy.status === "PAUSADA" ? "warning" : "outline"}>
+              <Badge variant={vacancy.status === "VAGAS_ABERTAS" || vacancy.status === "CONTRATADOS" ? "success" : "outline"}>
                 {VACANCY_STATUSES.find((item) => item.value === vacancy.status)?.label ?? vacancy.status}
               </Badge>
               <Badge variant={vacancy.priority === "ALTA" ? "destructive" : "secondary"}>
@@ -150,15 +156,41 @@ export function RecruitmentVacancyDetail({
       {canManage ? (
         <form onSubmit={saveStatus} className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4">
           <div className="w-full space-y-1.5 sm:w-52">
-            <Label htmlFor="vacancyStatus">Status da vaga</Label>
-            <select id="vacancyStatus" value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className={selectClass} disabled={pending}>
+            <Label htmlFor="vacancyStatus">Etapa da vaga</Label>
+            <select
+              id="vacancyStatus"
+              value={status}
+              onChange={(event) => {
+                const nextStatus = event.target.value as typeof status;
+                setStatus(nextStatus);
+                if (!["AGENDAMENTO_ASO", "INTEGRACAO", "CONTRATADOS"].includes(nextStatus)) {
+                  setSelectedCandidateId("");
+                }
+              }}
+              className={selectClass}
+              disabled={pending}
+            >
               {VACANCY_STATUSES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </div>
-          {closed ? (
+          {requiresSelectedCandidate ? (
             <div className="min-w-[220px] flex-1 space-y-1.5">
-              <Label htmlFor="closedReason">Motivo do encerramento</Label>
-              <Input id="closedReason" value={closedReason} onChange={(event) => setClosedReason(event.target.value)} maxLength={500} />
+              <Label htmlFor="selectedCandidate">Candidato que seguirá na vaga *</Label>
+              <select
+                id="selectedCandidate"
+                value={selectedCandidateId}
+                onChange={(event) => setSelectedCandidateId(event.target.value)}
+                className={selectClass}
+                required
+                disabled={pending || selectedCandidateLocked}
+              >
+                <option value="">Selecione o candidato</option>
+                {candidates
+                  .filter((candidate) => candidate.stage !== "REPROVADO")
+                  .map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
+                  ))}
+              </select>
             </div>
           ) : null}
           <Button type="submit" variant="outline" disabled={pending}>
@@ -179,20 +211,26 @@ export function RecruitmentVacancyDetail({
         <div className="overflow-hidden rounded-lg border bg-card">
           {candidates.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[740px] text-left text-sm">
+              <table className="w-full min-w-[960px] text-left text-sm">
                 <thead className="bg-muted text-xs text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 font-medium">Candidato</th>
                     <th className="px-4 py-3 font-medium">Contato</th>
                     <th className="px-4 py-3 font-medium">Origem</th>
                     <th className="px-4 py-3 font-medium">Etapa</th>
+                    <th className="px-4 py-3 font-medium">Agenda</th>
                     <th className="px-4 py-3 font-medium">Observações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {candidates.map((candidate) => (
                     <tr key={candidate.id} className="align-top">
-                      <td className="px-4 py-3 font-medium">{candidate.name}</td>
+                      <td className="px-4 py-3 font-medium">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{candidate.name}</span>
+                          {vacancy.selected_candidate_id === candidate.id ? <Badge variant="success">Selecionado</Badge> : null}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {candidate.email ? <a href={`mailto:${candidate.email}`} className="block hover:underline">{candidate.email}</a> : null}
                         {candidate.phone ? <a href={`tel:${candidate.phone}`} className="block hover:underline">{candidate.phone}</a> : null}
@@ -200,17 +238,30 @@ export function RecruitmentVacancyDetail({
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{candidate.source || "—"}</td>
                       <td className="px-4 py-3">
-                        {canManage ? (
+                        {canManage && !(selectedStageIsControlledByVacancy && vacancy.selected_candidate_id === candidate.id) ? (
                           <select
                             value={candidate.stage}
                             onChange={(event) => changeCandidateStage(candidate, event.target.value)}
                             className={`${selectClass} min-w-36`}
                             aria-label={`Etapa de ${candidate.name}`}
-                            disabled={pending}
+                            disabled={pending || (selectedStageIsControlledByVacancy && vacancy.selected_candidate_id === candidate.id)}
                           >
-                            {CANDIDATE_STAGES.map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}
+                            {CANDIDATE_STAGES
+                              .filter((stage) => ["TRIAGEM", "ENTREVISTA", "REPROVADO"].includes(stage.value))
+                              .map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}
                           </select>
                         ) : <Badge variant="outline">{CANDIDATE_STAGES.find((stage) => stage.value === candidate.stage)?.label ?? candidate.stage}</Badge>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <CandidateScheduleEditor
+                          candidate={candidate}
+                          vacancyId={vacancy.id}
+                          selected={
+                            vacancy.selected_candidate_id === candidate.id ||
+                            (status === "CONTRATADOS" && selectedCandidateId === candidate.id)
+                          }
+                          canManage={canManage}
+                        />
                       </td>
                       <td className="max-w-56 px-4 py-3 text-muted-foreground">
                         {candidate.notes ? <span title={candidate.notes} className="line-clamp-2">{candidate.notes}</span> : "—"}
@@ -230,6 +281,119 @@ export function RecruitmentVacancyDetail({
         </div>
       </section>
     </div>
+  );
+}
+
+function toDateTimeLocal(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function dateTimeLocalToIso(value: FormDataEntryValue | null): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function scheduleLabel(value: string | null): string {
+  return value
+    ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value))
+    : "—";
+}
+
+function CandidateScheduleEditor({
+  candidate,
+  vacancyId,
+  selected,
+  canManage,
+}: {
+  candidate: RecruitmentCandidateRow;
+  vacancyId: string;
+  selected: boolean;
+  canManage: boolean;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState("");
+
+  function submit(formData: FormData) {
+    setError("");
+    startTransition(async () => {
+      const result = await saveRecruitmentCandidateScheduleAction({
+        id: candidate.id,
+        vacancyId,
+        triageScheduledAt: dateTimeLocalToIso(formData.get("triageScheduledAt")),
+        interviewScheduledAt: dateTimeLocalToIso(formData.get("interviewScheduledAt")),
+        asoScheduledAt: selected
+          ? dateTimeLocalToIso(formData.get("asoScheduledAt"))
+          : candidate.aso_scheduled_at,
+        integrationScheduledAt: selected
+          ? dateTimeLocalToIso(formData.get("integrationScheduledAt"))
+          : candidate.integration_scheduled_at,
+        hiredAt: selected
+          ? String(formData.get("hiredAt") ?? "") || null
+          : candidate.hired_at,
+      });
+      if (!result.success) {
+        setError(result.message);
+        toast.error(result.message);
+        return;
+      }
+      toast.success(result.message);
+      router.refresh();
+    });
+  }
+
+  if (!canManage) {
+    return (
+      <div className="min-w-48 space-y-1 text-xs text-muted-foreground">
+        <p>Triagem: {scheduleLabel(candidate.triage_scheduled_at)}</p>
+        <p>Entrevista: {scheduleLabel(candidate.interview_scheduled_at)}</p>
+        <p>ASO: {scheduleLabel(candidate.aso_scheduled_at)}</p>
+        <p>Integração: {scheduleLabel(candidate.integration_scheduled_at)}</p>
+        <p>Contratação: {candidate.hired_at ? dateLabel(candidate.hired_at) : "—"}</p>
+      </div>
+    );
+  }
+
+  return (
+    <details className="min-w-48">
+      <summary className="cursor-pointer text-sm text-primary">Agendar etapas</summary>
+      <form action={submit} className="mt-2 grid min-w-60 gap-2 rounded-md border bg-background p-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label htmlFor={`triage-${candidate.id}`} className="text-xs">Triagem</Label>
+          <Input id={`triage-${candidate.id}`} name="triageScheduledAt" type="datetime-local" defaultValue={toDateTimeLocal(candidate.triage_scheduled_at)} disabled={pending} />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`interview-${candidate.id}`} className="text-xs">Entrevista</Label>
+          <Input id={`interview-${candidate.id}`} name="interviewScheduledAt" type="datetime-local" defaultValue={toDateTimeLocal(candidate.interview_scheduled_at)} disabled={pending} />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`aso-${candidate.id}`} className="text-xs">Agendamento ASO</Label>
+          <Input id={`aso-${candidate.id}`} name="asoScheduledAt" type="datetime-local" defaultValue={toDateTimeLocal(candidate.aso_scheduled_at)} disabled={pending || !selected} />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`integration-${candidate.id}`} className="text-xs">Integração</Label>
+          <Input id={`integration-${candidate.id}`} name="integrationScheduledAt" type="datetime-local" defaultValue={toDateTimeLocal(candidate.integration_scheduled_at)} disabled={pending || !selected} />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`hired-${candidate.id}`} className="text-xs">Data da contratação</Label>
+          <Input id={`hired-${candidate.id}`} name="hiredAt" type="date" defaultValue={candidate.hired_at ?? ""} disabled={pending || !selected} />
+        </div>
+        {!selected ? (
+          <p className="self-end text-xs text-muted-foreground">Selecione este candidato na etapa ASO para agendar ASO, integração ou contratação.</p>
+        ) : null}
+        {error ? <p role="alert" className="text-xs text-destructive sm:col-span-2">{error}</p> : null}
+        <div className="sm:col-span-2">
+          <Button type="submit" size="sm" variant="outline" disabled={pending}>
+            {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
+            Salvar datas
+          </Button>
+        </div>
+      </form>
+    </details>
   );
 }
 

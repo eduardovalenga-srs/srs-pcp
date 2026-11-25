@@ -186,8 +186,10 @@ describe("filtragem por papel (capabilities da sidebar)", () => {
     const managerMarkup = renderSidebar("GESTOR");
     expect(managerMarkup).toContain('href="/rh/alocacoes"');
     expect(managerMarkup).toContain('href="/rh/vagas"');
+    expect(managerMarkup).toContain('href="/rh/cargos-aprovados"');
     expect(managerMarkup).not.toContain('href="/rh/funcionarios"');
     expect(managerMarkup).not.toContain('href="/rh/funcionarios/importacao"');
+    expect(renderSidebar("OPERADOR_F1")).not.toContain('href="/rh/cargos-aprovados"');
   });
 
   it("mantém Vagas dentro do grupo RH, não em Gestão de Fábrica", () => {

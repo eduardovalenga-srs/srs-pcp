@@ -1,5 +1,6 @@
 import type {
   ProcessScheduleQueue,
+  ScheduleQueueRow,
   ScheduledWindow,
   SchedulingLoadRow,
   SchedulingOrderRow,
@@ -7,10 +8,13 @@ import type {
 import type { ProcessDefinition } from "@/lib/types/production";
 import {
   addBusinessDays,
-  addDaysToISODate,
   businessISODate,
   isValidISODate,
+  isBusinessDay,
+  previousBusinessDay,
+  subBusinessDays,
 } from "@/lib/utils/dates";
+import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 
 /**
  * Calcula a carga e as datas previstas de uma fila já ordenada.
@@ -80,8 +84,10 @@ export function computeScheduleRows<T extends SchedulingLoadRow>(
 export interface ProductionChainSchedule {
   /** orderId -> código do processo -> janela prevista/efetiva. */
   windowsByOrder: Record<string, Record<string, ScheduledWindow>>;
-  /** orderId -> fim da última etapa aplicável (ou expedição efetiva). */
+  /** orderId -> dia útil após a conclusão da última etapa (ou expedição efetiva). */
   expeditionByOrder: Record<string, string | null>;
+  /** orderId -> um dia útil antes do primeiro processo de fabricação. */
+  materialReceiptByOrder: Record<string, string | null>;
 }
 
 /**
@@ -89,9 +95,11 @@ export interface ProductionChainSchedule {
  * capacidade, lead time e dependência entre etapas.
  *
  * `queues` contém somente processos aplicáveis às OFs e vem ordenado pelo
- * display_order do catálogo. Em cada processo, o prazo final é o maior entre
- * a carga calculada em dias úteis e o lead time cadastrado em dias corridos.
- * O próximo processo começa no próximo dia útil após a etapa anterior.
+ * display_order do catálogo. A duração cadastrada e a carga por capacidade
+ * são ambas contabilizadas em dias úteis. Com uma âncora selecionada, a fila
+ * desse processo é calculada para frente, as etapas posteriores seguem a
+ * cadeia e as anteriores são recalculadas para trás, preservando a capacidade
+ * e a ordem global de cada fila.
  */
 export function computeProductionChainSchedule(
   queues: readonly ProcessScheduleQueue[],
@@ -102,14 +110,17 @@ export function computeProductionChainSchedule(
   const result: ProductionChainSchedule = {
     windowsByOrder: {},
     expeditionByOrder: {},
+    materialReceiptByOrder: {},
   };
-  const previousProcessEndByOrder = new Map<string, string | null>();
   const preferredPosition = new Map(
     preferredOrderIds.map((orderId, index) => [orderId, index]),
   );
   const processById = new Map(processes.map((process) => [process.id, process]));
   const processByCode = new Map(processes.map((process) => [process.code, process]));
-  const queuesInProcessOrder = queues
+  // MP continua aparecendo na coluna de status/recebimento, mas não consome
+  // capacidade nem participa das dependências entre processos produtivos.
+  const processQueues = queues
+    .filter((queue) => queue.processCode !== MP_PROCESS_CODE)
     .map((queue, index) => ({ queue, index }))
     .sort((left, right) => {
       const leftOrder = processById.get(left.queue.processId)?.displayOrder
@@ -119,25 +130,170 @@ export function computeProductionChainSchedule(
         ?? processByCode.get(right.queue.processCode)?.displayOrder
         ?? Number.MAX_SAFE_INTEGER;
       return leftOrder - rightOrder || left.index - right.index;
+    })
+    .map(({ queue }) => {
+      const process = processById.get(queue.processId) ?? processByCode.get(queue.processCode);
+      const rows = queue.rows
+        .map((row, index) => ({ row, index }))
+        .sort((left, right) => {
+          const leftPosition = preferredPosition.get(left.row.orderId) ?? Number.MAX_SAFE_INTEGER;
+          const rightPosition = preferredPosition.get(right.row.orderId) ?? Number.MAX_SAFE_INTEGER;
+          return leftPosition - rightPosition || left.index - right.index;
+        })
+        .map(({ row }) => row);
+
+      return {
+        queue,
+        rows,
+        rowsByOrderId: new Map(rows.map((row) => [row.orderId, row])),
+        durationDays: normalizeDuration(process?.durationDays ?? 1),
+      };
     });
 
-  for (const { queue } of queuesInProcessOrder) {
-    const process = processById.get(queue.processId) ?? processByCode.get(queue.processCode);
-    const anchorDate = anchorOverride?.processId === queue.processId
-      ? anchorOverride.anchorDate
-      : queue.anchorDate;
-    const durationDays = normalizeDuration(process?.durationDays ?? 1);
+  const fixedAnchorIndex = anchorOverride
+    ? processQueues.findIndex((plan) => plan.queue.processId === anchorOverride.processId)
+    : -1;
+  const shippedDateByOrder = new Map<string, string | null>();
+
+  if (fixedAnchorIndex < 0) {
+    scheduleForwardRange(
+      processQueues,
+      0,
+      processQueues.length,
+      new Map(),
+      result.windowsByOrder,
+      shippedDateByOrder,
+      null,
+    );
+  } else {
+    // Primeiro calcula a partir do processo fixado, para que haja datas-alvo
+    // para as etapas anteriores e para OFs que não passam por esse processo.
+    scheduleForwardRange(
+      processQueues,
+      fixedAnchorIndex,
+      processQueues.length,
+      new Map(),
+      result.windowsByOrder,
+      shippedDateByOrder,
+      anchorOverride ?? null,
+    );
+
+    // Recalcula as etapas anteriores de trás para frente, por fila, usando o
+    // início previsto da próxima etapa aplicável como prazo de conclusão.
+    for (let index = fixedAnchorIndex - 1; index >= 0; index -= 1) {
+      const plan = processQueues[index];
+      if (!plan) continue;
+      scheduleBackwardQueue(processQueues, index, plan, result.windowsByOrder);
+    }
+
+    const previousEndByOrder = new Map<string, string | null>();
+    const blockedOrders = new Set<string>();
+    for (let index = 0; index < fixedAnchorIndex; index += 1) {
+      const plan = processQueues[index];
+      if (!plan) continue;
+      for (const row of plan.rows) {
+        const window = result.windowsByOrder[row.orderId]?.[plan.queue.processCode];
+        if (!window || window.issue || !window.endDate) {
+          blockedOrders.add(row.orderId);
+        } else {
+          previousEndByOrder.set(row.orderId, window.endDate);
+        }
+      }
+    }
+    for (const orderId of blockedOrders) previousEndByOrder.set(orderId, null);
+
+    // A primeira passagem era apenas para obter prazos. Remova-a e gere de
+    // novo a cadeia para frente usando as etapas anteriores recalculadas.
+    for (let index = fixedAnchorIndex; index < processQueues.length; index += 1) {
+      const plan = processQueues[index];
+      if (!plan) continue;
+      for (const row of plan.rows) {
+        delete result.windowsByOrder[row.orderId]?.[plan.queue.processCode];
+      }
+    }
+    shippedDateByOrder.clear();
+    scheduleForwardRange(
+      processQueues,
+      fixedAnchorIndex,
+      processQueues.length,
+      previousEndByOrder,
+      result.windowsByOrder,
+      shippedDateByOrder,
+      anchorOverride ?? null,
+    );
+  }
+
+  for (const plan of processQueues) {
+    for (const row of plan.rows) {
+      if (row.expConcluded) {
+        shippedDateByOrder.set(row.orderId, businessISODate(row.expCompletedAt));
+      }
+    }
+  }
+  result.expeditionByOrder = calculateExpeditionDates(
+    processQueues,
+    result.windowsByOrder,
+    shippedDateByOrder,
+  );
+
+  // A MP deve estar disponível no dia útil anterior ao primeiro processo
+  // produtivo aplicável. O estado da MP continua vindo do recebimento real.
+  const productiveQueues = processQueues.map(({ queue }) => queue);
+  const ordersWithMp = new Set(
+    queues
+      .filter((queue) => queue.processCode === MP_PROCESS_CODE)
+      .flatMap((queue) => queue.rows.map((row) => row.orderId)),
+  );
+  for (const orderId of ordersWithMp) {
+    for (const queue of productiveQueues) {
+      const firstProcess = result.windowsByOrder[orderId]?.[queue.processCode];
+      if (firstProcess?.startDate) {
+        const receiptDate = previousBusinessDay(firstProcess.startDate);
+        result.materialReceiptByOrder[orderId] = receiptDate;
+        // Mantém a janela MP disponível às telas que exibem a data prevista
+        // junto do status/recebimento real, sem tratar MP como carga produtiva.
+        result.windowsByOrder[orderId]![MP_PROCESS_CODE] = {
+          loadDays: 0,
+          startDate: receiptDate,
+          endDate: receiptDate,
+          issue: null,
+        };
+        break;
+      }
+    }
+    result.materialReceiptByOrder[orderId] ??= null;
+  }
+
+  return result;
+}
+
+interface ProcessQueuePlan {
+  queue: ProcessScheduleQueue;
+  rows: ScheduleQueueRow[];
+  rowsByOrderId: Map<string, ScheduleQueueRow>;
+  durationDays: number;
+}
+
+function scheduleForwardRange(
+  plans: readonly ProcessQueuePlan[],
+  startIndex: number,
+  endIndex: number,
+  previousEndByOrder: Map<string, string | null>,
+  windowsByOrder: ProductionChainSchedule["windowsByOrder"],
+  shippedDateByOrder: Map<string, string | null>,
+  anchorOverride: { processId: string; anchorDate: string } | null,
+): void {
+  for (let index = startIndex; index < endIndex; index += 1) {
+    const plan = plans[index];
+    if (!plan) continue;
+    const { queue, rows, durationDays } = plan;
+    const isFixedAnchorQueue = anchorOverride?.processId === queue.processId;
+    const anchorDate = isFixedAnchorQueue ? anchorOverride.anchorDate : queue.anchorDate;
     let cumulativeDays = 0;
-    const indexedRows = queue.rows.map((row, index) => ({ row, index }));
-    indexedRows.sort((left, right) => {
-      const leftPosition = preferredPosition.get(left.row.orderId) ?? Number.MAX_SAFE_INTEGER;
-      const rightPosition = preferredPosition.get(right.row.orderId) ?? Number.MAX_SAFE_INTEGER;
-      return leftPosition - rightPosition || left.index - right.index;
-    });
 
-    for (const { row } of indexedRows) {
-      const previousProcessEnd = previousProcessEndByOrder.get(row.orderId);
-      const orderWindows = (result.windowsByOrder[row.orderId] ??= {});
+    for (const row of rows) {
+      const previousProcessEnd = previousEndByOrder.get(row.orderId);
+      const orderWindows = (windowsByOrder[row.orderId] ??= {});
 
       if (row.expConcluded) {
         const completedDate = businessISODate(row.expCompletedAt);
@@ -147,94 +303,437 @@ export function computeProductionChainSchedule(
           endDate: completedDate,
           issue: null,
         };
-        result.expeditionByOrder[row.orderId] = completedDate;
-        previousProcessEndByOrder.set(row.orderId, completedDate);
+        shippedDateByOrder.set(row.orderId, completedDate);
+        previousEndByOrder.set(row.orderId, completedDate);
         continue;
       }
 
       if (row.processConcluded) {
         const completedDate = businessISODate(row.processCompletedAt);
-        orderWindows[queue.processCode] = {
-          loadDays: 0,
-          startDate: completedDate,
-          endDate: completedDate,
-          issue: null,
-        };
-        previousProcessEndByOrder.set(row.orderId, completedDate);
-        result.expeditionByOrder[row.orderId] = completedDate;
+        orderWindows[queue.processCode] = completedDate
+          ? { loadDays: 0, startDate: completedDate, endDate: completedDate, issue: null }
+          : unavailableWindow("Data de conclusão do processo ausente");
+        previousEndByOrder.set(row.orderId, completedDate);
         continue;
       }
 
-      // Se uma etapa anterior aplicável não pôde ser datada, não inventamos
-      // uma data para esta ou para as etapas seguintes.
-      if (previousProcessEnd === null) {
-        previousProcessEndByOrder.set(row.orderId, null);
-        orderWindows[queue.processCode] = unavailableWindow(
-          "Etapa anterior sem data prevista",
-        );
-        result.expeditionByOrder[row.orderId] = null;
+      if (previousProcessEnd === null && !isFixedAnchorQueue) {
+        previousEndByOrder.set(row.orderId, null);
+        orderWindows[queue.processCode] = unavailableWindow("Etapa anterior sem data prevista");
         continue;
       }
 
-      const issue = schedulingIssue(row);
-      if (!isValidISODate(anchorDate) || issue) {
-        previousProcessEndByOrder.set(row.orderId, null);
+      const rowIssue = schedulingIssue(row);
+      const anchorIssue = !isValidISODate(anchorDate)
+        ? "Data de início inválida"
+        : isFixedAnchorQueue && !isBusinessDay(anchorDate)
+          ? "A data fixa deve ser um dia útil"
+          : null;
+      if (anchorIssue || rowIssue) {
+        previousEndByOrder.set(row.orderId, null);
         orderWindows[queue.processCode] = unavailableWindow(
-          !isValidISODate(anchorDate)
-            ? "Data de início inválida"
-            : issue ?? "Dados de agendamento inválidos",
+          anchorIssue ?? rowIssue ?? "Dados de agendamento inválidos",
         );
-        result.expeditionByOrder[row.orderId] = null;
         continue;
       }
 
       const readyDate = previousProcessEnd === undefined
         ? addBusinessDays(anchorDate, 0)
-        : nextBusinessDayAfter(previousProcessEnd);
-      if (readyDate === null) {
-        previousProcessEndByOrder.set(row.orderId, null);
-        orderWindows[queue.processCode] = unavailableWindow(
-          "Etapa anterior sem data prevista",
-        );
-        result.expeditionByOrder[row.orderId] = null;
+        : previousProcessEnd === null
+          ? null
+          : nextBusinessDayAfter(previousProcessEnd);
+      if (readyDate === null && !isFixedAnchorQueue) {
+        previousEndByOrder.set(row.orderId, null);
+        orderWindows[queue.processCode] = unavailableWindow("Etapa anterior sem data prevista");
         continue;
       }
-      const effectiveStart = laterISODate(addBusinessDays(anchorDate, 0), readyDate);
-      const readyOffset = businessDayOffset(anchorDate, effectiveStart);
 
+      const fixedStartDate = addBusinessDays(anchorDate, 0);
+      const effectiveStart = isFixedAnchorQueue
+        ? fixedStartDate
+        : laterISODate(fixedStartDate, readyDate ?? fixedStartDate);
+      const readyOffset = businessDayOffset(anchorDate, effectiveStart);
       if (readyOffset === null) {
-        previousProcessEndByOrder.set(row.orderId, null);
+        previousEndByOrder.set(row.orderId, null);
         orderWindows[queue.processCode] = unavailableWindow(
           "Não foi possível determinar a data de início",
         );
-        result.expeditionByOrder[row.orderId] = null;
         continue;
       }
 
       const loadDays = (row.weightKg as number) / (row.capacityKg as number);
-      const startOffset = Math.max(cumulativeDays, readyOffset);
+      const startOffset = isFixedAnchorQueue
+        ? cumulativeDays
+        : Math.max(cumulativeDays, readyOffset);
       const startDate = addBusinessDays(anchorDate, Math.floor(startOffset));
       cumulativeDays = startOffset + loadDays;
-      const endOffset = Math.max(
-        Math.ceil(cumulativeDays) - 1,
-        Math.floor(startOffset),
+      const capacityEndDate = addBusinessDays(
+        anchorDate,
+        Math.max(Math.ceil(cumulativeDays) - 1, Math.floor(startOffset)),
       );
-      const capacityEndDate = addBusinessDays(anchorDate, endOffset);
-      const leadTimeEndDate = addDaysToISODate(startDate, durationDays - 1);
-      const endDate = laterISODate(capacityEndDate, leadTimeEndDate);
+      const durationEndDate = addBusinessDays(startDate, durationDays - 1);
+      const endDate = laterISODate(capacityEndDate, durationEndDate);
+      const startConflict =
+        isFixedAnchorQueue &&
+        (previousProcessEnd === null ||
+          (previousProcessEnd !== undefined && readyDate !== null && readyDate > startDate));
+      const issue = startConflict
+        ? previousProcessEnd === null
+          ? "Etapa anterior sem data prevista; a data fixa não pode ser validada"
+          : "Etapa anterior termina após a data fixa deste processo"
+        : null;
 
-      orderWindows[queue.processCode] = {
-        loadDays,
-        startDate,
-        endDate,
-        issue: null,
-      };
-      previousProcessEndByOrder.set(row.orderId, endDate);
-      result.expeditionByOrder[row.orderId] = endDate;
+      orderWindows[queue.processCode] = { loadDays, startDate, endDate, issue };
+      previousEndByOrder.set(row.orderId, issue ? null : endDate);
+    }
+  }
+}
+
+function scheduleBackwardQueue(
+  plans: readonly ProcessQueuePlan[],
+  index: number,
+  plan: ProcessQueuePlan,
+  windowsByOrder: ProductionChainSchedule["windowsByOrder"],
+): void {
+  const { queue, rows, durationDays } = plan;
+  const nextWindowByOrder = new Map<string, ScheduledWindow | undefined>();
+
+  for (const row of rows) {
+    for (let nextIndex = index + 1; nextIndex < plans.length; nextIndex += 1) {
+      const nextPlan = plans[nextIndex];
+      if (!nextPlan?.rowsByOrderId.has(row.orderId)) continue;
+      nextWindowByOrder.set(
+        row.orderId,
+        windowsByOrder[row.orderId]?.[nextPlan.queue.processCode],
+      );
+      break;
     }
   }
 
-  return result;
+  const workRows: Array<{
+    row: ScheduleQueueRow;
+    loadDays: number;
+    prefixDays: number;
+    startOffset: number;
+    endOffset: number;
+    deadline: string | null;
+    releaseDate: string | null;
+  }> = [];
+  let cumulativeDays = 0;
+  let hasPredecessorDateIssue = false;
+
+  for (const row of rows) {
+    const orderWindows = (windowsByOrder[row.orderId] ??= {});
+    const nextWindow = nextWindowByOrder.get(row.orderId);
+    const deadline =
+      nextWindow && !nextWindow.issue && nextWindow.startDate
+        ? previousBusinessDay(nextWindow.startDate)
+        : null;
+
+    if (row.expConcluded) {
+      const completedDate = businessISODate(row.expCompletedAt);
+      orderWindows[queue.processCode] = {
+        loadDays: 0,
+        startDate: completedDate,
+        endDate: completedDate,
+        issue: null,
+      };
+      continue;
+    }
+
+    if (row.processConcluded) {
+      const completedDate = businessISODate(row.processCompletedAt);
+      const nextStartDate = nextWindow?.startDate;
+      const nextWorkday =
+        completedDate && deadline ? nextBusinessDayAfter(completedDate) : null;
+      const completionIssue =
+        nextWorkday && nextStartDate && nextWorkday > nextStartDate
+          ? "Processo concluído após o início previsto da etapa seguinte"
+          : null;
+      orderWindows[queue.processCode] = completedDate
+        ? { loadDays: 0, startDate: completedDate, endDate: completedDate, issue: completionIssue }
+        : unavailableWindow("Data de conclusão do processo ausente");
+      continue;
+    }
+
+    const issue = schedulingIssue(row);
+    if (issue) {
+      orderWindows[queue.processCode] = unavailableWindow(issue);
+      continue;
+    }
+
+    const release = releaseAfterCompletedPredecessor(plans, index, row.orderId);
+    if (release.issue) {
+      orderWindows[queue.processCode] = unavailableWindow(release.issue);
+      hasPredecessorDateIssue = true;
+      continue;
+    }
+
+    const loadDays = (row.weightKg as number) / (row.capacityKg as number);
+    const prefixDays = cumulativeDays;
+    cumulativeDays += loadDays;
+    const capacityEndOffset = Math.max(
+      Math.ceil(cumulativeDays) - 1,
+      Math.floor(prefixDays),
+    );
+    const durationEndOffset = Math.floor(prefixDays) + durationDays - 1;
+    workRows.push({
+      row,
+      loadDays,
+      prefixDays,
+      startOffset: Math.floor(prefixDays),
+      endOffset: Math.max(capacityEndOffset, durationEndOffset),
+      deadline,
+      releaseDate: release.date,
+    });
+  }
+
+  const constrainedRows = workRows.filter((row) => row.deadline !== null);
+  const releaseRows = workRows.filter((row) => row.releaseDate !== null);
+  if (
+    constrainedRows.length === 0 &&
+    releaseRows.length === 0 &&
+    !hasPredecessorDateIssue
+  ) {
+    scheduleUnanchoredQueueForward(plan, windowsByOrder);
+    return;
+  }
+
+  const latestBaseDate = constrainedRows.length
+    ? constrainedRows
+      .map((row) => subBusinessDays(row.deadline as string, row.endOffset))
+      .reduce((earliest, date) => (date < earliest ? date : earliest))
+    : null;
+  const earliestBaseDate = releaseRows.length
+    ? releaseRows
+      .map((row) => subBusinessDays(row.releaseDate as string, row.startOffset))
+      .reduce((latest, date) => (date > latest ? date : latest))
+    : null;
+  const queueAnchorDate = isValidISODate(queue.anchorDate)
+    ? addBusinessDays(queue.anchorDate, 0)
+    : null;
+  let baseDate: string | null;
+  if (!latestBaseDate) {
+    baseDate = earliestBaseDate
+      ? laterISODate(earliestBaseDate, queueAnchorDate ?? earliestBaseDate)
+      : queueAnchorDate;
+  } else {
+    const constraintDates = [
+      ...constrainedRows.map((row) => row.deadline as string),
+      ...releaseRows.map((row) => row.releaseDate as string),
+    ];
+    const earliestConstraintDate = constraintDates.reduce((earliest, date) =>
+      date < earliest ? date : earliest,
+    );
+    const searchBackDays =
+      Math.ceil(workRows.reduce((sum, row) => sum + row.loadDays, 0)) + durationDays + 2;
+    const earliestSearchDate = subBusinessDays(earliestConstraintDate, searchBackDays);
+    const searchSpan = businessDayOffset(earliestSearchDate, latestBaseDate) ?? 0;
+    const lowerSchedule = scheduleBackwardRowsAtBase(workRows, earliestSearchDate, durationDays);
+
+    if (!lowerSchedule.feasible) {
+      // Se nem a busca mais antecipada satisfaz marcos reais e prazos, a
+      // cadeia é inviável. Mantemos a previsão mais tardia possível e o
+      // helper marca as OFs que não cabem na janela.
+      baseDate = latestBaseDate;
+    } else {
+      let low = 0;
+      let high = Math.max(0, searchSpan);
+      while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        const candidate = addBusinessDays(earliestSearchDate, middle);
+        if (scheduleBackwardRowsAtBase(workRows, candidate, durationDays).feasible) {
+          low = middle;
+        } else {
+          high = middle - 1;
+        }
+      }
+      baseDate = addBusinessDays(earliestSearchDate, low);
+    }
+  }
+
+  if (!baseDate) {
+    for (const row of workRows) {
+      windowsByOrder[row.row.orderId]![queue.processCode] = unavailableWindow(
+        "Data de início inválida",
+      );
+    }
+    return;
+  }
+
+  const scheduled = scheduleBackwardRowsAtBase(workRows, baseDate, durationDays);
+  for (const row of workRows) {
+    windowsByOrder[row.row.orderId]![queue.processCode] =
+      scheduled.windows.get(row.row.orderId) ??
+      unavailableWindow("Não foi possível determinar a data");
+  }
+}
+
+function scheduleBackwardRowsAtBase(
+  workRows: readonly {
+    row: ScheduleQueueRow;
+    loadDays: number;
+    deadline: string | null;
+    releaseDate: string | null;
+  }[],
+  baseDate: string,
+  durationDays: number,
+): { windows: Map<string, ScheduledWindow>; feasible: boolean } {
+  const windows = new Map<string, ScheduledWindow>();
+  let cumulativeDays = 0;
+  let feasible = true;
+
+  for (const row of workRows) {
+    const releaseOffset = row.releaseDate
+      ? businessDayOffset(baseDate, row.releaseDate) ?? 0
+      : 0;
+    const startOffset = Math.max(cumulativeDays, releaseOffset);
+    const startDate = addBusinessDays(baseDate, Math.floor(startOffset));
+    cumulativeDays = startOffset + row.loadDays;
+    const capacityEndDate = addBusinessDays(
+      baseDate,
+      Math.max(Math.ceil(cumulativeDays) - 1, Math.floor(startOffset)),
+    );
+    const durationEndDate = addBusinessDays(startDate, durationDays - 1);
+    const endDate = laterISODate(capacityEndDate, durationEndDate);
+    const startsBeforeRelease = row.releaseDate !== null && startDate < row.releaseDate;
+    const missesDeadline = row.deadline !== null && endDate > row.deadline;
+    const issue = startsBeforeRelease
+      ? "A etapa começa antes da conclusão da etapa anterior"
+      : missesDeadline
+        ? row.releaseDate
+          ? "A conclusão da etapa anterior não cabe antes do prazo da próxima etapa"
+          : "A capacidade desta etapa não permite terminar antes da próxima"
+        : null;
+
+    if (issue) feasible = false;
+    windows.set(row.row.orderId, {
+      loadDays: row.loadDays,
+      startDate,
+      endDate,
+      issue,
+    });
+  }
+
+  return { windows, feasible };
+}
+
+function releaseAfterCompletedPredecessor(
+  plans: readonly ProcessQueuePlan[],
+  index: number,
+  orderId: string,
+): { date: string | null; issue: string | null } {
+  for (let previousIndex = index - 1; previousIndex >= 0; previousIndex -= 1) {
+    const previousPlan = plans[previousIndex];
+    const previousRow = previousPlan?.rowsByOrderId.get(orderId);
+    if (!previousPlan || !previousRow) continue;
+
+    if (!previousRow.expConcluded && !previousRow.processConcluded) {
+      // A etapa pendente mais próxima será calculada retroativamente; ela
+      // controla o início deste processo pela própria dependência da cadeia.
+      return { date: null, issue: null };
+    }
+
+    const completedAt = businessISODate(
+      previousRow.expConcluded
+        ? previousRow.expCompletedAt
+        : previousRow.processCompletedAt,
+    );
+    if (!completedAt) {
+      return {
+        date: null,
+        issue: "Etapa anterior concluída sem data real de conclusão",
+      };
+    }
+
+    return { date: nextBusinessDayAfter(completedAt), issue: null };
+  }
+
+  return { date: null, issue: null };
+}
+
+function scheduleUnanchoredQueueForward(
+  plan: ProcessQueuePlan,
+  windowsByOrder: ProductionChainSchedule["windowsByOrder"],
+): void {
+  const { queue, rows, durationDays } = plan;
+  let cumulativeDays = 0;
+
+  for (const row of rows) {
+    const orderWindows = (windowsByOrder[row.orderId] ??= {});
+    if (row.expConcluded || row.processConcluded) {
+      const completedDate = businessISODate(
+        row.expConcluded ? row.expCompletedAt : row.processCompletedAt,
+      );
+      orderWindows[queue.processCode] = completedDate
+        ? { loadDays: 0, startDate: completedDate, endDate: completedDate, issue: null }
+        : unavailableWindow("Data de conclusão do processo ausente");
+      continue;
+    }
+
+    const issue = schedulingIssue(row);
+    if (!isValidISODate(queue.anchorDate) || issue) {
+      orderWindows[queue.processCode] = unavailableWindow(
+        !isValidISODate(queue.anchorDate)
+          ? "Data de início inválida"
+          : issue ?? "Dados de agendamento inválidos",
+      );
+      continue;
+    }
+
+    const loadDays = (row.weightKg as number) / (row.capacityKg as number);
+    const startOffset = Math.floor(cumulativeDays);
+    const startDate = addBusinessDays(queue.anchorDate, startOffset);
+    cumulativeDays += loadDays;
+    const capacityEndDate = addBusinessDays(
+      queue.anchorDate,
+      Math.max(Math.ceil(cumulativeDays) - 1, startOffset),
+    );
+    const durationEndDate = addBusinessDays(startDate, durationDays - 1);
+    orderWindows[queue.processCode] = {
+      loadDays,
+      startDate,
+      endDate: laterISODate(capacityEndDate, durationEndDate),
+      issue: null,
+    };
+  }
+}
+
+function calculateExpeditionDates(
+  plans: readonly ProcessQueuePlan[],
+  windowsByOrder: ProductionChainSchedule["windowsByOrder"],
+  shippedDateByOrder: ReadonlyMap<string, string | null>,
+): Record<string, string | null> {
+  const orderIds = new Set(plans.flatMap((plan) => plan.rows.map((row) => row.orderId)));
+  const expeditionByOrder: Record<string, string | null> = {};
+
+  for (const orderId of orderIds) {
+    if (shippedDateByOrder.has(orderId)) {
+      expeditionByOrder[orderId] = shippedDateByOrder.get(orderId) ?? null;
+      continue;
+    }
+
+    let lastEndDate: string | null = null;
+    let hasApplicableProcess = false;
+    let blocked = false;
+    for (const plan of plans) {
+      if (!plan.rowsByOrderId.has(orderId)) continue;
+      hasApplicableProcess = true;
+      const window = windowsByOrder[orderId]?.[plan.queue.processCode];
+      if (!window || window.issue || !window.endDate) {
+        blocked = true;
+        break;
+      }
+      lastEndDate = window.endDate;
+    }
+
+    expeditionByOrder[orderId] =
+      hasApplicableProcess && !blocked && lastEndDate
+        ? nextBusinessDayAfter(lastEndDate)
+        : null;
+  }
+
+  return expeditionByOrder;
 }
 
 /** Dias úteis entre a âncora e a primeira data em que a OF está disponível. */

@@ -46,8 +46,8 @@ export async function createEmployeeAllocationNode(
     locationSupervisor?: string | null;
     userId: string;
   },
-): Promise<void> {
-  const { error } = await client.from("employee_allocation_nodes").insert({
+): Promise<string> {
+  const { data, error } = await client.from("employee_allocation_nodes").insert({
     company_code: input.companyCode,
     company_name: input.companyName,
     parent_id: input.parentId,
@@ -57,8 +57,10 @@ export async function createEmployeeAllocationNode(
     location_supervisor: input.nodeType === "LOCATION" ? input.locationSupervisor || null : null,
     created_by: input.userId,
     updated_by: input.userId,
-  });
+  }).select("id").single();
   assertOk(error, "Não foi possível criar o item da árvore");
+  if (!data) throw new Error("O item da árvore não foi retornado após o cadastro.");
+  return data.id;
 }
 
 export async function updateEmployeeAllocationNode(

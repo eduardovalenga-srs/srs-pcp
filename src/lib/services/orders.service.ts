@@ -32,7 +32,7 @@ import { expeditionForOrder } from "@/lib/utils/sequenced-schedule";
 export interface OrdersPage extends OrderListResult {
   /**
    * DP por pedido (ISO `AAAA-MM-DD` ou null = célula "—"): a data de
-   * expedição vinda do sequenciamento (fim da janela do EXP; conclusão
+   * expedição vinda do sequenciamento (dia útil após a cadeia; conclusão
    * efetiva quando a OF já foi expedida).
    */
   proposalByOrder: Record<string, string | null>;

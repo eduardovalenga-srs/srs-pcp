@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Loader2, Save } from "lucide-react";
+import { AlertTriangle, Loader2, RotateCcw, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveProcessScheduleAction } from "@/lib/actions/scheduling.actions";
@@ -51,7 +51,13 @@ export function ProcessScheduling({
   const router = useRouter();
   const [anchorDate, setAnchorDate] = useState(initialAnchorDate);
   const [rows, setRows] = useState(initialRows);
+  const [savedAnchorDate, setSavedAnchorDate] = useState(initialAnchorDate);
+  const [savedRows, setSavedRows] = useState(initialRows);
   const [saving, setSaving] = useState(false);
+  const hasUnsavedSimulation =
+    anchorDate !== savedAnchorDate ||
+    rows.some((row, index) => row.orderId !== savedRows[index]?.orderId) ||
+    rows.length !== savedRows.length;
 
   const chainSchedule = useMemo(
     () =>
@@ -98,6 +104,7 @@ export function ProcessScheduling({
   }, [scheduledRows]);
 
   const expeditionDates = chainSchedule.expeditionByOrder;
+  const materialReceiptDates = chainSchedule.materialReceiptByOrder;
 
   const goTo = (nextProcessId: string | null, nextFamilyId: number | null) => {
     const params = new URLSearchParams();
@@ -110,6 +117,11 @@ export function ProcessScheduling({
     setRows((current) => moveSchedulingRow(current, orderId, position));
   };
 
+  const discardSimulation = () => {
+    setRows(savedRows);
+    setAnchorDate(savedAnchorDate);
+  };
+
   const handleSave = async () => {
     if (saving) return;
     setSaving(true);
@@ -120,6 +132,8 @@ export function ProcessScheduling({
         rows: rows.map((row) => ({ orderId: row.orderId, notes: row.notes })),
       });
       if (result.success) {
+        setSavedRows(rows);
+        setSavedAnchorDate(anchorDate);
         toast.success(result.message);
         router.refresh();
       } else toast.error(result.message);
@@ -192,15 +206,49 @@ export function ProcessScheduling({
         ) : null}
 
         {canEdit ? (
-          <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
-            {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            ) : (
-              <Save className="h-4 w-4" aria-hidden />
-            )}
-            Salvar sequência
-          </Button>
+          <>
+            {hasUnsavedSimulation ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={discardSimulation}
+                disabled={saving}
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden />
+                Descartar simulação
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleSave()}
+              disabled={saving}
+            >
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <Save className="h-4 w-4" aria-hidden />
+              )}
+              Salvar sequência
+            </Button>
+          </>
         ) : null}
+      </div>
+
+      <div
+        className={cn(
+          "rounded border px-3 py-2 text-xs",
+          hasUnsavedSimulation
+            ? "border-blue-500/40 bg-blue-50 text-blue-950 dark:bg-blue-950/20 dark:text-blue-100"
+            : "border-border bg-muted/30 text-muted-foreground",
+        )}
+        role="status"
+        aria-live="polite"
+      >
+        {hasUnsavedSimulation
+          ? "Simulação em andamento — nenhuma alteração foi salva ou refletida na Gestão de OF."
+          : "Sequência exibida conforme os dados salvos."}
       </div>
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
@@ -233,15 +281,17 @@ export function ProcessScheduling({
       {!processId ? (
         <p className="shrink-0 rounded border border-blue-500/30 bg-blue-50 px-3 py-2 text-xs text-blue-950 dark:bg-blue-950/20 dark:text-blue-100">
           Sem processo selecionado, a previsão considera as etapas aplicáveis de cada OF em
-          sequência, a capacidade de cada processo e seu lead time cadastrado. OFs com dados de
-          peso, família ou capacidade incompletos ficam sem previsão.
+          sequência, as capacidades e durações em dias úteis. A expedição considera um dia útil
+          extra após a cadeia; a MP fica prevista um dia útil antes da primeira etapa de fabricação.
+          OFs com dados de peso, família ou capacidade incompletos ficam sem previsão.
         </p>
       ) : null}
 
       {processId ? (
         <p className="shrink-0 text-xs text-muted-foreground">
-          A previsão de expedição considera toda a cadeia. A data selecionada é o início mínimo
-          deste processo; etapas anteriores podem adiá-lo.
+          A data selecionada é fixa para o início da primeira OF da fila. As etapas anteriores são
+          recalculadas para trás, considerando duração e capacidade; as posteriores seguem a cadeia.
+          A expedição é prevista para o próximo dia útil após o fim da cadeia.
         </p>
       ) : null}
 
@@ -272,7 +322,7 @@ export function ProcessScheduling({
                 <th scope="col" className="min-w-28 border-b px-2 py-2">Data de expedição</th>
                 <th scope="col" className="min-w-28 border-b px-2 py-2">Família</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2">Processo</th>
-                <th scope="col" className="min-w-20 border-b px-2 py-2">MP</th>
+                <th scope="col" className="min-w-32 border-b px-2 py-2">MP / recebimento prev.</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2 text-right">Cap. (kg/dia)</th>
                 <th scope="col" className="min-w-20 border-b px-2 py-2 text-right">Carga (dias)</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2">Início prev.</th>
@@ -345,19 +395,29 @@ export function ProcessScheduling({
                     )}
                   </td>
                   <td className="border-b px-2 py-1.5">
-                    {row.mpState ? (
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-semibold",
-                          mpReceiptClass(row.mpState),
-                        )}
-                        title={`Matéria-prima — ${row.orderCode}: ${MP_RECEIPT_STATE_LABELS[row.mpState]}`}
-                      >
-                        {MP_STATE_UI_LABELS[row.mpState]}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
+                    <div className="flex flex-col items-start gap-0.5">
+                      {row.mpState ? (
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-semibold",
+                            mpReceiptClass(row.mpState),
+                          )}
+                          title={`Matéria-prima — ${row.orderCode}: ${MP_RECEIPT_STATE_LABELS[row.mpState]}`}
+                        >
+                          {MP_STATE_UI_LABELS[row.mpState]}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                      {materialReceiptDates[row.orderId] ? (
+                        <span
+                          className="text-[11px] tabular-nums text-muted-foreground"
+                          title="Recebimento previsto: um dia útil antes do primeiro processo de fabricação aplicável."
+                        >
+                          Prev.: {formatDate(materialReceiptDates[row.orderId])}
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="border-b px-2 py-1.5 text-right tabular-nums">
                     {row.capacityKg === null ? "—" : formatWeight(row.capacityKg)}
@@ -369,7 +429,7 @@ export function ProcessScheduling({
                         title={row.issue}
                       >
                         <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
-                        —
+                        {formatLoadDays(row.loadDays)}
                       </span>
                     ) : (
                       formatLoadDays(row.loadDays)
@@ -386,8 +446,9 @@ export function ProcessScheduling({
 
       {processId && scheduledRows.some((row) => row.issue) ? (
         <p className="shrink-0 rounded border border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
-          As OFs com alerta não entram no cálculo de datas. Confira a família/capacidade em{" "}
-          <strong>Grupos de produtos</strong> e o peso dos itens.
+          As OFs com alerta não têm previsão completa da cadeia. A carga do processo selecionado
+          continua visível quando calculável; passe o mouse no triângulo para ver o bloqueio.
+          Confira também a família, as capacidades em <strong>Grupos de produtos</strong> e o peso.
         </p>
       ) : null}
     </section>

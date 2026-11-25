@@ -1,6 +1,7 @@
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type {
   EmployeeAllocationNodeRow,
+  RecruitmentApprovedRoleRow,
   EmployeeStatusValue,
   RecruitmentCandidateRow,
   RecruitmentVacancyRow,
@@ -9,93 +10,176 @@ import {
   buildRecruitmentFormOptions,
   isNodePathActive,
   normalizeRecruitmentLabel,
+  resolveRecruitmentVacancyArea,
   resolveRecruitmentVacancySelection,
   type RecruitmentFormOptions,
+  type RecruitmentApprovedRoleManagementData,
   type RecruitmentVacancyDetails,
-  type RecruitmentVacancySelection,
   type VacancyListItem,
 } from "@/lib/types/recruitment";
-import { getEmployeeAllocationNodes } from "@/lib/repositories/employee-allocation.repository";
+import {
+  createEmployeeAllocationNode,
+  getEmployeeAllocationNodeById,
+  getEmployeeAllocationNodes,
+} from "@/lib/repositories/employee-allocation.repository";
 import type {
   CreateRecruitmentCandidateOutput,
+  CreateRecruitmentApprovedRoleInput,
   SaveRecruitmentVacancyOutput,
+  SaveRecruitmentCandidateScheduleOutput,
 } from "@/lib/validators/recruitment.schema";
 import { assertOk } from "@/lib/utils/supabase-result";
 
 const VACANCY_COLUMNS =
-  "id, title, customer, request_reason, replacement_employee_id, allocation_client_id, allocation_location_id, allocation_area_id, allocation_position_id, department, location, employment_type, quantity, description, requirements, salary_range, requester, recruiter, priority, status, opening_date, target_date, closed_reason, created_at, updated_at, created_by, updated_by";
+  "id, title, customer, request_reason, replacement_employee_id, allocation_client_id, allocation_location_id, allocation_area_id, allocation_position_id, approved_role_id, selected_candidate_id, department, location, employment_type, quantity, description, requirements, salary_range, requester, recruiter, priority, status, opening_date, target_date, closed_reason, created_at, updated_at, created_by, updated_by";
 const CANDIDATE_COLUMNS =
-  "id, vacancy_id, name, email, phone, source, stage, notes, created_at, updated_at, created_by, updated_by";
+  "id, vacancy_id, name, email, phone, source, stage, notes, triage_scheduled_at, interview_scheduled_at, aso_scheduled_at, integration_scheduled_at, hired_at, created_at, updated_at, created_by, updated_by";
+const APPROVED_ROLE_COLUMNS = "id, client_id, name, active, created_at, updated_at, created_by, updated_by";
+
+function sameInstant(left: string | null, right: string | null): boolean {
+  if (!left || !right) return left === right;
+  return new Date(left).getTime() === new Date(right).getTime();
+}
 
 export async function getRecruitmentVacancies(client: SupabaseServer): Promise<VacancyListItem[]> {
   const [{ data: vacancies, error: vacancyError }, { data: candidates, error: candidateError }] =
     await Promise.all([
       client.from("recruitment_vacancies").select(VACANCY_COLUMNS).order("opening_date", { ascending: false }),
-      client.from("recruitment_candidates").select("vacancy_id").range(0, 9999),
+      client.from("recruitment_candidates").select("id, vacancy_id, name, hired_at").range(0, 9999),
     ]);
 
   assertOk(vacancyError, "Não foi possível carregar as vagas");
   assertOk(candidateError, "Não foi possível carregar os candidatos");
 
   const counts = new Map<string, number>();
+  const candidatesById = new Map<string, { name: string; hired_at: string | null }>();
   for (const candidate of candidates ?? []) {
     counts.set(candidate.vacancy_id, (counts.get(candidate.vacancy_id) ?? 0) + 1);
+    candidatesById.set(candidate.id, { name: candidate.name, hired_at: candidate.hired_at });
   }
 
   return ((vacancies ?? []) as unknown as RecruitmentVacancyRow[]).map((vacancy) => ({
     ...vacancy,
     candidate_count: counts.get(vacancy.id) ?? 0,
+    selected_candidate_name: candidatesById.get(vacancy.selected_candidate_id ?? "")?.name ?? null,
+    selected_candidate_hired_at: candidatesById.get(vacancy.selected_candidate_id ?? "")?.hired_at ?? null,
   }));
 }
 
 export async function getRecruitmentFormOptions(
   client: SupabaseServer,
 ): Promise<RecruitmentFormOptions> {
-  const [allocationNodes, customerRows, employeeRows] = await Promise.all([
+  const [allocationNodes, employeeRows, approvedRoleRows] = await Promise.all([
     getEmployeeAllocationNodes(client),
-    getOrderCustomers(client),
     client
       .from("employees")
       .select("id, name, allocation_position_id")
       .eq("status", "ATIVO")
       .not("allocation_position_id", "is", null)
       .order("name", { ascending: true }),
+    client
+      .from("recruitment_approved_roles")
+      .select(APPROVED_ROLE_COLUMNS)
+      .order("name", { ascending: true }),
   ]);
   assertOk(employeeRows.error, "Não foi possível carregar os funcionários alocados");
+  assertOk(approvedRoleRows.error, "Não foi possível carregar os cargos aprovados");
 
   return buildRecruitmentFormOptions(
-    customerRows,
     allocationNodes,
     (employeeRows.data ?? []).map((employee) => ({
       id: employee.id,
       name: employee.name,
       allocation_position_id: employee.allocation_position_id,
     })),
+    (approvedRoleRows.data ?? []) as unknown as RecruitmentApprovedRoleRow[],
   );
 }
 
-async function getOrderCustomers(client: SupabaseServer): Promise<string[]> {
-  const pageSize = 1000;
-  const customers: string[] = [];
-  let from = 0;
-  let hasMore = true;
+export async function getRecruitmentApprovedRoleManagementData(
+  client: SupabaseServer,
+): Promise<RecruitmentApprovedRoleManagementData> {
+  const [allocationNodes, roleResult] = await Promise.all([
+    getEmployeeAllocationNodes(client),
+    client.from("recruitment_approved_roles").select(APPROVED_ROLE_COLUMNS).order("name", { ascending: true }),
+  ]);
+  assertOk(roleResult.error, "Não foi possível carregar os cargos aprovados");
 
-  while (hasMore) {
-    const { data, error } = await client
-      .from("orders")
-      .select("customer_name")
-      .eq("type", "OF")
-      .not("customer_name", "is", null)
-      .order("customer_name", { ascending: true })
-      .range(from, from + pageSize - 1);
-    assertOk(error, "Não foi possível carregar os clientes das OFs");
-    const page = (data ?? []).map((row) => row.customer_name ?? "");
-    customers.push(...page);
-    hasMore = page.length === pageSize;
-    from += page.length;
+  const byId = new Map(allocationNodes.map((node) => [node.id, node]));
+  const clients = allocationNodes
+    .filter((node) => node.node_type === "CLIENT" && isNodePathActive(node, byId))
+    .map((node) => ({ id: node.id, name: node.name }))
+    .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
+  const roles = ((roleResult.data ?? []) as unknown as RecruitmentApprovedRoleRow[])
+    .map((role) => ({
+      ...role,
+      client_name: byId.get(role.client_id)?.name ?? "Cliente não encontrado",
+    }))
+    .sort((left, right) =>
+      `${left.client_name} ${left.name}`.localeCompare(`${right.client_name} ${right.name}`, "pt-BR"),
+    );
+
+  return { clients, roles };
+}
+
+export async function createRecruitmentCustomer(
+  client: SupabaseServer,
+  name: string,
+  userId: string,
+): Promise<string> {
+  const existingNodes = await getEmployeeAllocationNodes(client);
+  if (existingNodes.some((node) =>
+    node.node_type === "CLIENT" &&
+    normalizeRecruitmentLabel(node.name) === normalizeRecruitmentLabel(name),
+  )) {
+    throw new Error("Esse cliente já está cadastrado na árvore de alocações.");
   }
+  return createEmployeeAllocationNode(client, {
+    companyCode: "CLIENTES",
+    companyName: "Clientes",
+    parentId: null,
+    nodeType: "CLIENT",
+    name,
+    userId,
+  });
+}
 
-  return customers;
+export async function createRecruitmentApprovedRole(
+  client: SupabaseServer,
+  input: CreateRecruitmentApprovedRoleInput,
+  userId: string,
+): Promise<RecruitmentApprovedRoleRow> {
+  const allocationNode = await getEmployeeAllocationNodeById(client, input.clientId);
+  if (!allocationNode || allocationNode.node_type !== "CLIENT" || !allocationNode.active) {
+    throw new Error("Selecione um cliente ativo cadastrado na árvore de alocações.");
+  }
+  const { data, error } = await client
+    .from("recruitment_approved_roles")
+    .insert({
+      client_id: input.clientId,
+      name: input.name,
+      created_by: userId,
+      updated_by: userId,
+    })
+    .select(APPROVED_ROLE_COLUMNS)
+    .single();
+  assertOk(error, "Não foi possível cadastrar o cargo aprovado. Verifique se já existe para este cliente.");
+  return data as unknown as RecruitmentApprovedRoleRow;
+}
+
+export async function setRecruitmentApprovedRoleActive(
+  client: SupabaseServer,
+  id: string,
+  active: boolean,
+  userId: string,
+): Promise<void> {
+  const { error } = await client
+    .from("recruitment_approved_roles")
+    .update({ active, updated_by: userId })
+    .eq("id", id)
+    .select("id")
+    .single();
+  assertOk(error, "Não foi possível atualizar o cargo aprovado");
 }
 
 export async function getRecruitmentVacancy(
@@ -139,24 +223,75 @@ export async function saveRecruitmentVacancy(
   input: SaveRecruitmentVacancyOutput,
   userId: string,
 ): Promise<RecruitmentVacancyRow> {
-  const [allocationNodes, orderCustomers] = await Promise.all([
-    getEmployeeAllocationNodes(client),
-    getOrderCustomers(client),
-  ]);
-  if (!orderCustomers.some((name) => normalizeRecruitmentLabel(name) === normalizeRecruitmentLabel(input.customer))) {
-    throw new Error("Selecione um cliente encontrado nas ordens de fabricação.");
+  const allocationNodes = await getEmployeeAllocationNodes(client);
+  let existingVacancy: Pick<RecruitmentVacancyRow, "approved_role_id" | "allocation_position_id"> | null = null;
+  if (input.id) {
+    const { data, error } = await client
+      .from("recruitment_vacancies")
+      .select("approved_role_id, allocation_position_id")
+      .eq("id", input.id)
+      .maybeSingle();
+    assertOk(error, "Não foi possível validar a vaga");
+    existingVacancy = data;
+    if (!existingVacancy) throw new Error("A vaga não foi encontrada.");
   }
 
-  const selection: RecruitmentVacancySelection = {
-    customer: input.customer,
-    allocationClientId: input.allocationClientId,
-    allocationLocationId: input.allocationLocationId,
-    allocationAreaId: input.allocationAreaId,
-    allocationPositionId: input.allocationPositionId,
-  };
-  const labels = resolveRecruitmentVacancySelection(allocationNodes, selection);
-  if (!labels) {
-    throw new Error("Local, área ou cargo não pertence ao cliente selecionado ou está inativo.");
+  let title: string;
+  let department: string;
+  let location: string;
+  let approvedRoleId: string | null = null;
+  let allocationPositionId: string | null = null;
+
+  if (input.approvedRoleId) {
+    const labels = resolveRecruitmentVacancyArea(allocationNodes, {
+      customer: input.customer,
+      allocationClientId: input.allocationClientId,
+      allocationLocationId: input.allocationLocationId,
+      allocationAreaId: input.allocationAreaId,
+    });
+    if (!labels) {
+      throw new Error("Local ou área não pertence ao cliente selecionado ou está inativo.");
+    }
+    const { data: role, error: roleError } = await client
+      .from("recruitment_approved_roles")
+      .select("id, client_id, name, active")
+      .eq("id", input.approvedRoleId)
+      .eq("client_id", input.allocationClientId)
+      .maybeSingle();
+    assertOk(roleError, "Não foi possível validar o cargo aprovado");
+    if (
+      !role ||
+      (!role.active && existingVacancy?.approved_role_id !== role.id)
+    ) {
+      throw new Error("O cargo aprovado não está ativo para o cliente selecionado.");
+    }
+    title = role.name;
+    department = labels.department;
+    location = labels.location;
+    approvedRoleId = role.id;
+  } else {
+    if (
+      !input.id ||
+      !input.allocationPositionId ||
+      existingVacancy?.approved_role_id ||
+      existingVacancy?.allocation_position_id !== input.allocationPositionId
+    ) {
+      throw new Error("Selecione um cargo aprovado para esta vaga.");
+    }
+    const labels = resolveRecruitmentVacancySelection(allocationNodes, {
+      customer: input.customer,
+      allocationClientId: input.allocationClientId,
+      allocationLocationId: input.allocationLocationId,
+      allocationAreaId: input.allocationAreaId,
+      allocationPositionId: input.allocationPositionId,
+    });
+    if (!labels) {
+      throw new Error("O cargo legado não pertence ao local selecionado ou está inativo.");
+    }
+    title = labels.title;
+    department = labels.department;
+    location = labels.location;
+    allocationPositionId = input.allocationPositionId;
   }
 
   if (input.requestReason === "SUBSTITUICAO") {
@@ -171,18 +306,18 @@ export async function saveRecruitmentVacancy(
     );
   }
 
-  const isClosed = input.status === "ENCERRADA" || input.status === "CANCELADA";
   const values = {
-    title: labels.title,
+    title,
     customer: input.customer,
     request_reason: input.requestReason,
     replacement_employee_id: input.requestReason === "SUBSTITUICAO" ? input.replacementEmployeeId : null,
     allocation_client_id: input.allocationClientId,
     allocation_location_id: input.allocationLocationId,
     allocation_area_id: input.allocationAreaId,
-    allocation_position_id: input.allocationPositionId,
-    department: labels.department,
-    location: labels.location,
+    allocation_position_id: allocationPositionId,
+    approved_role_id: approvedRoleId,
+    department,
+    location,
     employment_type: input.employmentType,
     quantity: 1,
     description: input.description || null,
@@ -194,7 +329,7 @@ export async function saveRecruitmentVacancy(
     status: input.status,
     opening_date: input.openingDate,
     target_date: input.targetDate || null,
-    closed_reason: isClosed ? input.closedReason || null : null,
+    closed_reason: null,
     updated_by: userId,
   };
   const query = input.id
@@ -242,15 +377,85 @@ export async function updateRecruitmentVacancyStatus(
   client: SupabaseServer,
   id: string,
   status: RecruitmentVacancyRow["status"],
-  closedReason: string | null,
+  selectedCandidateId: string | null,
   userId: string,
 ): Promise<void> {
-  const isClosed = status === "ENCERRADA" || status === "CANCELADA";
+  const { data: vacancy, error: vacancyError } = await client
+    .from("recruitment_vacancies")
+    .select("id, status, selected_candidate_id")
+    .eq("id", id)
+    .maybeSingle();
+  assertOk(vacancyError, "Não foi possível carregar a vaga");
+  if (!vacancy) throw new Error("A vaga não foi encontrada.");
+
+  const requiresSelectedCandidate = ["AGENDAMENTO_ASO", "INTEGRACAO", "CONTRATADOS"].includes(status);
+  if (requiresSelectedCandidate && !selectedCandidateId) {
+    throw new Error("Selecione o candidato que seguirá nesta vaga.");
+  }
+
+  const selectedId = selectedCandidateId || null;
+  const alreadyAtAsoOrLater = ["AGENDAMENTO_ASO", "INTEGRACAO", "CONTRATADOS"].includes(vacancy.status);
+  if (
+    alreadyAtAsoOrLater &&
+    requiresSelectedCandidate &&
+    vacancy.selected_candidate_id &&
+    selectedId !== vacancy.selected_candidate_id
+  ) {
+    throw new Error("Para trocar o candidato, retorne a vaga para Entrevista primeiro.");
+  }
+
+  if (
+    !requiresSelectedCandidate &&
+    vacancy.selected_candidate_id &&
+    !selectedId
+  ) {
+    const { error: resetStageError } = await client
+      .from("recruitment_candidates")
+      .update({ stage: "ENTREVISTA", updated_by: userId })
+      .eq("id", vacancy.selected_candidate_id)
+      .eq("vacancy_id", id)
+      .in("stage", ["AGENDAMENTO_ASO", "INTEGRACAO", "CONTRATADO"]);
+    assertOk(resetStageError, "Não foi possível retornar o candidato à etapa de entrevista");
+  }
+
+  if (selectedId) {
+    const { data: candidate, error: candidateError } = await client
+      .from("recruitment_candidates")
+      .select("id, hired_at, stage")
+      .eq("id", selectedId)
+      .eq("vacancy_id", id)
+      .maybeSingle();
+    assertOk(candidateError, "Não foi possível validar o candidato selecionado");
+    if (!candidate) throw new Error("O candidato selecionado não pertence a esta vaga.");
+    if (candidate.stage === "REPROVADO") {
+      throw new Error("Não é possível selecionar um candidato reprovado para avançar na vaga.");
+    }
+
+    if (status === "CONTRATADOS" && !candidate.hired_at) {
+      throw new Error("Informe a data de contratação do candidato antes de concluir a vaga.");
+    }
+
+    const selectedStage: Partial<Record<RecruitmentVacancyRow["status"], RecruitmentCandidateRow["stage"]>> = {
+      AGENDAMENTO_ASO: "AGENDAMENTO_ASO",
+      INTEGRACAO: "INTEGRACAO",
+      CONTRATADOS: "CONTRATADO",
+    };
+    const candidateStage = selectedStage[status];
+    if (candidateStage) {
+      const { error: stageError } = await client
+        .from("recruitment_candidates")
+        .update({ stage: candidateStage, updated_by: userId })
+        .eq("id", selectedId)
+        .eq("vacancy_id", id);
+      assertOk(stageError, "Não foi possível atualizar a etapa do candidato selecionado");
+    }
+  }
+
   const { error } = await client
     .from("recruitment_vacancies")
     .update({
       status,
-      closed_reason: isClosed ? closedReason || null : null,
+      selected_candidate_id: selectedId,
       updated_by: userId,
     })
     .eq("id", id)
@@ -269,6 +474,7 @@ export async function createRecruitmentCandidate(
     .insert({
       vacancy_id: input.vacancyId,
       name: input.name,
+      stage: "TRIAGEM",
       email: input.email || null,
       phone: input.phone || null,
       source: input.source || null,
@@ -289,6 +495,19 @@ export async function updateRecruitmentCandidateStage(
   stage: RecruitmentCandidateRow["stage"],
   userId: string,
 ): Promise<void> {
+  const { data: candidate, error: candidateError } = await client
+    .from("recruitment_candidates")
+    .select("id")
+    .eq("id", id)
+    .eq("vacancy_id", vacancyId)
+    .maybeSingle();
+  assertOk(candidateError, "Não foi possível validar o candidato");
+  if (!candidate) throw new Error("O candidato não pertence a esta vaga.");
+
+  if (["AGENDAMENTO_ASO", "INTEGRACAO", "CONTRATADO"].includes(stage)) {
+    throw new Error("Avance para ASO, integração ou contratação pelo status da vaga.");
+  }
+
   const { error } = await client
     .from("recruitment_candidates")
     .update({ stage, updated_by: userId })
@@ -297,4 +516,52 @@ export async function updateRecruitmentCandidateStage(
     .select("id")
     .single();
   assertOk(error, "Não foi possível atualizar a etapa do candidato");
+}
+
+export async function saveRecruitmentCandidateSchedule(
+  client: SupabaseServer,
+  input: SaveRecruitmentCandidateScheduleOutput,
+  userId: string,
+): Promise<void> {
+  const { data: candidate, error: candidateError } = await client
+    .from("recruitment_candidates")
+    .select("id, vacancy_id, triage_scheduled_at, interview_scheduled_at, aso_scheduled_at, integration_scheduled_at, hired_at")
+    .eq("id", input.id)
+    .eq("vacancy_id", input.vacancyId)
+    .maybeSingle();
+  assertOk(candidateError, "Não foi possível carregar os agendamentos do candidato");
+  if (!candidate) throw new Error("O candidato não pertence a esta vaga.");
+
+  const { data: vacancy, error: vacancyError } = await client
+    .from("recruitment_vacancies")
+    .select("status, selected_candidate_id")
+    .eq("id", input.vacancyId)
+    .maybeSingle();
+  assertOk(vacancyError, "Não foi possível validar a vaga");
+  const isSelectedCandidate = vacancy?.selected_candidate_id === input.id;
+  const completingLegacyHiredCandidate =
+    vacancy?.status === "CONTRATADOS" && !vacancy.selected_candidate_id;
+  const advancedScheduleChanged =
+    !sameInstant(input.asoScheduledAt, candidate.aso_scheduled_at) ||
+    !sameInstant(input.integrationScheduledAt, candidate.integration_scheduled_at) ||
+    input.hiredAt !== candidate.hired_at;
+  if (!isSelectedCandidate && !completingLegacyHiredCandidate && advancedScheduleChanged) {
+    throw new Error("Agendamento de ASO, integração e contratação só pode ser alterado para o candidato selecionado.");
+  }
+
+  const { error } = await client
+    .from("recruitment_candidates")
+    .update({
+      triage_scheduled_at: input.triageScheduledAt,
+      interview_scheduled_at: input.interviewScheduledAt,
+      aso_scheduled_at: input.asoScheduledAt,
+      integration_scheduled_at: input.integrationScheduledAt,
+      hired_at: input.hiredAt,
+      updated_by: userId,
+    })
+    .eq("id", input.id)
+    .eq("vacancy_id", input.vacancyId)
+    .select("id")
+    .single();
+  assertOk(error, "Não foi possível salvar os agendamentos do candidato");
 }

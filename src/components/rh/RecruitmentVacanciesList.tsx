@@ -11,12 +11,12 @@ import { RECRUITMENT_REQUEST_REASONS, VACANCY_STATUSES, type VacancyListItem } f
 import type { RecruitmentVacancyStatusValue } from "@/lib/types/database";
 
 const STATUS_BADGE: Record<RecruitmentVacancyStatusValue, { variant: BadgeProps["variant"] }> = {
-  RASCUNHO: { variant: "muted" },
-  ABERTA: { variant: "success" },
-  PAUSADA: { variant: "warning" },
-  PREENCHIDA: { variant: "secondary" },
-  ENCERRADA: { variant: "outline" },
-  CANCELADA: { variant: "destructive" },
+  VAGAS_ABERTAS: { variant: "success" },
+  TRIAGEM: { variant: "muted" },
+  ENTREVISTA: { variant: "secondary" },
+  AGENDAMENTO_ASO: { variant: "warning" },
+  INTEGRACAO: { variant: "outline" },
+  CONTRATADOS: { variant: "success" },
 };
 
 function dateLabel(date: string | null) {
@@ -48,16 +48,18 @@ export function RecruitmentVacanciesList({
     );
   }, [query, vacancies]);
 
-  const openCount = vacancies.filter((vacancy) => vacancy.status === "ABERTA").length;
-  const pausedCount = vacancies.filter((vacancy) => vacancy.status === "PAUSADA").length;
-  const totalCandidates = vacancies.reduce((sum, vacancy) => sum + vacancy.candidate_count, 0);
+  const openCount = vacancies.filter((vacancy) => vacancy.status === "VAGAS_ABERTAS").length;
+  const inProgressCount = vacancies.filter(
+    (vacancy) => vacancy.status !== "VAGAS_ABERTAS" && vacancy.status !== "CONTRATADOS",
+  ).length;
+  const hiredCount = vacancies.filter((vacancy) => vacancy.status === "CONTRATADOS").length;
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
         <SummaryCard label="Vagas abertas" value={openCount} icon={<BriefcaseBusiness className="h-4 w-4" aria-hidden />} />
-        <SummaryCard label="Em pausa" value={pausedCount} icon={<CalendarDays className="h-4 w-4" aria-hidden />} />
-        <SummaryCard label="Candidatos cadastrados" value={totalCandidates} icon={<Users className="h-4 w-4" aria-hidden />} />
+        <SummaryCard label="Em processo" value={inProgressCount} icon={<CalendarDays className="h-4 w-4" aria-hidden />} />
+        <SummaryCard label="Contratados" value={hiredCount} icon={<Users className="h-4 w-4" aria-hidden />} />
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -135,6 +137,12 @@ function VacancyCard({ vacancy }: { vacancy: VacancyListItem }) {
       </div>
       <div className="space-y-1.5 text-xs text-muted-foreground">
         <p className="flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />{vacancy.location || "Local não informado"} · {vacancy.department}</p>
+        {vacancy.selected_candidate_name ? (
+          <p>Candidato selecionado: {vacancy.selected_candidate_name}</p>
+        ) : null}
+        {vacancy.status === "CONTRATADOS" && vacancy.selected_candidate_hired_at ? (
+          <p>Contratado em: {dateLabel(vacancy.selected_candidate_hired_at)}</p>
+        ) : null}
         {reasonLabel ? <p>Motivo: {reasonLabel}</p> : null}
         {vacancy.requester ? <p>Solicitante: {vacancy.requester}</p> : null}
         {vacancy.recruiter ? <p>Recrutamento: {vacancy.recruiter}</p> : null}

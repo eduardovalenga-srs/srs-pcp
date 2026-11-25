@@ -35,6 +35,7 @@ const EXPECTED_TITLES: Record<string, string> = {
   "(dashboard)/recebimento-mp/[id]/editar": "Editar nota de entrada",
   "(dashboard)/recebimento-mp/novo": "Nova nota de entrada",
   "(dashboard)/rh/funcionarios": "Funcionários",
+  "(dashboard)/rh/cargos-aprovados": "Cargos aprovados",
   "(dashboard)/rh/vagas": "Vagas de trabalho",
   "(dashboard)/rh/vagas/novo": "Abrir vaga",
   "(dashboard)/rh/vagas/[id]": "Detalhes da vaga",

@@ -60,6 +60,7 @@ describe("migrations", () => {
       "employee_allocation_nodes",
       "recruitment_vacancies",
       "recruitment_candidates",
+      "recruitment_approved_roles",
       "import_batches",
       "import_errors",
       "product_groups",
@@ -2894,17 +2895,21 @@ describe("096_recruitment_vacancies", () => {
     );
     expect(candidateRows).toHaveLength(1);
     await db.query(
-      `update public.recruitment_candidates set stage = 'CONTRATADO' where id = $1`,
+      `update public.recruitment_candidates
+          set stage = 'CONTRATADO', hired_at = current_date
+        where id = $1`,
       [candidateRows[0]?.id],
     );
     const { rows: unchangedStatus } = await db.query<{ status: string }>(
       `select status from public.recruitment_vacancies where id = $1`,
       [vacancyId],
     );
-    expect(unchangedStatus[0]?.status).toBe("RASCUNHO");
+    expect(unchangedStatus[0]?.status).toBe("VAGAS_ABERTAS");
     await db.query(
-      `update public.recruitment_vacancies set status = 'PREENCHIDA' where id = $1`,
-      [vacancyId],
+      `update public.recruitment_vacancies
+          set status = 'CONTRATADOS', selected_candidate_id = $2
+        where id = $1`,
+      [vacancyId, candidateRows[0]?.id],
     );
 
     await asUser(db, "authenticated", operatorId);
@@ -2926,5 +2931,52 @@ describe("096_recruitment_vacancies", () => {
 
     await asSuperUser(db);
     await db.query(`delete from public.recruitment_vacancies where id = $1`, [vacancyId]);
+  });
+});
+
+describe("099_recruitment_approved_roles", () => {
+  it("vincula cargos aprovados a clientes da árvore e restringe o acesso ao recrutamento", async () => {
+    await asSuperUser(db);
+    const { rows: clientRows } = await db.query<{ id: string }>(
+      `insert into public.employee_allocation_nodes
+         (company_code, company_name, parent_id, node_type, name)
+       values ('CLIENTES', 'Clientes', null, 'CLIENT', 'Cliente de teste de cargo')
+       returning id`,
+    );
+    const clientId = clientRows[0]?.id as string;
+    const managerId = await createUser(db, "approved-role-manager@test.local", "GESTOR");
+    const operatorId = await createUser(db, "approved-role-operator@test.local", "OPERADOR_F1");
+
+    await asUser(db, "authenticated", managerId);
+    const { rows: roleRows } = await db.query<{ id: string }>(
+      `insert into public.recruitment_approved_roles (client_id, name)
+       values ($1, 'Soldador') returning id`,
+      [clientId],
+    );
+    const roleId = roleRows[0]?.id as string;
+    const { rows: vacancyRows } = await db.query<{ approved_role_id: string }>(
+      `insert into public.recruitment_vacancies (title, department, approved_role_id)
+       values ('Soldador', 'Solda', $1) returning approved_role_id`,
+      [roleId],
+    );
+    expect(vacancyRows[0]?.approved_role_id).toBe(roleId);
+
+    await asUser(db, "authenticated", operatorId);
+    const { rows: hiddenRoles } = await db.query<{ count: number }>(
+      `select count(*)::int as count from public.recruitment_approved_roles`,
+    );
+    expect(hiddenRoles[0]?.count).toBe(0);
+    await expect(
+      db.query(
+        `insert into public.recruitment_approved_roles (client_id, name)
+         values ($1, 'Cargo sem acesso')`,
+        [clientId],
+      ),
+    ).rejects.toThrow();
+
+    await asSuperUser(db);
+    await db.query(`delete from public.recruitment_vacancies where approved_role_id = $1`, [roleId]);
+    await db.query(`delete from public.recruitment_approved_roles where id = $1`, [roleId]);
+    await db.query(`delete from public.employee_allocation_nodes where id = $1`, [clientId]);
   });
 });

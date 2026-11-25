@@ -11,11 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { RecruitmentVacancyRow, RecruitmentVacancyStatusValue } from "@/lib/types/database";
+import type { RecruitmentVacancyRow } from "@/lib/types/database";
 import {
   EMPLOYMENT_TYPES,
   RECRUITMENT_REQUEST_REASONS,
-  VACANCY_STATUSES,
   normalizeRecruitmentLabel,
   type RecruitmentFormOptions,
 } from "@/lib/types/recruitment";
@@ -50,6 +49,9 @@ export function RecruitmentVacancyForm({
       position.id === vacancy?.allocation_position_id ||
       normalizeRecruitmentLabel(position.name) === normalizeRecruitmentLabel(vacancy?.title ?? ""),
   );
+  const initialApprovedRole = initialCustomer?.approvedRoles.find(
+    (role) => role.id === vacancy?.approved_role_id && role.clientId === initialLocation?.clientId,
+  );
   const initialReplacementEmployee = initialCustomer?.employees.find(
     (employee) =>
       employee.id === vacancy?.replacement_employee_id &&
@@ -58,7 +60,12 @@ export function RecruitmentVacancyForm({
   const [customerName, setCustomerName] = useState(initialCustomer?.name ?? "");
   const [locationId, setLocationId] = useState(initialLocation?.id ?? "");
   const [areaId, setAreaId] = useState(initialArea?.id ?? "");
-  const [positionId, setPositionId] = useState(initialPosition?.id ?? "");
+  const [cargoSelection, setCargoSelection] = useState(
+    initialApprovedRole?.id ??
+      (vacancy?.allocation_position_id && !vacancy.approved_role_id && initialPosition
+        ? `legacy:${initialPosition.id}`
+        : ""),
+  );
   const [requestReason, setRequestReason] = useState(vacancy?.request_reason ?? "NOVA_VAGA");
   const [replacementEmployeeId, setReplacementEmployeeId] = useState(initialReplacementEmployee?.id ?? "");
 
@@ -66,7 +73,19 @@ export function RecruitmentVacancyForm({
   const selectedLocation = selectedCustomer?.locations.find((location) => location.id === locationId);
   const areas = selectedLocation?.areas ?? [];
   const selectedArea = areas.find((area) => area.id === areaId);
-  const positions = selectedArea?.positions ?? [];
+  const approvedRoles = (selectedCustomer?.approvedRoles ?? []).filter(
+    (role) =>
+      role.clientId === selectedLocation?.clientId &&
+      (role.active || role.id === vacancy?.approved_role_id),
+  );
+  const canKeepLegacyPosition = Boolean(
+    vacancy &&
+      !vacancy.approved_role_id &&
+      vacancy.allocation_position_id === initialPosition?.id &&
+      initialPosition &&
+      selectedLocation?.id === initialLocation?.id &&
+      selectedArea?.id === initialArea?.id,
+  );
   const employees = (selectedCustomer?.employees ?? []).filter(
     (employee) => !selectedLocation || employee.clientId === selectedLocation.clientId,
   );
@@ -83,7 +102,12 @@ export function RecruitmentVacancyForm({
         allocationClientId: String(formData.get("allocationClientId") ?? ""),
         allocationLocationId: String(formData.get("allocationLocationId") ?? ""),
         allocationAreaId: String(formData.get("allocationAreaId") ?? ""),
-        allocationPositionId: String(formData.get("allocationPositionId") ?? ""),
+        approvedRoleId: String(formData.get("cargoSelection") ?? "").startsWith("legacy:")
+          ? null
+          : String(formData.get("cargoSelection") ?? "") || null,
+        allocationPositionId: String(formData.get("cargoSelection") ?? "").startsWith("legacy:")
+          ? String(formData.get("cargoSelection") ?? "").slice("legacy:".length)
+          : null,
         requestReason: String(formData.get("requestReason") ?? "") as "NOVA_VAGA" | "SUBSTITUICAO" | "REFORCO",
         replacementEmployeeId: String(formData.get("replacementEmployeeId") ?? "") || null,
         employmentType: String(formData.get("employmentType") ?? "CLT"),
@@ -93,10 +117,10 @@ export function RecruitmentVacancyForm({
         requester: String(formData.get("requester") ?? ""),
         recruiter: String(formData.get("recruiter") ?? "") || null,
         priority: String(formData.get("priority") ?? "NORMAL") as "BAIXA" | "NORMAL" | "ALTA",
-        status: String(formData.get("status") ?? "RASCUNHO") as RecruitmentVacancyStatusValue,
+        status: vacancy?.status ?? "VAGAS_ABERTAS",
         openingDate: String(formData.get("openingDate") ?? ""),
         targetDate: String(formData.get("targetDate") ?? "") || null,
-        closedReason: String(formData.get("closedReason") ?? "") || null,
+        closedReason: null,
       });
       if (!result.success) {
         setError(result.message);
@@ -113,7 +137,7 @@ export function RecruitmentVacancyForm({
     <form action={submit} className="space-y-5 rounded-lg border bg-card p-4 sm:p-6" aria-label={vacancy ? "Editar vaga" : "Abrir vaga"}>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className={`${field} sm:col-span-2 lg:col-span-3`}>
-          <Label htmlFor="customer">Cliente (OF) *</Label>
+          <Label htmlFor="customer">Cliente *</Label>
           <select
             id="customer"
             name="customer"
@@ -122,7 +146,7 @@ export function RecruitmentVacancyForm({
               setCustomerName(event.target.value);
               setLocationId("");
               setAreaId("");
-              setPositionId("");
+              setCargoSelection("");
               setReplacementEmployeeId("");
             }}
             className={selectClass}
@@ -134,11 +158,6 @@ export function RecruitmentVacancyForm({
               <option key={customer.name} value={customer.name}>{customer.name}</option>
             ))}
           </select>
-          {selectedCustomer && selectedCustomer.allocationClientIds.length === 0 ? (
-            <p className="text-xs text-amber-700 dark:text-amber-300">
-              Não há cliente correspondente cadastrado na árvore de alocações.
-            </p>
-          ) : null}
         </div>
 
         <div className={field}>
@@ -151,7 +170,7 @@ export function RecruitmentVacancyForm({
               const nextId = event.target.value;
               setLocationId(nextId);
               setAreaId("");
-              setPositionId("");
+              setCargoSelection("");
               const nextLocation = selectedCustomer?.locations.find((location) => location.id === nextId);
               if (replacementEmployeeId && nextLocation &&
                   !selectedCustomer?.employees.some(
@@ -166,7 +185,7 @@ export function RecruitmentVacancyForm({
           >
             <option value="">{selectedCustomer ? "Selecione o local" : "Selecione primeiro o cliente"}</option>
           {(selectedCustomer?.locations ?? []).map((location) => (
-            <option key={location.id} value={location.id}>{location.name} · {location.companyName}</option>
+            <option key={location.id} value={location.id}>{location.name}</option>
           ))}
           </select>
           {selectedCustomer && selectedCustomer.locations.length === 0 ? (
@@ -181,7 +200,7 @@ export function RecruitmentVacancyForm({
             value={areaId}
             onChange={(event) => {
               setAreaId(event.target.value);
-              setPositionId("");
+              setCargoSelection("");
             }}
             className={selectClass}
             required
@@ -195,23 +214,30 @@ export function RecruitmentVacancyForm({
           ) : null}
         </div>
         <div className={field}>
-          <Label htmlFor="allocationPositionId">Cargo *</Label>
+          <Label htmlFor="cargoSelection">Cargo aprovado *</Label>
           <select
-            id="allocationPositionId"
-            name="allocationPositionId"
-            value={positionId}
-            onChange={(event) => setPositionId(event.target.value)}
+            id="cargoSelection"
+            name="cargoSelection"
+            value={cargoSelection}
+            onChange={(event) => setCargoSelection(event.target.value)}
             className={selectClass}
             required
-            disabled={!selectedArea || pending}
+            disabled={!selectedArea || pending || (approvedRoles.length === 0 && !canKeepLegacyPosition)}
           >
-            <option value="">{selectedArea ? "Selecione o cargo" : "Selecione primeiro a área"}</option>
-            {positions.map((position) => (
-              <option key={position.id} value={position.id}>{position.name} · {position.shiftName}</option>
+            <option value="">
+              {!selectedArea ? "Selecione primeiro a área" : approvedRoles.length ? "Selecione o cargo aprovado" : "Nenhum cargo aprovado cadastrado"}
+            </option>
+            {approvedRoles.map((role) => (
+              <option key={role.id} value={role.id}>{role.name}</option>
             ))}
+            {canKeepLegacyPosition && initialPosition ? (
+              <option value={`legacy:${initialPosition.id}`}>
+                {initialPosition.name} · {initialPosition.shiftName} (vaga existente)
+              </option>
+            ) : null}
           </select>
-          {selectedArea && positions.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Nenhum cargo ativo está cadastrado para esta área.</p>
+          {selectedArea && approvedRoles.length === 0 && !canKeepLegacyPosition ? (
+            <p className="text-xs text-muted-foreground">Cadastre um cargo aprovado para este cliente antes de abrir a vaga.</p>
           ) : null}
           <input type="hidden" name="allocationClientId" value={selectedLocation?.clientId ?? ""} />
         </div>
@@ -275,12 +301,6 @@ export function RecruitmentVacancyForm({
           </select>
         </div>
         <div className={field}>
-          <Label htmlFor="status">Status</Label>
-          <select id="status" name="status" defaultValue={vacancy?.status ?? "RASCUNHO"} className={selectClass} disabled={pending}>
-            {VACANCY_STATUSES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </select>
-        </div>
-        <div className={field}>
           <Label htmlFor="openingDate">Data de abertura *</Label>
           <Input id="openingDate" name="openingDate" type="date" defaultValue={openingDate} required disabled={pending} />
         </div>
@@ -303,10 +323,6 @@ export function RecruitmentVacancyForm({
         <div className={`${field} sm:col-span-2 lg:col-span-3`}>
           <Label htmlFor="requirements">Requisitos e qualificações</Label>
           <Textarea id="requirements" name="requirements" defaultValue={vacancy?.requirements ?? ""} maxLength={5000} rows={4} disabled={pending} />
-        </div>
-        <div className={`${field} sm:col-span-2 lg:col-span-3`}>
-          <Label htmlFor="closedReason">Motivo do encerramento (quando aplicável)</Label>
-          <Input id="closedReason" name="closedReason" defaultValue={vacancy?.closed_reason ?? ""} maxLength={500} disabled={pending} />
         </div>
       </div>
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}

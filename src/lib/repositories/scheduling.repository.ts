@@ -126,6 +126,26 @@ export async function getAllProcessScheduling(
 }
 
 /**
+ * Último processo cuja âncora foi salva. A última âncora é a data fixa de
+ * referência da cadeia e deve ser usada também nas previsões das demais telas.
+ */
+export async function getLatestProcessScheduleAnchor(
+  client: SupabaseServer,
+): Promise<{ processId: string; anchorDate: string } | null> {
+  const { data, error } = await client
+    .from("process_schedule_settings")
+    .select("process_id, anchor_date")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  assertOk(error, "Não foi possível carregar a data fixa do sequenciamento");
+  return data
+    ? { processId: data.process_id, anchorDate: data.anchor_date }
+    : null;
+}
+
+/**
  * Grava a ordem recebida como início da sequência global e a data de
  * início do processo. OFs já sequenciadas que ficaram fora da visão vão
  * para o fim; a RPC faz tudo em uma transação.

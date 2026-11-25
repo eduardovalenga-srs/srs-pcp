@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { isValidISODate } from "@/lib/utils/dates";
+import { isBusinessDay, isValidISODate } from "@/lib/utils/dates";
 
 /**
  * Gravação da fila global (077). O processo e a data são opcionais:
@@ -12,6 +12,10 @@ export const saveProcessScheduleSchema = z
     anchorDate: z
       .string()
       .refine((value) => isValidISODate(value), "Informe uma data de início válida")
+      .refine(
+        (value) => !isValidISODate(value) || isBusinessDay(value),
+        "A data fixa de início deve ser um dia útil",
+      )
       .nullable(),
     rows: z
       .array(

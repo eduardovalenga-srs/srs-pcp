@@ -8,7 +8,8 @@ export const saveRecruitmentVacancySchema = z.object({
   allocationClientId: z.string().uuid("Selecione um cliente com alocações cadastradas."),
   allocationLocationId: z.string().uuid("Selecione o local de trabalho."),
   allocationAreaId: z.string().uuid("Selecione a área."),
-  allocationPositionId: z.string().uuid("Selecione o cargo."),
+  approvedRoleId: z.string().uuid().nullable(),
+  allocationPositionId: z.string().uuid().nullable(),
   requestReason: z.enum(["NOVA_VAGA", "SUBSTITUICAO", "REFORCO"]),
   replacementEmployeeId: z.string().uuid().nullable(),
   employmentType: z.string().trim().min(1).max(60),
@@ -18,11 +19,25 @@ export const saveRecruitmentVacancySchema = z.object({
   requester: z.string().trim().min(1, "Informe o solicitante / gestor").max(150),
   recruiter: z.string().trim().max(150).nullable(),
   priority: z.enum(["BAIXA", "NORMAL", "ALTA"]),
-  status: z.enum(["RASCUNHO", "ABERTA", "PAUSADA", "PREENCHIDA", "ENCERRADA", "CANCELADA"]),
+  status: z.enum(["VAGAS_ABERTAS", "TRIAGEM", "ENTREVISTA", "AGENDAMENTO_ASO", "INTEGRACAO", "CONTRATADOS"]),
   openingDate: z.string().date(),
   targetDate: z.string().date().nullable(),
   closedReason: z.string().trim().max(500).nullable(),
 }).superRefine((value, context) => {
+  if (!value.approvedRoleId && !value.allocationPositionId) {
+    context.addIssue({
+      code: "custom",
+      path: ["approvedRoleId"],
+      message: "Selecione um cargo aprovado.",
+    });
+  }
+  if (value.approvedRoleId && value.allocationPositionId) {
+    context.addIssue({
+      code: "custom",
+      path: ["approvedRoleId"],
+      message: "Selecione somente um cargo aprovado.",
+    });
+  }
   if (value.requestReason === "SUBSTITUICAO" && !value.replacementEmployeeId) {
     context.addIssue({
       code: "custom",
@@ -42,6 +57,23 @@ export const saveRecruitmentVacancySchema = z.object({
 export type SaveRecruitmentVacancyInput = z.input<typeof saveRecruitmentVacancySchema>;
 export type SaveRecruitmentVacancyOutput = z.output<typeof saveRecruitmentVacancySchema>;
 
+export const createRecruitmentApprovedRoleSchema = z.object({
+  clientId: z.string().uuid("Selecione um cliente válido."),
+  name: z.string().trim().min(1, "Informe o cargo").max(120, "Máximo de 120 caracteres"),
+});
+export type CreateRecruitmentApprovedRoleInput = z.input<typeof createRecruitmentApprovedRoleSchema>;
+
+export const setRecruitmentApprovedRoleActiveSchema = z.object({
+  id: z.string().uuid("Cargo inválido."),
+  active: z.boolean(),
+});
+export type SetRecruitmentApprovedRoleActiveInput = z.input<typeof setRecruitmentApprovedRoleActiveSchema>;
+
+export const createRecruitmentClientSchema = z.object({
+  name: z.string().trim().min(1, "Informe o cliente").max(120, "Máximo de 120 caracteres"),
+});
+export type CreateRecruitmentClientInput = z.input<typeof createRecruitmentClientSchema>;
+
 export const createRecruitmentCandidateSchema = z.object({
   vacancyId: z.string().uuid(),
   name: z.string().trim().min(1, "Informe o nome do candidato").max(180),
@@ -57,16 +89,29 @@ export type CreateRecruitmentCandidateOutput = z.output<typeof createRecruitment
 export const updateRecruitmentCandidateStageSchema = z.object({
   id: z.string().uuid(),
   stage: z.custom<RecruitmentCandidateStageValue>(
-    (value) => ["NOVO", "TRIAGEM", "ENTREVISTA", "APROVADO", "REPROVADO", "CONTRATADO"].includes(String(value)),
+    (value) => ["TRIAGEM", "ENTREVISTA", "AGENDAMENTO_ASO", "INTEGRACAO", "REPROVADO", "CONTRATADO"].includes(String(value)),
     "Selecione uma etapa válida.",
   ),
 });
 
+export const saveRecruitmentCandidateScheduleSchema = z.object({
+  id: z.string().uuid(),
+  vacancyId: z.string().uuid(),
+  triageScheduledAt: z.string().datetime({ offset: true }).nullable(),
+  interviewScheduledAt: z.string().datetime({ offset: true }).nullable(),
+  asoScheduledAt: z.string().datetime({ offset: true }).nullable(),
+  integrationScheduledAt: z.string().datetime({ offset: true }).nullable(),
+  hiredAt: z.string().date().nullable(),
+});
+
+export type SaveRecruitmentCandidateScheduleInput = z.input<typeof saveRecruitmentCandidateScheduleSchema>;
+export type SaveRecruitmentCandidateScheduleOutput = z.output<typeof saveRecruitmentCandidateScheduleSchema>;
+
 export const updateRecruitmentVacancyStatusSchema = z.object({
   id: z.string().uuid(),
   status: z.custom<RecruitmentVacancyStatusValue>(
-    (value) => ["RASCUNHO", "ABERTA", "PAUSADA", "PREENCHIDA", "ENCERRADA", "CANCELADA"].includes(String(value)),
+    (value) => ["VAGAS_ABERTAS", "TRIAGEM", "ENTREVISTA", "AGENDAMENTO_ASO", "INTEGRACAO", "CONTRATADOS"].includes(String(value)),
     "Selecione um status válido.",
   ),
-  closedReason: z.string().trim().max(500).nullable(),
+  selectedCandidateId: z.string().uuid().nullable(),
 });

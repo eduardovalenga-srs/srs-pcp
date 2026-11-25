@@ -354,9 +354,9 @@ export function ProductionTable({
         ),
         cell: (info) => <DeliveryCell row={info.row.original} canEdit={capabilities.canEditDelivery} />,
       }),
-      // DP (data de expedição): fim da janela do EXP no sequenciamento —
-      // da janela do EXP; quando a OF já foi expedida, a data efetiva da
-      // conclusão. Sem janela a célula é "—" (e a coluna não ordena).
+      // DP (data de expedição): dia útil seguinte ao fim da cadeia prevista;
+      // quando a OF já foi expedida, usa a data efetiva da conclusão. Sem
+      // janela, a célula é "—" (e a coluna não ordena).
       helper.accessor((row) => expeditionForOrder(schedule, row.orderId), {
         id: "proposalDate",
         header: () => <ColumnHeader label="DP" fullLabel="Data de expedição" filters={filters} />,

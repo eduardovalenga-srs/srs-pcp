@@ -202,7 +202,7 @@ export interface ProcessDefinition {
   active: boolean;
   /** Onde o processo acontece (ex.: "Fábrica 1"). */
   location: string | null;
-  /** Dias corridos que o processo leva — base das datas previstas. */
+  /** Duração mínima do processo em dias úteis — base das datas previstas. */
   durationDays: number;
 }
 

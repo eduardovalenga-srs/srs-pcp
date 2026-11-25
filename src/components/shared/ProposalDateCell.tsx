@@ -1,6 +1,6 @@
 import { formatDate } from "@/lib/utils/dates";
 
-/** DP: data prevista de expedição (fim da janela EXP) ou efetiva, se expedida. */
+/** DP: próximo dia útil após a cadeia ou data efetiva, se expedida. */
 export function ProposalDateCell({ value }: { value: string | null }) {
   return (
     <span
