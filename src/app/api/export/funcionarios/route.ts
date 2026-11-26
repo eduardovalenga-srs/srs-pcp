@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { employeesSheet } from "@/lib/export/columns";
 import { exportFileName, searchParamsRecord } from "@/lib/export/common";
 import { workbookResponse } from "@/lib/export/workbook";
-import { getAllEmployees } from "@/lib/repositories/employees.repository";
+import { getEmployees } from "@/lib/repositories/employees.repository";
 import { createClient } from "@/lib/supabase/server";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import {
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
     const direction: EmployeeSortDirection = params.sortDir === "desc" ? "desc" : "asc";
 
     const client = await createClient();
-    const employees = await getAllEmployees(client);
+    const employees = await getEmployees(client);
     const filtered = filterEmployees(employees, filters);
     const sorted = sortEmployees(filtered, { key: sortKey, direction });
 

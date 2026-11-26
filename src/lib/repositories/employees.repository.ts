@@ -6,39 +6,35 @@ import { assertOk } from "@/lib/utils/supabase-result";
 const EMPLOYEE_COLUMNS =
   "id, company_code, company_name, registration, name, billing_model, admission_date, dismissal_date, registered_client, registered_function, location, status, shift, area, client, responsible_1, responsible_2, allocation_position_id, created_at, updated_at, created_by, updated_by";
 
+const EMPLOYEE_PAGE_SIZE = 1000;
+
+/**
+ * Carrega todos os funcionários, percorrendo as páginas do PostgREST.
+ * A folha atual tem mais de 1.000 registros; um `range(0, 999)` fixo
+ * esconderia parte do cadastro na lista e na árvore de alocações.
+ */
 export async function getEmployees(client: SupabaseServer): Promise<EmployeeRow[]> {
-  const { data, error } = await client
-    .from("employees")
-    .select(EMPLOYEE_COLUMNS)
-    .order("name", { ascending: true })
-    .range(0, 999);
-
-  assertOk(error, "Não foi possível carregar os funcionários");
-  return (data ?? []) as unknown as EmployeeRow[];
-}
-
-/** Carrega todas as páginas para exportação, sem o limite da lista na tela. */
-export async function getAllEmployees(client: SupabaseServer): Promise<EmployeeRow[]> {
-  const pageSize = 1000;
   const employees: EmployeeRow[] = [];
   let from = 0;
-  let total = 0;
+  let total = Number.POSITIVE_INFINITY;
 
-  do {
+  while (from < total) {
     const { data, error, count } = await client
       .from("employees")
       .select(EMPLOYEE_COLUMNS, { count: "exact" })
       .order("name", { ascending: true })
-      .range(from, from + pageSize - 1);
+      // Desempate estável entre páginas quando há nomes repetidos.
+      .order("id", { ascending: true })
+      .range(from, from + EMPLOYEE_PAGE_SIZE - 1);
 
     assertOk(error, "Não foi possível carregar os funcionários");
     const page = (data ?? []) as unknown as EmployeeRow[];
     employees.push(...page);
-    total = count ?? employees.length;
     from += page.length;
 
+    if (typeof count === "number") total = count;
     if (page.length === 0) break;
-  } while (from < total);
+  }
 
   return employees;
 }
