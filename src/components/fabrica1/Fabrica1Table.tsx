@@ -392,6 +392,30 @@ export function Fabrica1Table({
           </Link>
         ),
       }),
+      helper.accessor("orderFamilyAbbreviation", {
+        id: "product_family",
+        header: () => (
+          <Fabrica1ColumnHeader
+            label="Fam."
+            fullLabel="Família do produto"
+            columnId="product_family"
+            filters={filters}
+            filter={
+              <Fabrica1TextFilter
+                filters={filters}
+                field="orderFamilyAbbreviation"
+                column="Família"
+                context="abreviação da família da OF"
+              />
+            }
+          />
+        ),
+        cell: (info) => (
+          <span className="block whitespace-nowrap" title="Família do produto vinculada à OF">
+            {info.getValue() || "—"}
+          </span>
+        ),
+      }),
       helper.accessor("customerName", {
         id: "customer",
         header: () => (
@@ -704,6 +728,9 @@ export function Fabrica1Table({
                 >
                   {item.orderCode}
                 </Link>
+                <Badge variant="secondary" className="px-1 py-0">
+                  {item.orderFamilyAbbreviation || "—"}
+                </Badge>
                 {item.parentItem ? (
                   <Badge variant="outline" className="px-1 py-0 tabular-nums">
                     {item.parentItem}

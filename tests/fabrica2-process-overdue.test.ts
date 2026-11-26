@@ -20,6 +20,10 @@ import { isProcessOverdue } from "@/lib/utils/production";
 
 vi.mock("server-only", () => ({}));
 
+vi.mock("@/lib/repositories/orders.repository", () => ({
+  getOrderFamilyAbbreviations: vi.fn().mockResolvedValue(new Map()),
+}));
+
 const { getProductionRowsMock, getActiveProcessesMock } = vi.hoisted(() => ({
   getProductionRowsMock: vi.fn(),
   getActiveProcessesMock: vi.fn(),

@@ -34,8 +34,11 @@ export function ProductionFiltersBar({ filters, processes }: ProductionFiltersPr
   const [syncedSearch, setSyncedSearch] = useState(filters.search);
   const [customer, setCustomer] = useState(filters.customer);
   const [syncedCustomer, setSyncedCustomer] = useState(filters.customer);
+  const [familyAbbreviation, setFamilyAbbreviation] = useState(filters.orderFamilyAbbreviation);
+  const [syncedFamilyAbbreviation, setSyncedFamilyAbbreviation] = useState(filters.orderFamilyAbbreviation);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const customerDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const familyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sincroniza os campos com a URL quando os filtros mudam por fora
   // (limpar filtros, navegação) — padrão de "ajuste durante a renderização".
@@ -47,11 +50,16 @@ export function ProductionFiltersBar({ filters, processes }: ProductionFiltersPr
     setSyncedCustomer(filters.customer);
     setCustomer(filters.customer);
   }
+  if (syncedFamilyAbbreviation !== filters.orderFamilyAbbreviation) {
+    setSyncedFamilyAbbreviation(filters.orderFamilyAbbreviation);
+    setFamilyAbbreviation(filters.orderFamilyAbbreviation);
+  }
 
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       if (customerDebounceRef.current) clearTimeout(customerDebounceRef.current);
+      if (familyDebounceRef.current) clearTimeout(familyDebounceRef.current);
     };
   }, []);
 
@@ -119,6 +127,15 @@ export function ProductionFiltersBar({ filters, processes }: ProductionFiltersPr
     customerDebounceRef.current = setTimeout(() => apply({ customer: value.trim() }), SEARCH_DEBOUNCE_MS);
   };
 
+  const onFamilyAbbreviationChange = (value: string) => {
+    setFamilyAbbreviation(value);
+    if (familyDebounceRef.current) clearTimeout(familyDebounceRef.current);
+    familyDebounceRef.current = setTimeout(
+      () => apply({ orderFamilyAbbreviation: value.trim() }),
+      SEARCH_DEBOUNCE_MS,
+    );
+  };
+
   const setSelect = (key: keyof Filters) => (value: string) => apply({ [key]: value } as Partial<Filters>);
 
   return (
@@ -153,6 +170,19 @@ export function ProductionFiltersBar({ filters, processes }: ProductionFiltersPr
             value={customer}
             onChange={(event) => onCustomerChange(event.target.value)}
             placeholder="Contém…"
+            autoComplete="off"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="producao-familia-of" className="text-xs text-muted-foreground">
+            Família da OF
+          </Label>
+          <Input
+            id="producao-familia-of"
+            value={familyAbbreviation}
+            onChange={(event) => onFamilyAbbreviationChange(event.target.value)}
+            placeholder="Abreviação…"
             autoComplete="off"
           />
         </div>

@@ -283,6 +283,30 @@ export function ProductionTable({
           </Link>
         ),
       }),
+      helper.accessor("orderFamilyAbbreviation", {
+        id: "product_family",
+        header: () => (
+          <ColumnHeader
+            label="Fam."
+            fullLabel="Família do produto"
+            columnId="product_family"
+            filters={filters}
+            filter={
+              <TextColumnFilter
+                filters={filters}
+                field="orderFamilyAbbreviation"
+                column="Família"
+                context="abreviação da família da OF"
+              />
+            }
+          />
+        ),
+        cell: (info) => (
+          <span className="whitespace-nowrap" title="Família do produto vinculada à OF">
+            {info.getValue() || "—"}
+          </span>
+        ),
+      }),
       helper.accessor("customerName", {
         id: "customer",
         header: () => (
@@ -526,6 +550,10 @@ export function ProductionTable({
             </header>
 
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <div>
+                <dt className="inline">Família: </dt>
+                <dd className="inline text-foreground">{row.orderFamilyAbbreviation || "—"}</dd>
+              </div>
               <div>
                 <dt className="inline">Cliente: </dt>
                 <dd className="inline text-foreground">{row.customerName || "—"}</dd>

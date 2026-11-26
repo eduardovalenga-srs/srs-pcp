@@ -116,6 +116,8 @@ export interface ChildItemFilters {
   search: string;
   /** Código da OF/OS (parcial). */
   orderCode: string;
+  /** Abreviação da família de produto vinculada à OF (parcial). */
+  orderFamilyAbbreviation: string;
   /** Nome do cliente (parcial). */
   customer: string;
   /** Código do item pai (parcial). */
@@ -229,6 +231,8 @@ export interface ChildItemGroup {
   id: string;
   orderId: string;
   orderCode: string;
+  /** Abreviação da família de produto vinculada à OF. */
+  orderFamilyAbbreviation?: string | null;
   customerName: string | null;
   /** Código do pai (badge) do primeiro membro + total de pais distintos. */
   parentItem: string | null;

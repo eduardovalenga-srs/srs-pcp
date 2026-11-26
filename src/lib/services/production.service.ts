@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SessionUser } from "@/lib/auth/session";
 import { PROCESS_STATUS_LABELS, type ProcessStatus, type WeightGranularity } from "@/lib/constants/production";
-import { ACAB_PROCESS_CODE, MP_PROCESS_CODE } from "@/lib/constants/processes";
+import { ACAB_PROCESS_CODE, MP_PROCESS_CODE, SHIPMENT_PROCESS_CODE } from "@/lib/constants/processes";
 import type { SupabaseServer } from "@/lib/supabase/types";
 import type { CompletedWeightStats, FilteredKpiTotals, ProductionEvent, ProductionFilteredSummary, ProductionFilters, ProductionOrderResult, ProductionResult, ProductionRow, ProductionStats, ProcessDefinition } from "@/lib/types/production";
 import type { OrderScheduleIndex } from "@/lib/types/scheduling";
@@ -21,6 +21,7 @@ import {
   updateProductionProcess,
   updateProductionProcessesStatus,
 } from "@/lib/repositories/production.repository";
+import { getOrderFamilyAbbreviations } from "@/lib/repositories/orders.repository";
 import {
   getItemAggregates,
   getItemProcessChain,
@@ -41,6 +42,9 @@ import {
 import { collectAllPages, EXPORT_PAGE_SIZE } from "@/lib/utils/collect-pages";
 import { mergeCompletedWeightStats } from "@/lib/utils/completed-weight";
 import { todayISODate } from "@/lib/utils/dates";
+import { filterAndSortByOrderFamily } from "@/lib/utils/order-family";
+import { roundWeight } from "@/lib/utils/formatting";
+import { DEFAULT_PRODUCTION_SORT } from "@/lib/utils/filters";
 import { processUpdateSchema, type ProcessUpdateInput } from "@/lib/validators/production.schema";
 import { firstZodMessage } from "@/lib/validators/common";
 
@@ -135,12 +139,31 @@ export async function getFabrica2FilteredSummary(
   // memória. Busca o conjunto-base e reaplica esse recorte abaixo.
   const rows = await listFabrica2FilteredRows(
     client,
-    { ...filters, delivery: "ALL", page: 1 },
+    { ...filters, delivery: "ALL", orderFamilyAbbreviation: "", page: 1 },
     today,
     schedule,
   );
+  const familyAbbreviations = filters.orderFamilyAbbreviation
+    ? await getOrderFamilyAbbreviations(
+        client,
+        rows.map((row) => row.orderId),
+      )
+    : new Map<string, string>();
+  const familyFilteredRows = filterAndSortByOrderFamily(
+    rows.map((row) => ({
+      ...row,
+      ...(familyAbbreviations.has(row.orderId)
+        ? { orderFamilyAbbreviation: familyAbbreviations.get(row.orderId) }
+        : {}),
+    })),
+    filters.orderFamilyAbbreviation,
+    filters.sortDir,
+    false,
+  );
   const filteredRows =
-    filters.delivery === "OVERDUE" ? rows.filter((row) => isAcabOverdue(row, schedule, today)) : rows;
+    filters.delivery === "OVERDUE"
+      ? familyFilteredRows.filter((row) => isAcabOverdue(row, schedule, today))
+      : familyFilteredRows;
 
   return {
     overdue: acabOverdueTotalsOf(filteredRows, schedule, today),
@@ -177,23 +200,50 @@ export async function getProductionPage(
     getScheduleIndex(client),
   ]);
 
-  // Recorte em memória ligado (entrega e/ou processo): a lista, a paginação,
-  // os totais e os KPIs saem do MESMO conjunto varrido.
-  if (filters.delivery === "OVERDUE" || filters.processOverdue) {
-    const cut = await listFabrica2FilteredRows(client, filters, today, schedule);
-    const totals = productionRowsTotals(cut);
+  const familySort = filters.sort === "product_family";
+  const needsFamilyProcessing = Boolean(filters.orderFamilyAbbreviation) || familySort;
+
+  // Recortes que precisam percorrer o conjunto inteiro: atraso da F2 e filtro
+  // ou ordenação da família da OF. A paginação acontece após esses recortes.
+  if (filters.delivery === "OVERDUE" || filters.processOverdue || needsFamilyProcessing) {
+    const baseFilters = {
+      ...filters,
+      orderFamilyAbbreviation: "",
+      sort: familySort ? DEFAULT_PRODUCTION_SORT : filters.sort,
+    };
+    const cut = await listFabrica2FilteredRows(client, baseFilters, today, schedule);
+    const familyAbbreviations = needsFamilyProcessing
+      ? await getOrderFamilyAbbreviations(
+          client,
+          cut.map((row) => row.orderId),
+        )
+      : new Map<string, string>();
+    const annotated = cut.map((row) => ({
+      ...row,
+      ...(familyAbbreviations.has(row.orderId)
+        ? { orderFamilyAbbreviation: familyAbbreviations.get(row.orderId) }
+        : {}),
+    }));
+    const filteredCut = filterAndSortByOrderFamily(
+      annotated,
+      filters.orderFamilyAbbreviation,
+      filters.sortDir,
+      familySort,
+    );
+    const totals = productionRowsTotals(filteredCut);
     const from = (filters.page - 1) * filters.pageSize;
+    const pageRows = filteredCut.slice(from, from + filters.pageSize);
     return {
-      rows: cut.slice(from, from + filters.pageSize),
-      total: cut.length,
+      rows: pageRows,
+      total: filteredCut.length,
       qtyTotal: totals.qty,
       weightTotal: totals.weight,
       // Card "Atrasados": regra do ACAB sobre o conjunto filtrado — com
       // `entrega=OVERDUE` a própria lista já é esse recorte.
       overdue:
-        filters.delivery === "OVERDUE" ? totals : acabOverdueTotalsOf(cut, schedule, today),
+        filters.delivery === "OVERDUE" ? totals : acabOverdueTotalsOf(filteredCut, schedule, today),
       // Card "Acabamento": itens com o ACAB concluído dentro do MESMO recorte.
-      acabamento: acabamentoTotalsOf(cut),
+      acabamento: acabamentoTotalsOf(filteredCut),
       processes,
       today,
       schedule,
@@ -203,7 +253,17 @@ export async function getProductionPage(
   // Os KPIs são carregados depois da página pelo endpoint de resumo. A lista
   // visível e seus totais já vêm completos da RPC, sem varrer todas as páginas.
   const result = await getProductionRows(client, filters, today);
-  const { rows, total, qtyTotal, weightTotal } = result;
+  const familyAbbreviations = await getOrderFamilyAbbreviations(
+    client,
+    result.rows.map((row) => row.orderId),
+  );
+  const rows = result.rows.map((row) => ({
+    ...row,
+    ...(familyAbbreviations.has(row.orderId)
+      ? { orderFamilyAbbreviation: familyAbbreviations.get(row.orderId) }
+      : {}),
+  }));
+  const { total, qtyTotal, weightTotal } = result;
   return {
     rows,
     total,
@@ -236,12 +296,103 @@ export async function getProductionOrdersPage(
   filters: ProductionFilters,
 ): Promise<ProductionOrderPage> {
   const today = todayISODate();
+  const familySort = filters.sort === "product_family";
+  if (filters.orderFamilyAbbreviation || familySort) {
+    const [processes, schedule] = await Promise.all([
+      getActiveProcesses(client),
+      getScheduleIndex(client),
+    ]);
+    const allOrders = await collectAllPages((page) =>
+      getProductionOrderRows(
+        client,
+        {
+          ...filters,
+          orderFamilyAbbreviation: "",
+          sort: familySort ? DEFAULT_PRODUCTION_SORT : filters.sort,
+          page,
+          pageSize: EXPORT_PAGE_SIZE,
+        },
+        today,
+      ).then((result) => ({ rows: result.rows, total: result.total })),
+    );
+    const familyAbbreviations = await getOrderFamilyAbbreviations(
+      client,
+      allOrders.map((row) => row.orderId),
+    );
+    const annotated = allOrders.map((row) => ({
+      ...row,
+      ...(familyAbbreviations.has(row.orderId)
+        ? { orderFamilyAbbreviation: familyAbbreviations.get(row.orderId) }
+        : {}),
+    }));
+    const filteredOrders = filterAndSortByOrderFamily(
+      annotated,
+      filters.orderFamilyAbbreviation,
+      filters.sortDir,
+      familySort,
+    );
+    const from = (filters.page - 1) * filters.pageSize;
+    const rows = filteredOrders.slice(from, from + filters.pageSize);
+
+    // Os cards da Gestão contam itens raiz. Reutilizamos a visão por item para
+    // manter os indicadores coerentes com o recorte por família da OF.
+    const selectedOrderIds = new Set(filteredOrders.map((row) => row.orderId));
+    const itemRows =
+      selectedOrderIds.size === 0
+        ? []
+        : await collectAllPages((page) =>
+            getProductionRows(
+              client,
+              {
+                ...filters,
+                orderFamilyAbbreviation: "",
+                sort: DEFAULT_PRODUCTION_SORT,
+                page,
+                pageSize: EXPORT_PAGE_SIZE,
+              },
+              today,
+            ).then((result) => ({ rows: result.rows, total: result.total })),
+          );
+    const selectedItems = itemRows.filter((row) => selectedOrderIds.has(row.orderId));
+    const overdueTotals = productionRowsTotals(selectedItems.filter((row) => row.overdue));
+    const expeditionTotals = productionRowsTotals(
+      selectedItems.filter((row) => row.processes[SHIPMENT_PROCESS_CODE]?.status === "CONCLUIDO"),
+    );
+
+    return {
+      rows,
+      total: filteredOrders.length,
+      qtyTotal: filteredOrders.reduce((sum, row) => sum + row.quantity, 0),
+      weightTotal: roundWeight(filteredOrders.reduce((sum, row) => sum + (row.weightTotal ?? 0), 0)),
+      overdue: overdueTotals,
+      expedition: expeditionTotals,
+      processes,
+      today,
+      schedule,
+    };
+  }
+
   const [result, processes, schedule] = await Promise.all([
     getProductionOrderRows(client, filters, today),
     getActiveProcesses(client),
     getScheduleIndex(client),
   ]);
-  return { ...result, processes, today, schedule };
+  const familyAbbreviations = await getOrderFamilyAbbreviations(
+    client,
+    result.rows.map((row) => row.orderId),
+  );
+  return {
+    ...result,
+    rows: result.rows.map((row) => ({
+      ...row,
+      ...(familyAbbreviations.has(row.orderId)
+        ? { orderFamilyAbbreviation: familyAbbreviations.get(row.orderId) }
+        : {}),
+    })),
+    processes,
+    today,
+    schedule,
+  };
 }
 
 /** Indicadores do dashboard. */

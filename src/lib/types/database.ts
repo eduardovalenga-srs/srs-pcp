@@ -81,6 +81,7 @@ export type RecruitmentCandidateRow = {
   stage: RecruitmentCandidateStageValue;
   triage_scheduled_at: string | null;
   interview_scheduled_at: string | null;
+  interviewer_name: string | null;
   aso_scheduled_at: string | null;
   integration_scheduled_at: string | null;
   hired_at: string | null;
@@ -113,6 +114,7 @@ export type EmployeeRow = {
   created_by: string | null;
   updated_by: string | null;
   allocation_position_id: string | null;
+  last_allocation_position_id: string | null;
 };
 
 export type EmployeeAllocationNodeType =
@@ -782,6 +784,7 @@ export type Database = {
           registered_client?: string | null;
           location?: string | null;
           allocation_position_id?: string | null;
+          last_allocation_position_id?: string | null;
           shift?: string | null;
           area?: string | null;
           client?: string | null;
@@ -801,6 +804,7 @@ export type Database = {
           registered_client: string | null;
           location: string | null;
           allocation_position_id: string | null;
+          last_allocation_position_id: string | null;
           shift: string | null;
           area: string | null;
           client: string | null;
@@ -827,6 +831,13 @@ export type Database = {
             foreignKeyName: "employees_allocation_position_fkey";
             columns: ["allocation_position_id"];
             isOneToOne: true;
+            referencedRelation: "employee_allocation_nodes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "employees_last_allocation_position_fkey";
+            columns: ["last_allocation_position_id"];
+            isOneToOne: false;
             referencedRelation: "employee_allocation_nodes";
             referencedColumns: ["id"];
           },
@@ -983,6 +994,7 @@ export type Database = {
           notes?: string | null;
           triage_scheduled_at?: string | null;
           interview_scheduled_at?: string | null;
+          interviewer_name?: string | null;
           aso_scheduled_at?: string | null;
           integration_scheduled_at?: string | null;
           hired_at?: string | null;

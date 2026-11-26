@@ -8,9 +8,11 @@ import { listFabrica2FilteredRows } from "@/lib/services/production.service";
 import { getScheduleIndex } from "@/lib/services/scheduling.service";
 import { createClient } from "@/lib/supabase/server";
 import { todayISODate } from "@/lib/utils/dates";
-import { parseProductionFilters } from "@/lib/utils/filters";
+import { DEFAULT_PRODUCTION_SORT, parseProductionFilters } from "@/lib/utils/filters";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { hasPermission } from "@/lib/auth/access";
+import { getOrderFamilyAbbreviations } from "@/lib/repositories/orders.repository";
+import { filterAndSortByOrderFamily } from "@/lib/utils/order-family";
 
 /**
  * GET /api/export/fabrica-2 — .xlsx da lista filtrada INTEIRA da Fábrica 2
@@ -41,7 +43,32 @@ export async function GET(request: Request) {
     // Fábrica 2: recortes em MEMÓRIA — "Atrasados" do ACAB (entrega=OVERDUE)
     // e, na 051, "Atrasados" dos filtros de processo. A exportação sai com o
     // MESMO recorte que a tela exibe (varredura da lista inteira).
-    const rows = await listFabrica2FilteredRows(client, filters, today, schedule);
+    const familySort = filters.sort === "product_family";
+    const allRows = await listFabrica2FilteredRows(
+      client,
+      {
+        ...filters,
+        orderFamilyAbbreviation: "",
+        sort: familySort ? DEFAULT_PRODUCTION_SORT : filters.sort,
+      },
+      today,
+      schedule,
+    );
+    const familyAbbreviations =
+      filters.orderFamilyAbbreviation || familySort
+        ? await getOrderFamilyAbbreviations(client, allRows.map((row) => row.orderId))
+        : new Map<string, string>();
+    const rows = filterAndSortByOrderFamily(
+      allRows.map((row) => ({
+        ...row,
+        ...(familyAbbreviations.has(row.orderId)
+          ? { orderFamilyAbbreviation: familyAbbreviations.get(row.orderId) }
+          : {}),
+      })),
+      filters.orderFamilyAbbreviation,
+      filters.sortDir,
+      familySort,
+    );
 
     return workbookResponse(exportFileName("fabrica-2"), fabrica2Sheet(rows, processes, schedule));
   } catch (error) {

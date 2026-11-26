@@ -11,22 +11,26 @@ import {
   deleteOrder,
   findItemsByOrderCodes,
   findOrdersByCodes,
+  getOrderFamilyAbbreviations,
   getOrderDetails,
   listOrders,
 } from "@/lib/repositories/orders.repository";
 import { replaceItemMaterials } from "@/lib/repositories/materials.repository";
 import { getOrderItemWithProcesses, listChildItemGroups } from "@/lib/repositories/order-items.repository";
-import type { KitOverdueTotals } from "@/lib/utils/child-item-groups";
+import { summarizeKitOverdue, type KitOverdueTotals } from "@/lib/utils/child-item-groups";
 import { applyPlan } from "@/lib/repositories/import.repository";
 import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { orderWithItemsSchema, type OrderWithItemsOutput } from "@/lib/validators/order-item.schema";
 import { MP_PROCESS_CODE } from "@/lib/constants/processes";
 import { firstZodMessage } from "@/lib/validators/common";
 import { deriveOrderItemStatus, deriveOrderStatus } from "@/lib/utils/production";
-import { calculateTotalWeight } from "@/lib/utils/formatting";
+import { calculateTotalWeight, roundWeight } from "@/lib/utils/formatting";
 import { getScheduleIndex } from "@/lib/services/scheduling.service";
 import type { OrderScheduleIndex } from "@/lib/types/scheduling";
 import { expeditionForOrder } from "@/lib/utils/sequenced-schedule";
+import { collectAllPages, EXPORT_PAGE_SIZE } from "@/lib/utils/collect-pages";
+import { filterAndSortByOrderFamily } from "@/lib/utils/order-family";
+import { DEFAULT_CHILD_ITEM_SORT } from "@/lib/utils/filters";
 
 /** Página de pedidos + a data de expedição (DP) de cada linha. */
 export interface OrdersPage extends OrderListResult {
@@ -122,8 +126,73 @@ export async function getChildItemsPage(
     };
   }
 
+  const familySort = filters.sort === "product_family";
+  if (filters.orderFamilyAbbreviation || familySort) {
+    const allItems = await collectAllPages((page) =>
+      listChildItemGroups(
+        client,
+        {
+          ...filters,
+          orderFamilyAbbreviation: "",
+          sort: familySort ? DEFAULT_CHILD_ITEM_SORT : filters.sort,
+          page,
+          pageSize: EXPORT_PAGE_SIZE,
+        },
+        processId,
+        today,
+        schedule,
+      ).then((result) => ({ rows: result.items, total: result.total })),
+    );
+    const familyAbbreviations = await getOrderFamilyAbbreviations(
+      client,
+      allItems.map((item) => item.orderId),
+    );
+    const annotated = allItems.map((item) => ({
+      ...item,
+      ...(familyAbbreviations.has(item.orderId)
+        ? { orderFamilyAbbreviation: familyAbbreviations.get(item.orderId) }
+        : {}),
+    }));
+    const filteredItems = filterAndSortByOrderFamily(
+      annotated,
+      filters.orderFamilyAbbreviation,
+      filters.sortDir,
+      familySort,
+    );
+    const from = (filters.page - 1) * filters.pageSize;
+    const pageItems = filteredItems.slice(from, from + filters.pageSize);
+    return {
+      items: pageItems,
+      total: filteredItems.length,
+      qtyTotal: filteredItems.reduce((sum, item) => sum + item.quantity, 0),
+      weightTotal: roundWeight(filteredItems.reduce((sum, item) => sum + (item.weightTotal ?? 0), 0)),
+      processes,
+      today,
+      kitOverdue:
+        filters.overdue || filters.processOverdue
+          ? summarizeKitOverdue(filteredItems, schedule, today)
+          : null,
+      schedule,
+    };
+  }
+
   const result = await listChildItemGroups(client, filters, processId, today, schedule);
-  return { ...result, processes, today, schedule };
+  const familyAbbreviations = await getOrderFamilyAbbreviations(
+    client,
+    result.items.map((item) => item.orderId),
+  );
+  return {
+    ...result,
+    items: result.items.map((item) => ({
+      ...item,
+      ...(familyAbbreviations.has(item.orderId)
+        ? { orderFamilyAbbreviation: familyAbbreviations.get(item.orderId) }
+        : {}),
+    })),
+    processes,
+    today,
+    schedule,
+  };
 }
 
 export async function getOrder(client: SupabaseServer, orderId: string): Promise<OrderDetails | null> {

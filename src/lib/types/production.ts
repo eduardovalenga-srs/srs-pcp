@@ -48,6 +48,8 @@ export interface ProductionOrderRow {
   orderId: string;
   orderCode: string;
   orderType: string;
+  /** Abreviação da família de produto vinculada à OF. */
+  orderFamilyAbbreviation?: string | null;
   customerName: string;
   orderStatus: OrderStatus;
   /** Entrega exibida = data do PEDIDO (orders.delivery_date). */
@@ -70,6 +72,8 @@ export interface ProductionRow {
   orderId: string;
   orderCode: string;
   orderType: string;
+  /** Abreviação da família de produto vinculada à OF (não é o tipo do item). */
+  orderFamilyAbbreviation?: string | null;
   customerName: string;
   orderStatus: OrderStatus;
   family: string;
@@ -112,6 +116,8 @@ export interface ProductionFilters {
   deliveryTo: string | null;
   /** Filtro por coluna — texto ("contém"). */
   orderCode: string;
+  /** Filtro por abreviação da família de produto vinculada à OF ("contém"). */
+  orderFamilyAbbreviation: string;
   customer: string;
   family: string;
   parentItem: string;

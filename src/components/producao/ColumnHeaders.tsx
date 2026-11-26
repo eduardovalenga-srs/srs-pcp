@@ -173,7 +173,12 @@ export function ProcessGroupFilter({ filters }: { filters: ProductionFilters }) 
 }
 
 /** Colunas de texto — filtro "contém" (valor parcial, sem diferenciar maiúsculas). */
-export type TextFilterField = "orderCode" | "customer" | "parentItem" | "description";
+export type TextFilterField =
+  | "orderCode"
+  | "orderFamilyAbbreviation"
+  | "customer"
+  | "parentItem"
+  | "description";
 
 interface TextColumnFilterProps {
   filters: ProductionFilters;

@@ -74,6 +74,91 @@ describe("migrations", () => {
     }
   });
 
+  it("111 adiciona o campo de entrevistador ao agendamento de candidatos", async () => {
+    const { rows } = await db.query<{ exists: boolean }>(
+      `select exists (
+         select 1
+           from information_schema.columns
+          where table_schema = 'public'
+            and table_name = 'recruitment_candidates'
+            and column_name = 'interviewer_name'
+       ) as exists`,
+    );
+    expect(rows[0]?.exists).toBe(true);
+  });
+
+  it("112 reabre a vaga quando todos os candidatos são reprovados e preserva o histórico", async () => {
+    await asSuperUser(db);
+    const { rows: vacancies } = await db.query<{ id: string }>(
+      `insert into public.recruitment_vacancies (title, department, status)
+       values ('Vaga para reabertura automática', 'Produção', 'ENTREVISTA')
+       returning id`,
+    );
+    const vacancyId = vacancies[0]?.id as string;
+    const { rows: candidates } = await db.query<{ id: string }>(
+      `insert into public.recruitment_candidates (vacancy_id, name, stage)
+       values ($1, 'Candidato reprovado primeiro', 'TRIAGEM'),
+              ($1, 'Candidato ainda em processo', 'TRIAGEM')
+       returning id`,
+      [vacancyId],
+    );
+    const rejectedCandidateId = candidates[0]?.id as string;
+    const remainingCandidateId = candidates[1]?.id as string;
+    await db.query(
+      `update public.recruitment_vacancies
+          set selected_candidate_id = $2
+        where id = $1`,
+      [vacancyId, remainingCandidateId],
+    );
+
+    await db.query(
+      `update public.recruitment_candidates
+          set stage = 'REPROVADO'
+        where id = $1`,
+      [rejectedCandidateId],
+    );
+    const { rows: notYetReopened } = await db.query<{ status: string }>(
+      `select status from public.recruitment_vacancies where id = $1`,
+      [vacancyId],
+    );
+    expect(notYetReopened[0]?.status).toBe("ENTREVISTA");
+
+    await db.query(
+      `update public.recruitment_candidates
+          set stage = 'REPROVADO'
+        where id = $1`,
+      [remainingCandidateId],
+    );
+
+    const { rows: reopenedVacancy } = await db.query<{
+      status: string;
+      selected_candidate_id: string | null;
+    }>(
+      `select status, selected_candidate_id
+         from public.recruitment_vacancies
+        where id = $1`,
+      [vacancyId],
+    );
+    expect(reopenedVacancy[0]).toEqual({
+      status: "VAGAS_ABERTAS",
+      selected_candidate_id: null,
+    });
+    const { rows: preservedCandidates } = await db.query<{
+      count: number;
+      rejected_count: number;
+    }>(
+      `select count(*)::int as count,
+              count(*) filter (where stage = 'REPROVADO')::int as rejected_count
+         from public.recruitment_candidates
+        where vacancy_id = $1`,
+      [vacancyId],
+    );
+    expect(preservedCandidates[0]).toEqual({ count: 2, rejected_count: 2 });
+    expect(rejectedCandidateId).toBeTruthy();
+
+    await db.query(`delete from public.recruitment_vacancies where id = $1`, [vacancyId]);
+  });
+
   it("081/082 cria o cadastro e importa a base inicial conciliada", async () => {
     const { rows } = await db.query<{
       total: number;
@@ -126,7 +211,8 @@ describe("migrations", () => {
     await db.query(
       `update public.employees
        set shift = 'Noturno', area = 'Solda', location = 'LOCAL DE ALOCAÇÃO',
-           registered_client = 'CENTRO DE CUSTO ANTIGO'
+           registered_client = 'CENTRO DE CUSTO ANTIGO',
+           admission_date = '2020-01-02', dismissal_date = '2021-02-03'
        where company_code = '752' and registration = '2'`,
     );
     const adminId = await createUser(db, "rh-import-admin@test.local", "ADMIN");
@@ -151,8 +237,11 @@ describe("migrations", () => {
       area: string | null;
       location: string | null;
       registered_client: string | null;
+      admission_date: string | null;
+      dismissal_date: string | null;
     }>(
-      `select shift, area, location, registered_client from public.employees
+      `select shift, area, location, registered_client, admission_date::text, dismissal_date::text
+         from public.employees
        where company_code = '752' and registration = '2'`,
     );
     expect(saved[0]).toEqual({
@@ -160,6 +249,35 @@ describe("migrations", () => {
       area: "Solda",
       location: "LOCAL DE ALOCAÇÃO",
       registered_client: "GERAL/BRAFER",
+      admission_date: "2023-04-13",
+      dismissal_date: "2021-02-03",
+    });
+
+    await asUser(db, "authenticated", adminId);
+    await db.query(
+      `select public.import_employees($1::jsonb)`,
+      [JSON.stringify([{
+        company_code: "752",
+        company_name: "SRS DESENVOLVIMENTO LTDA",
+        registration: "2",
+        name: "ADRIANO CARDOSO DE OLIVEIRA",
+        admission_date: null,
+        dismissal_date: "2024-05-06",
+        registered_client: null,
+      }])],
+    );
+
+    await asSuperUser(db);
+    const { rows: updatedDates } = await db.query<{
+      admission_date: string | null;
+      dismissal_date: string | null;
+    }>(
+      `select admission_date::text, dismissal_date::text from public.employees
+        where company_code = '752' and registration = '2'`,
+    );
+    expect(updatedDates[0]).toEqual({
+      admission_date: "2023-04-13",
+      dismissal_date: "2024-05-06",
     });
   });
 
@@ -409,6 +527,64 @@ describe("migrations", () => {
       responsible_1: null,
       responsible_2: null,
     });
+  });
+
+  it("a demissão libera a posição e preserva a alocação histórica do funcionário", async () => {
+    await asSuperUser(db);
+    const insertNode = async (parentId: string | null, type: string, name: string): Promise<string> => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.employee_allocation_nodes (
+           company_code, company_name, parent_id, node_type, name
+         ) values ('CLIENTES', 'Clientes', $1, $2, $3)
+         returning id`,
+        [parentId, type, name],
+      );
+      return rows[0]?.id as string;
+    };
+    const clientId = await insertNode(null, "CLIENT", "Cliente demissão teste");
+    const locationId = await insertNode(clientId, "LOCATION", "Unidade demissão teste");
+    const shiftId = await insertNode(locationId, "SHIFT", "Turno demissão teste");
+    const areaId = await insertNode(shiftId, "AREA", "Área demissão teste");
+    const positionId = await insertNode(areaId, "POSITION", "Posição demissão teste");
+    const { rows: employees } = await db.query<{ id: string }>(
+      `insert into public.employees (
+         company_code, company_name, registration, name
+       ) values ('752', 'SRS DESENVOLVIMENTO LTDA', 'DISMISS-110', 'Funcionário desligado')
+       returning id`,
+    );
+    const employeeId = employees[0]?.id as string;
+    const managerId = await createUser(db, "rh-dismissal-manager@test.local", "GESTOR");
+
+    await asUser(db, "authenticated", managerId);
+    await db.query(
+      `select public.assign_employee_allocation($1::uuid, $2::uuid)`,
+      [employeeId, positionId],
+    );
+
+    await asSuperUser(db);
+    await db.query(
+      `update public.employees set dismissal_date = '2026-11-25' where id = $1`,
+      [employeeId],
+    );
+    const { rows: dismissedEmployee } = await db.query<{
+      allocation_position_id: string | null;
+      last_allocation_position_id: string | null;
+      status: string;
+    }>(
+      `select allocation_position_id, last_allocation_position_id, status
+         from public.employees where id = $1`,
+      [employeeId],
+    );
+    expect(dismissedEmployee[0]).toEqual({
+      allocation_position_id: null,
+      last_allocation_position_id: positionId,
+      status: "INATIVO",
+    });
+    const { rows: positionOccupancy } = await db.query<{ count: number }>(
+      `select count(*)::int as count from public.employees where allocation_position_id = $1`,
+      [positionId],
+    );
+    expect(positionOccupancy[0]?.count).toBe(0);
   });
 
   it("065 escala filhos, materiais e espelho MP uma vez, sem alterar pesos recebidos", async () => {

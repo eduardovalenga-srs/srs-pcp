@@ -110,9 +110,18 @@ export const saveRecruitmentCandidateScheduleSchema = z.object({
   vacancyId: z.string().uuid(),
   triageScheduledAt: z.string().datetime({ offset: true }).nullable(),
   interviewScheduledAt: z.string().datetime({ offset: true }).nullable(),
+  interviewerName: z.string().trim().max(150, "O nome de quem fará a entrevista deve ter até 150 caracteres.").nullable(),
   asoScheduledAt: z.string().datetime({ offset: true }).nullable(),
   integrationScheduledAt: z.string().datetime({ offset: true }).nullable(),
   hiredAt: z.string().date().nullable(),
+}).superRefine((value, context) => {
+  if (value.interviewScheduledAt && !value.interviewerName) {
+    context.addIssue({
+      code: "custom",
+      path: ["interviewerName"],
+      message: "Informe quem fará a entrevista.",
+    });
+  }
 });
 
 export type SaveRecruitmentCandidateScheduleInput = z.input<typeof saveRecruitmentCandidateScheduleSchema>;

@@ -200,7 +200,14 @@ export function Fabrica2ProcessGroupFilter({ filters }: { filters: ProductionFil
 }
 
 /** Colunas de texto — filtro "contém" (valor parcial, sem diferenciar maiúsculas). */
-export type Fabrica2TextFilterField = "orderCode" | "customer" | "parentItem" | "description" | "family" | "op";
+export type Fabrica2TextFilterField =
+  | "orderCode"
+  | "orderFamilyAbbreviation"
+  | "customer"
+  | "parentItem"
+  | "description"
+  | "family"
+  | "op";
 
 interface Fabrica2TextColumnFilterProps {
   filters: ProductionFilters;

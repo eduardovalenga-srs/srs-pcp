@@ -155,10 +155,11 @@ export function gestaoEntregasSheet(
   processes: readonly ProcessDefinition[],
   schedule: OrderScheduleIndex,
 ): ExportSheet {
-  const headers = ["Seq.", "OF/OS", "Cli.", "Qtd.", "Peso", "Ent.", "DP", ...processes.map((p) => p.code)];
+  const headers = ["Seq.", "OF/OS", "Fam.", "Cli.", "Qtd.", "Peso", "Ent.", "DP", ...processes.map((p) => p.code)];
   const body: ExportCell[][] = rows.map((row) => [
     seq(row.seq),
     text(row.orderCode),
+    text(row.orderFamilyAbbreviation),
     text(row.customerName),
     number(row.quantity),
     number(row.weightTotal),
@@ -166,11 +167,11 @@ export function gestaoEntregasSheet(
     dateCell(expeditionForOrder(schedule, row.orderId)),
     ...processes.map((process) => orderProcessCell(row.processes[process.code])),
   ]);
-  return { headers, rows: body, dateColumns: [5, 6] };
+  return { headers, rows: body, dateColumns: [6, 7] };
 }
 
 /**
- * Fábrica 2 (Fabrica2Table): Seq., OF/OS, Cli., TP, Item pai, Desc., Qtd.,
+ * Fábrica 2 (Fabrica2Table): Seq., OF/OS, Fam., Cli., TP, Item pai, Desc., Qtd.,
  * Peso, Ent., DP (data de expedição do sequenciamento), OP e os processos
  * FORA da cadeia da Fábrica 1 (a cadeia fica oculta — a MP abre a lista,
  * como na tela). Os rótulos são os que a tela EXIBE (o nome completo mora
@@ -187,6 +188,7 @@ export function fabrica2Sheet(
   const headers = [
     "Seq.",
     "OF/OS",
+    "Fam.",
     "Cli.",
     "TP",
     "Item pai",
@@ -201,6 +203,7 @@ export function fabrica2Sheet(
   const body: ExportCell[][] = rows.map((row) => [
     seq(row.seq),
     text(row.orderCode),
+    text(row.orderFamilyAbbreviation),
     text(row.customerName),
     text(row.family),
     text(row.parentItem),
@@ -212,11 +215,11 @@ export function fabrica2Sheet(
     text(row.op),
     ...processColumns.map((process) => itemProcessCell(row.processes[process.code])),
   ]);
-  return { headers, rows: body, dateColumns: [8, 9] };
+  return { headers, rows: body, dateColumns: [9, 10] };
 }
 
 /**
- * Fábrica 1 (Fabrica1Table): Seq., OF/OS, Cli., Filho, Matérias-primas,
+ * Fábrica 1 (Fabrica1Table): Seq., OF/OS, Fam., Cli., Filho, Matérias-primas,
  * Qtd., Peso un., Peso total, Ent., DP (data de expedição do sequenciamento)
  * e a cadeia F1 (MP primeiro, depois LASER…FICEP e o KIT) — o que vem depois
  * do KIT mora na gestão de OF.
@@ -230,6 +233,7 @@ export function fabrica1Sheet(
   const headers = [
     "Seq.",
     "OF/OS",
+    "Fam.",
     "Cli.",
     "Filho",
     "Matérias-primas",
@@ -243,6 +247,7 @@ export function fabrica1Sheet(
   const body: ExportCell[][] = items.map((item) => [
     seq(item.seq),
     text(item.orderCode),
+    text(item.orderFamilyAbbreviation),
     text(item.customerName),
     text(item.childItem || item.description),
     // Uma material por item (mesmo conteúdo da lista exibida na célula);
@@ -259,7 +264,7 @@ export function fabrica1Sheet(
         : inheritedProcessCell(item.parentProcessStatuses[process.code]),
     ),
   ]);
-  return { headers, rows: body, dateColumns: [8, 9] };
+  return { headers, rows: body, dateColumns: [9, 10] };
 }
 
 /**

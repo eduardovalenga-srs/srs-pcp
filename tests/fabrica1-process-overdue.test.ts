@@ -45,9 +45,10 @@ const SCHEDULE: OrderScheduleIndex = {
 
 vi.mock("server-only", () => ({}));
 
-const { listChildItemGroupsMock, getActiveProcessesMock } = vi.hoisted(() => ({
+const { listChildItemGroupsMock, getActiveProcessesMock, getOrderFamilyAbbreviationsMock } = vi.hoisted(() => ({
   listChildItemGroupsMock: vi.fn(),
   getActiveProcessesMock: vi.fn(),
+  getOrderFamilyAbbreviationsMock: vi.fn().mockResolvedValue(new Map()),
 }));
 
 vi.mock("@/lib/repositories/order-items.repository", () => ({
@@ -60,6 +61,7 @@ vi.mock("@/lib/repositories/orders.repository", () => ({
   deleteOrder: vi.fn(),
   findItemsByOrderCodes: vi.fn(),
   findOrdersByCodes: vi.fn(),
+  getOrderFamilyAbbreviations: getOrderFamilyAbbreviationsMock,
   getOrderDetails: vi.fn(),
   getOrdersProcessRows: vi.fn(),
   listOrders: vi.fn(),

@@ -81,6 +81,7 @@ export function Fabrica1ColumnHeader({
 
 type ChildTextFilterField =
   | "orderCode"
+  | "orderFamilyAbbreviation"
   | "customer"
   | "parentItem"
   | "childItem"

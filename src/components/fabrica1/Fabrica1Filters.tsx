@@ -82,6 +82,7 @@ export function Fabrica1Filters({ filters, processes }: Fabrica1FiltersProps) {
   const hasFilters =
     filters.search !== "" ||
     filters.orderCode !== "" ||
+    filters.orderFamilyAbbreviation !== "" ||
     filters.customer !== "" ||
     filters.material !== "" ||
     filters.parentItem !== "" ||
@@ -113,6 +114,14 @@ export function Fabrica1Filters({ filters, processes }: Fabrica1FiltersProps) {
           value={filters.orderCode}
           placeholder="Ex.: 107482"
           onApply={(value) => apply({ orderCode: value })}
+        />
+
+        <DebouncedFilterField
+          id="fabrica1-familia-of"
+          label="Família da OF"
+          value={filters.orderFamilyAbbreviation}
+          placeholder="Abreviação…"
+          onApply={(value) => apply({ orderFamilyAbbreviation: value })}
         />
 
         <DebouncedFilterField

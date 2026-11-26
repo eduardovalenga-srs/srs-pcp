@@ -56,9 +56,10 @@ describe("opções de alocação para vagas", () => {
     const options = buildRecruitmentFormOptions(
       allocationNodes,
       [
-        { id: "employee-active", name: "Ana Funcionária", allocation_position_id: "position" },
-        { id: "employee-inactive-path", name: "Bruno Funcionário", allocation_position_id: "inactive-position" },
-        { id: "employee-other-client", name: "Carla Funcionária", allocation_position_id: "other-position" },
+        { id: "employee-active", name: "Ana Funcionária", status: "ATIVO", allocation_position_id: "position" },
+        { id: "employee-dismissed", name: "Bruno Funcionário", status: "INATIVO", allocation_position_id: "position" },
+        { id: "employee-inactive-path", name: "Caio Funcionário", status: "INATIVO", allocation_position_id: "inactive-position" },
+        { id: "employee-other-client", name: "Daniela Funcionária", status: "ATIVO", allocation_position_id: "other-position" },
       ],
       [
         { id: "approved-soldador", client_id: "client", name: "Soldador", active: true },
@@ -73,7 +74,10 @@ describe("opções de alocação para vagas", () => {
     expect(options.customers[0]?.locations[0]?.areas[0]?.positions).toEqual([
       { id: "position", name: "Soldador", shiftName: "1º turno" },
     ]);
-    expect(options.customers[0]?.employees.map((employee) => employee.name)).toEqual(["Ana Funcionária"]);
+    expect(options.customers[0]?.employees).toEqual([
+      { id: "employee-active", name: "Ana Funcionária", clientId: "client", status: "ATIVO" },
+      { id: "employee-dismissed", name: "Bruno Funcionário", clientId: "client", status: "INATIVO" },
+    ]);
     expect(options.customers[0]?.approvedRoles).toEqual([
       { id: "approved-soldador", clientId: "client", name: "Soldador", active: true },
       { id: "approved-inactive", clientId: "client", name: "Torneiro", active: false },

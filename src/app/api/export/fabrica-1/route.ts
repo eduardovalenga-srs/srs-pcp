@@ -8,9 +8,11 @@ import { getActiveProcesses } from "@/lib/repositories/production.repository";
 import { getScheduleIndex } from "@/lib/services/scheduling.service";
 import { createClient } from "@/lib/supabase/server";
 import { todayISODate } from "@/lib/utils/dates";
-import { parseChildItemFilters } from "@/lib/utils/filters";
+import { DEFAULT_CHILD_ITEM_SORT, parseChildItemFilters } from "@/lib/utils/filters";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { hasPermission } from "@/lib/auth/access";
+import { getOrderFamilyAbbreviations } from "@/lib/repositories/orders.repository";
+import { filterAndSortByOrderFamily } from "@/lib/utils/order-family";
 
 /**
  * GET /api/export/fabrica-1 — .xlsx da lista filtrada INTEIRA da Fábrica 1
@@ -44,18 +46,40 @@ export async function GET(request: Request) {
         : (processes.find((process) => process.code === filters.processCode)?.id ?? null);
 
     const today = todayISODate();
-    const groups =
+    const familySort = filters.sort === "product_family";
+    const allGroups =
       filters.processCode !== "ALL" && processId === null
         ? []
         : await collectAllPages((page) =>
             listChildItemGroups(
               client,
-              { ...filters, page, pageSize: EXPORT_PAGE_SIZE },
+              {
+                ...filters,
+                orderFamilyAbbreviation: "",
+                sort: familySort ? DEFAULT_CHILD_ITEM_SORT : filters.sort,
+                page,
+                pageSize: EXPORT_PAGE_SIZE,
+              },
               processId,
               today,
               schedule,
             ).then((result) => ({ rows: result.items, total: result.total })),
           );
+    const familyAbbreviations =
+      filters.orderFamilyAbbreviation || familySort
+        ? await getOrderFamilyAbbreviations(client, allGroups.map((item) => item.orderId))
+        : new Map<string, string>();
+    const groups = filterAndSortByOrderFamily(
+      allGroups.map((item) => ({
+        ...item,
+        ...(familyAbbreviations.has(item.orderId)
+          ? { orderFamilyAbbreviation: familyAbbreviations.get(item.orderId) }
+          : {}),
+      })),
+      filters.orderFamilyAbbreviation,
+      filters.sortDir,
+      familySort,
+    );
     return workbookResponse(exportFileName("fabrica-1"), fabrica1Sheet(groups, processes, schedule));
   } catch (error) {
     return Response.json(

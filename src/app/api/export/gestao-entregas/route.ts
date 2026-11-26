@@ -7,9 +7,11 @@ import { getActiveProcesses, getProductionOrderRows } from "@/lib/repositories/p
 import { getScheduleIndex } from "@/lib/services/scheduling.service";
 import { createClient } from "@/lib/supabase/server";
 import { todayISODate } from "@/lib/utils/dates";
-import { parseProductionFilters } from "@/lib/utils/filters";
+import { DEFAULT_PRODUCTION_SORT, parseProductionFilters } from "@/lib/utils/filters";
 import { errorMessage } from "@/lib/utils/supabase-result";
 import { hasPermission } from "@/lib/auth/access";
+import { getOrderFamilyAbbreviations } from "@/lib/repositories/orders.repository";
+import { filterAndSortByOrderFamily } from "@/lib/utils/order-family";
 
 /**
  * GET /api/export/gestao-entregas — .xlsx da gestão de OF com a lista
@@ -37,8 +39,34 @@ export async function GET(request: Request) {
       getActiveProcesses(client),
       getScheduleIndex(client),
     ]);
-    const rows = await collectAllPages((page) =>
-      getProductionOrderRows(client, { ...filters, page, pageSize: EXPORT_PAGE_SIZE }, today),
+    const familySort = filters.sort === "product_family";
+    const allRows = await collectAllPages((page) =>
+      getProductionOrderRows(
+        client,
+        {
+          ...filters,
+          orderFamilyAbbreviation: "",
+          sort: familySort ? DEFAULT_PRODUCTION_SORT : filters.sort,
+          page,
+          pageSize: EXPORT_PAGE_SIZE,
+        },
+        today,
+      ).then((result) => ({ rows: result.rows, total: result.total })),
+    );
+    const familyAbbreviations =
+      filters.orderFamilyAbbreviation || familySort
+        ? await getOrderFamilyAbbreviations(client, allRows.map((row) => row.orderId))
+        : new Map<string, string>();
+    const rows = filterAndSortByOrderFamily(
+      allRows.map((row) => ({
+        ...row,
+        ...(familyAbbreviations.has(row.orderId)
+          ? { orderFamilyAbbreviation: familyAbbreviations.get(row.orderId) }
+          : {}),
+      })),
+      filters.orderFamilyAbbreviation,
+      filters.sortDir,
+      familySort,
     );
 
     return workbookResponse(exportFileName("gestao-entregas"), gestaoEntregasSheet(rows, processes, schedule));

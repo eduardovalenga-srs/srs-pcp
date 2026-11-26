@@ -9,6 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RECRUITMENT_REQUEST_REASONS, VACANCY_STATUSES, type VacancyListItem } from "@/lib/types/recruitment";
 import type { RecruitmentVacancyStatusValue } from "@/lib/types/database";
+import {
+  ALL_RECRUITMENT_CUSTOMERS,
+  filterRecruitmentVacancies,
+  getRecruitmentCustomerOptions,
+} from "@/lib/utils/recruitment-vacancies";
 
 const STATUS_BADGE: Record<RecruitmentVacancyStatusValue, { variant: BadgeProps["variant"] }> = {
   VAGAS_ABERTAS: { variant: "success" },
@@ -18,6 +23,7 @@ const STATUS_BADGE: Record<RecruitmentVacancyStatusValue, { variant: BadgeProps[
   INTEGRACAO: { variant: "outline" },
   CONTRATADOS: { variant: "success" },
 };
+const BOARD_STATUSES = VACANCY_STATUSES.filter((status) => status.value !== "CONTRATADOS");
 
 function dateLabel(date: string | null) {
   if (!date) return "Sem previsão";
@@ -33,37 +39,59 @@ export function RecruitmentVacanciesList({
   canManage: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const [customerFilter, setCustomerFilter] = useState(ALL_RECRUITMENT_CUSTOMERS);
+  const [showContracted, setShowContracted] = useState(false);
+  const customerOptions = useMemo(() => getRecruitmentCustomerOptions(vacancies), [vacancies]);
+  const customerVacancies = useMemo(
+    () => customerFilter === ALL_RECRUITMENT_CUSTOMERS
+      ? vacancies
+      : vacancies.filter((vacancy) => vacancy.customer?.trim() === customerFilter),
+    [customerFilter, vacancies],
+  );
   const filtered = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("pt-BR");
-    if (!normalized) return vacancies;
-    return vacancies.filter((vacancy) =>
-      [
-        vacancy.title,
-        vacancy.customer ?? "",
-        vacancy.department,
-        vacancy.location ?? "",
-        vacancy.requester ?? "",
-        vacancy.recruiter ?? "",
-      ].some((value) => value.toLocaleLowerCase("pt-BR").includes(normalized)),
-    );
-  }, [query, vacancies]);
+    return filterRecruitmentVacancies(vacancies, {
+      query,
+      customer: customerFilter,
+      showContracted,
+    });
+  }, [customerFilter, query, showContracted, vacancies]);
 
-  const openCount = vacancies.filter((vacancy) => vacancy.status === "VAGAS_ABERTAS").length;
-  const inProgressCount = vacancies.filter(
+  const openCount = customerVacancies.filter((vacancy) => vacancy.status === "VAGAS_ABERTAS").length;
+  const inProgressCount = customerVacancies.filter(
     (vacancy) => vacancy.status !== "VAGAS_ABERTAS" && vacancy.status !== "CONTRATADOS",
   ).length;
-  const hiredCount = vacancies.filter((vacancy) => vacancy.status === "CONTRATADOS").length;
+  const hiredCount = customerVacancies.filter((vacancy) => vacancy.status === "CONTRATADOS").length;
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
         <SummaryCard label="Vagas abertas" value={openCount} icon={<BriefcaseBusiness className="h-4 w-4" aria-hidden />} />
         <SummaryCard label="Em processo" value={inProgressCount} icon={<CalendarDays className="h-4 w-4" aria-hidden />} />
-        <SummaryCard label="Contratados" value={hiredCount} icon={<Users className="h-4 w-4" aria-hidden />} />
+        <SummaryCard
+          label="Contratados"
+          value={hiredCount}
+          icon={<Users className="h-4 w-4" aria-hidden />}
+          onClick={() => setShowContracted((current) => !current)}
+          active={showContracted}
+        />
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="relative min-w-[220px] flex-1">
+      <div className="grid items-end gap-3 sm:grid-cols-[minmax(12rem,0.8fr)_minmax(16rem,1.5fr)_auto]">
+        <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium">
+          <span>Cliente</span>
+          <select
+            value={customerFilter}
+            onChange={(event) => setCustomerFilter(event.target.value)}
+            aria-label="Filtrar vagas por cliente"
+            className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm font-normal shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value={ALL_RECRUITMENT_CUSTOMERS}>Todos os clientes</option>
+            {customerOptions.map((customer) => (
+              <option key={customer} value={customer}>{customer}</option>
+            ))}
+          </select>
+        </label>
+        <div className="relative min-w-0">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <Input
             value={query}
@@ -88,11 +116,20 @@ export function RecruitmentVacanciesList({
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-lg border bg-card px-4 py-12 text-center text-sm text-muted-foreground">
-          Nenhuma vaga corresponde à busca.
+          {showContracted
+            ? "Nenhuma vaga contratada corresponde aos filtros."
+            : "Nenhuma vaga aberta ou em processo corresponde aos filtros. Use o card Contratados para consultar as vagas contratadas."}
         </div>
+      ) : showContracted ? (
+        <section aria-label="Lista de vagas contratadas" className="space-y-3">
+          <h2 className="text-sm font-semibold">Vagas contratadas ({filtered.length})</h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {filtered.map((vacancy) => <VacancyCard key={vacancy.id} vacancy={vacancy} />)}
+          </div>
+        </section>
       ) : (
         <div className="flex gap-3 overflow-x-auto pb-3" aria-label="Quadro de vagas por status">
-          {VACANCY_STATUSES.map((status) => {
+          {BOARD_STATUSES.map((status) => {
             const columnVacancies = filtered.filter((vacancy) => vacancy.status === status.value);
             const badge = STATUS_BADGE[status.value];
             return (
@@ -119,7 +156,9 @@ export function RecruitmentVacanciesList({
           })}
         </div>
       )}
-      <p className="text-xs text-muted-foreground">{filtered.length} de {vacancies.length} vaga(s)</p>
+      <p className="text-xs text-muted-foreground">
+        {filtered.length} vaga(s) encontrada(s) entre {customerVacancies.length} cadastrada(s) no escopo do cliente.
+      </p>
     </div>
   );
 }
@@ -155,14 +194,38 @@ function VacancyCard({ vacancy }: { vacancy: VacancyListItem }) {
   );
 }
 
-function SummaryCard({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between rounded-lg border bg-card p-4">
+function SummaryCard({
+  label,
+  value,
+  icon,
+  onClick,
+  active = false,
+}: {
+  label: string;
+  value: number;
+  icon: React.ReactNode;
+  onClick?: () => void;
+  active?: boolean;
+}) {
+  const className = [
+    "flex w-full items-center justify-between rounded-lg border bg-card p-4 text-left",
+    onClick ? "cursor-pointer transition-colors hover:border-primary/50 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : "",
+    active ? "border-primary bg-accent/30" : "",
+  ].filter(Boolean).join(" ");
+  const content = (
+    <>
       <div>
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
       </div>
       <span className="rounded-md bg-muted p-2 text-muted-foreground">{icon}</span>
-    </div>
+    </>
+  );
+  return onClick ? (
+    <button type="button" onClick={onClick} aria-pressed={active} className={className}>
+      {content}
+    </button>
+  ) : (
+    <div className={className}>{content}</div>
   );
 }

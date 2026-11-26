@@ -173,6 +173,7 @@ export async function saveRecruitmentCandidateScheduleAction(input: {
   vacancyId: string;
   triageScheduledAt: string | null;
   interviewScheduledAt: string | null;
+  interviewerName: string | null;
   asoScheduledAt: string | null;
   integrationScheduledAt: string | null;
   hiredAt: string | null;
@@ -229,6 +230,7 @@ export async function updateRecruitmentCandidateStageAction(input: {
       user.id,
     );
     revalidatePath(`/rh/vagas/${input.vacancyId}`);
+    revalidatePath("/rh/vagas");
     return { success: true, message: "Etapa do candidato atualizada." };
   } catch (error) {
     return { success: false, message: errorMessage(error) };

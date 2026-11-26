@@ -496,6 +496,65 @@ export async function updateOrderProductGroup(
   }
 }
 
+/**
+ * Abreviação da família de produto vinculada a cada OF. A família da OF
+ * (`orders.product_group_id`) é distinta do campo `family` dos itens.
+ */
+export async function getOrderFamilyAbbreviations(
+  client: SupabaseServer,
+  orderIds: readonly string[],
+): Promise<Map<string, string>> {
+  const uniqueOrderIds = [...new Set(orderIds)];
+  const abbreviationsByOrder = new Map<string, string>();
+  if (uniqueOrderIds.length === 0) return abbreviationsByOrder;
+
+  const idChunks: string[][] = [];
+  for (let offset = 0; offset < uniqueOrderIds.length; offset += 200) {
+    idChunks.push(uniqueOrderIds.slice(offset, offset + 200));
+  }
+  const orderResults = await Promise.all(
+    idChunks.map((ids) =>
+      client.from("orders").select("id, product_group_id").in("id", ids),
+    ),
+  );
+  for (const { error } of orderResults) {
+    assertOk(error, "Não foi possível carregar as famílias das OFs");
+  }
+  const orders = orderResults.flatMap(({ data }) => data ?? []);
+
+  const productGroupIds = [
+    ...new Set((orders ?? []).flatMap((order) => (order.product_group_id === null ? [] : [order.product_group_id]))),
+  ];
+  if (productGroupIds.length === 0) return abbreviationsByOrder;
+
+  const groupResults = await Promise.all(
+    idChunksForNumbers(productGroupIds, 200).map((ids) =>
+      client.from("product_groups").select("id, family_abbreviation").in("id", ids),
+    ),
+  );
+  for (const { error } of groupResults) {
+    assertOk(error, "Não foi possível carregar as abreviações das famílias");
+  }
+  const groups = groupResults.flatMap(({ data }) => data ?? []);
+
+  const abbreviationByGroupId = new Map(groups.map((group) => [group.id, group.family_abbreviation]));
+  for (const order of orders) {
+    if (order.product_group_id === null) continue;
+    const abbreviation = abbreviationByGroupId.get(order.product_group_id);
+    if (abbreviation) abbreviationsByOrder.set(order.id, abbreviation);
+  }
+
+  return abbreviationsByOrder;
+}
+
+function idChunksForNumbers(ids: number[], size: number): number[][] {
+  const chunks: number[][] = [];
+  for (let offset = 0; offset < ids.length; offset += size) {
+    chunks.push(ids.slice(offset, offset + size));
+  }
+  return chunks;
+}
+
 export interface DashboardOrdersSummary {
   /** Top clientes (nome + nº de pedidos), já agregados no banco. */
   topCustomers: { name: string; count: number }[];

@@ -10,13 +10,14 @@ import { formatQuantity, formatWeight, toNumber } from "@/lib/utils/formatting";
 
 export type SearchParamsRecord = Record<string, string | string[] | undefined>;
 
-/** Chaves de ordenação aceitas pela RPC get_production_rows (whitelist do banco). */
+/** Chaves de ordenação da produção; `product_family` é ordenada em memória antes da paginação. */
 export const PRODUCTION_SORT_KEYS = [
   // 036: sequência de fabricação — é o DEFAULT das telas (seq nulls
   // last, depois a ordenação atual); as linhas sem número ficam no fim.
   "seq",
   "delivery_date",
   "order_code",
+  "product_family",
   "order_type",
   "order_status",
   "family",
@@ -43,13 +44,14 @@ export type ProductionSortKey = (typeof PRODUCTION_SORT_KEYS)[number];
 export const DEFAULT_PRODUCTION_SORT: ProductionSortKey = "seq";
 
 /**
- * 043: chaves de ordenação da Fábrica 1 (colunas da lista de grupos de
- * itens filhos). Os códigos de processo do catálogo também ordenam —
+ * Chaves de ordenação da Fábrica 1 (colunas da lista de grupos de itens
+ * filhos). `product_family` é ordenada em memória antes da paginação. Os códigos de processo ordenam —
  * validação separada (isValidProcessSort), como na produção.
  */
 export const CHILD_ITEM_SORT_KEYS = [
   "seq",
   "order_code",
+  "product_family",
   "customer",
   "child_item",
   "materials",
@@ -261,6 +263,7 @@ export function parseProductionFilters(params: SearchParamsRecord): ProductionFi
     deliveryFrom,
     deliveryTo,
     orderCode: textParam(params, "of"),
+    orderFamilyAbbreviation: textParam(params, "familiaof"),
     customer: textParam(params, "cliente"),
     family: textParam(params, "familia"),
     parentItem: textParam(params, "itempai"),
@@ -354,6 +357,7 @@ export function parseChildItemFilters(params: SearchParamsRecord): ChildItemFilt
   return {
     search,
     orderCode,
+    orderFamilyAbbreviation: textParam(params, "familiaof"),
     customer,
     parentItem,
     childItem,
@@ -509,6 +513,7 @@ export function productionQueryString(filters: ProductionFilters, overrides: Par
     entregade: next.deliveryFrom || undefined,
     entregaate: next.deliveryTo || undefined,
     of: next.orderCode || undefined,
+    familiaof: next.orderFamilyAbbreviation || undefined,
     cliente: next.customer || undefined,
     familia: next.family || undefined,
     itempai: next.parentItem || undefined,
@@ -553,6 +558,7 @@ export function childItemQueryString(
   return toSearchParams({
     q: next.search || undefined,
     of: next.orderCode || undefined,
+    familiaof: next.orderFamilyAbbreviation || undefined,
     cliente: next.customer || undefined,
     itempai: next.parentItem || undefined,
     filho: next.childItem || undefined,
@@ -587,6 +593,7 @@ export interface ChildItemFilterChip {
   key:
     | "search"
     | "orderCode"
+    | "orderFamily"
     | "customer"
     | "parentItem"
     | "childItem"
@@ -619,6 +626,12 @@ export function childItemFilterChips(filters: ChildItemFilters): ChildItemFilter
   }[] = [
     { key: "search", column: "Busca", value: filters.search, clear: { search: "" } },
     { key: "orderCode", column: "OF/OS", value: filters.orderCode, clear: { orderCode: "" } },
+    {
+      key: "orderFamily",
+      column: "Família",
+      value: filters.orderFamilyAbbreviation,
+      clear: { orderFamilyAbbreviation: "" },
+    },
     { key: "customer", column: "Cliente", value: filters.customer, clear: { customer: "" } },
     { key: "parentItem", column: "Item pai", value: filters.parentItem, clear: { parentItem: "" } },
     { key: "childItem", column: "Filho", value: filters.childItem, clear: { childItem: "" } },
@@ -717,6 +730,7 @@ export interface ActiveFilterChip {
     | "deliveryPeriod"
     | "process"
     | "orderCode"
+    | "orderFamily"
     | "customer"
     | "family"
     | "parentItem"
@@ -823,6 +837,12 @@ export function activeFilterChips(filters: ProductionFilters): ActiveFilterChip[
   // Filtros de coluna — texto ("contém")
   const textColumns: { key: ActiveFilterChip["key"]; column: string; value: string; clear: Partial<ProductionFilters> }[] = [
     { key: "orderCode", column: "OF/OS", value: filters.orderCode, clear: { orderCode: "" } },
+    {
+      key: "orderFamily",
+      column: "Família",
+      value: filters.orderFamilyAbbreviation,
+      clear: { orderFamilyAbbreviation: "" },
+    },
     { key: "customer", column: "Cliente", value: filters.customer, clear: { customer: "" } },
     { key: "family", column: "Tipo", value: filters.family, clear: { family: "" } },
     { key: "parentItem", column: "Item pai", value: filters.parentItem, clear: { parentItem: "" } },

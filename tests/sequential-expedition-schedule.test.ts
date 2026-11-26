@@ -45,7 +45,7 @@ function order(
 }
 
 describe("computeProductionChainSchedule", () => {
-  it("waits until the next business day and respects each process capacity", () => {
+  it("uses selected-process capacity and lead time for downstream stages", () => {
     const queues = [
       queue("CORTE", [order("o1", 2, 2), order("o2", 8, 2)]),
       queue("EXP", [order("o1", 2, 2), order("o2", 2, 2)]),
@@ -53,6 +53,8 @@ describe("computeProductionChainSchedule", () => {
     const result = computeProductionChainSchedule(
       queues,
       [process("CORTE", 10), process("EXP", 20)],
+      [],
+      { processId: "process-CORTE", anchorDate: "2026-10-19" },
     );
 
     expect(result.expeditionByOrder).toEqual({
@@ -68,8 +70,18 @@ describe("computeProductionChainSchedule", () => {
     ];
     const processes = [process("CORTE", 10), process("EXP", 20)];
 
-    const original = computeProductionChainSchedule(queues, processes);
-    const reordered = computeProductionChainSchedule(queues, processes, ["o2", "o1"]);
+    const original = computeProductionChainSchedule(
+      queues,
+      processes,
+      [],
+      { processId: "process-CORTE", anchorDate: "2026-10-19" },
+    );
+    const reordered = computeProductionChainSchedule(
+      queues,
+      processes,
+      ["o2", "o1"],
+      { processId: "process-CORTE", anchorDate: "2026-10-19" },
+    );
 
     expect(original.expeditionByOrder.o1).toBe("2026-10-26");
     expect(reordered.expeditionByOrder.o2).toBe("2026-10-21");
@@ -100,14 +112,14 @@ describe("computeProductionChainSchedule", () => {
     expect(result.expeditionByOrder.o1).toBe("2026-11-02");
   });
 
-  it("uses the catalog lead time as a minimum in business days", () => {
+  it("uses the catalog lead time without a capacity calculation when the process is not selected", () => {
     const result = computeProductionChainSchedule(
       [queue("PREMONT", [order("o1", 2, 100)])],
       [process("PREMONT", 10, 4)],
     );
 
     expect(result.windowsByOrder.o1.PREMONT).toEqual({
-      loadDays: 0.02,
+      loadDays: null,
       startDate: "2026-10-19",
       endDate: "2026-10-22",
       issue: null,
@@ -127,8 +139,8 @@ describe("computeProductionChainSchedule", () => {
     );
 
     expect(result.windowsByOrder.o1.CORTE).toEqual({
-      loadDays: 4,
-      startDate: "2026-10-16",
+      loadDays: null,
+      startDate: "2026-10-21",
       endDate: "2026-10-21",
       issue: null,
     });
@@ -139,7 +151,7 @@ describe("computeProductionChainSchedule", () => {
     expect(result.expeditionByOrder.o1).toBe("2026-10-26");
   });
 
-  it("respects shared capacity while back-planning a preceding process queue", () => {
+  it("back-plans preceding process dates by lead time without using their capacity", () => {
     const result = computeProductionChainSchedule(
       [
         queue("CORTE", [order("o1", 4, 2), order("o2", 2, 2)]),
@@ -151,10 +163,12 @@ describe("computeProductionChainSchedule", () => {
     );
 
     expect(result.windowsByOrder.o1.CORTE).toMatchObject({
-      startDate: "2026-10-22",
+      loadDays: null,
+      startDate: "2026-10-23",
       endDate: "2026-10-23",
     });
     expect(result.windowsByOrder.o2.CORTE).toMatchObject({
+      loadDays: null,
       startDate: "2026-10-26",
       endDate: "2026-10-26",
     });
@@ -184,7 +198,7 @@ describe("computeProductionChainSchedule", () => {
           }),
         ]),
       ],
-      [process("CORTE", 10), process("KIT", 20), process("PRE_MTG", 30)],
+      [process("CORTE", 10), process("KIT", 20, 5), process("PRE_MTG", 30)],
       [],
       { processId: "process-PRE_MTG", anchorDate: "2026-10-26" },
     );
@@ -197,7 +211,7 @@ describe("computeProductionChainSchedule", () => {
     });
     expect(result.windowsByOrder.o1.KIT).toMatchObject({
       startDate: "2026-10-19",
-      endDate: "2026-10-22",
+      endDate: "2026-10-23",
       issue: null,
     });
     expect(result.windowsByOrder.o1.PRE_MTG.issue).toBeNull();
@@ -257,6 +271,92 @@ describe("computeProductionChainSchedule", () => {
     expect(result.expeditionByOrder.o1).toBeNull();
   });
 
+  it("preserves same-day completed history and plans the next pending stage from it", () => {
+    const completedAt = "2026-11-12";
+    const result = computeProductionChainSchedule(
+      [
+        queue("LASER", [
+          order("o1", 0, 1, { processConcluded: true, processCompletedAt: completedAt }),
+        ]),
+        queue("DB_CH", [
+          order("o1", 0, 1, { processConcluded: true, processCompletedAt: completedAt }),
+        ]),
+        queue("KIT", [order("o1", 4, 2)]),
+        queue("PRE_MTG", [order("o1", 2, 2)]),
+      ],
+      [
+        process("LASER", 10, 3),
+        process("DB_CH", 20),
+        process("KIT", 30, 2),
+        process("PRE_MTG", 40, 2),
+      ],
+      [],
+      { processId: "process-PRE_MTG", anchorDate: "2026-11-20" },
+    );
+
+    expect(result.windowsByOrder.o1.LASER).toEqual({
+      loadDays: 0,
+      startDate: completedAt,
+      endDate: completedAt,
+      issue: null,
+    });
+    expect(result.windowsByOrder.o1.DB_CH).toEqual({
+      loadDays: 0,
+      startDate: completedAt,
+      endDate: completedAt,
+      issue: null,
+    });
+    expect(result.windowsByOrder.o1.KIT).toMatchObject({
+      startDate: "2026-11-18",
+      endDate: "2026-11-19",
+      issue: null,
+    });
+    expect(result.windowsByOrder.o1.PRE_MTG.issue).toBeNull();
+    expect(result.expeditionByOrder.o1).toBe("2026-11-24");
+  });
+
+  it("continues calculating after a completed selected process despite an earlier history issue", () => {
+    const result = computeProductionChainSchedule(
+      [
+        queue("LASER", [
+          order("o1", 0, null, {
+            processConcluded: true,
+            processCompletedAt: null,
+          }),
+        ]),
+        queue("PRE_MTG", [
+          order("o1", 0, null, {
+            processConcluded: true,
+            processCompletedAt: "2026-10-21",
+          }),
+        ]),
+        queue("EXP", [order("o1", null, null)]),
+      ],
+      [
+        process("LASER", 10, 3),
+        process("PRE_MTG", 20, 3),
+        process("EXP", 30, 2),
+      ],
+      [],
+      { processId: "process-PRE_MTG", anchorDate: "2026-10-19" },
+    );
+
+    expect(result.windowsByOrder.o1.LASER.issue).toBe(
+      "Data de conclusão do processo ausente",
+    );
+    expect(result.windowsByOrder.o1.PRE_MTG).toMatchObject({
+      startDate: "2026-10-21",
+      endDate: "2026-10-21",
+      issue: null,
+    });
+    expect(result.windowsByOrder.o1.EXP).toMatchObject({
+      startDate: "2026-10-22",
+      endDate: "2026-10-23",
+      issue: null,
+    });
+    expect(result.expeditionByOrder.o1).toBe("2026-10-26");
+  });
+
   it("rejects a weekend as the fixed start date instead of silently rolling it", () => {
     const result = computeProductionChainSchedule(
       [queue("CORTE", [order("o1", 2, 2)])],
@@ -304,18 +404,18 @@ describe("computeProductionChainSchedule", () => {
 
     expect(result.windowsByOrder.o1.MP).toEqual({
       loadDays: 0,
-      startDate: "2026-10-19",
-      endDate: "2026-10-19",
+      startDate: "2026-10-20",
+      endDate: "2026-10-20",
       issue: null,
     });
     expect(result.windowsByOrder.o1.CORTE).toMatchObject({
-      loadDays: 2,
-      startDate: "2026-10-20",
+      loadDays: null,
+      startDate: "2026-10-21",
       endDate: "2026-10-21",
       issue: null,
     });
     expect(result.windowsByOrder.o1.PRE_MTG.startDate).toBe("2026-10-22");
-    expect(result.materialReceiptByOrder.o1).toBe("2026-10-19");
+    expect(result.materialReceiptByOrder.o1).toBe("2026-10-20");
     expect(result.expeditionByOrder.o1).toBe("2026-10-23");
   });
 
@@ -345,6 +445,8 @@ describe("computeProductionChainSchedule", () => {
         queue("EXP", [order("o1", 2, 2)]),
       ],
       [process("CORTE", 10), process("EXP", 20)],
+      [],
+      { processId: "process-CORTE", anchorDate: "2026-10-19" },
     );
 
     expect(result.expeditionByOrder.o1).toBeNull();

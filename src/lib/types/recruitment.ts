@@ -72,6 +72,7 @@ export type RecruitmentEmployeeOption = {
   id: string;
   name: string;
   clientId: string;
+  status: "ATIVO" | "INATIVO";
 };
 
 export type RecruitmentCustomerOption = {
@@ -115,7 +116,12 @@ export function normalizeRecruitmentLabel(value: string): string {
 
 export function buildRecruitmentFormOptions(
   nodes: readonly EmployeeAllocationNodeRow[],
-  employees: readonly { id: string; name: string; allocation_position_id: string | null }[],
+  employees: readonly {
+    id: string;
+    name: string;
+    status: "ATIVO" | "INATIVO";
+    allocation_position_id: string | null;
+  }[],
   approvedRoleRows: readonly Pick<RecruitmentApprovedRoleRow, "id" | "client_id" | "name" | "active">[] = [],
 ): RecruitmentFormOptions {
   const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -197,7 +203,7 @@ export function buildRecruitmentFormOptions(
         .flatMap((employee) => {
           const clientId = clientAncestorForPosition(employee.allocation_position_id);
           return clientId && clientIds.has(clientId)
-            ? [{ id: employee.id, name: employee.name, clientId }]
+            ? [{ id: employee.id, name: employee.name, clientId, status: employee.status }]
             : [];
         })
         .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));

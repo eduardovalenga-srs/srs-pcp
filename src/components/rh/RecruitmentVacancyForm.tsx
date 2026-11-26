@@ -278,10 +278,16 @@ export function RecruitmentVacancyForm({
               disabled={!selectedCustomer || employees.length === 0 || pending}
             >
               <option value="">
-                {!selectedCustomer ? "Selecione primeiro o cliente" : employees.length ? "Selecione o funcionário" : "Nenhum funcionário alocado encontrado"}
+                {!selectedCustomer
+                  ? "Selecione primeiro o cliente"
+                  : employees.length
+                    ? "Selecione o funcionário ativo ou inativo"
+                    : "Nenhum funcionário com alocação atual ou histórica encontrado"}
               </option>
               {employees.map((employee) => (
-                <option key={employee.id} value={employee.id}>{employee.name}</option>
+                <option key={employee.id} value={employee.id}>
+                  {employee.name}{employee.status === "INATIVO" ? " · Inativo" : ""}
+                </option>
               ))}
             </select>
           </div>

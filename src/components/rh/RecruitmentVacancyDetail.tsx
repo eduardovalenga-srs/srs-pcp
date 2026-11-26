@@ -317,6 +317,10 @@ function CandidateScheduleEditor({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
+  const [interviewScheduledAt, setInterviewScheduledAt] = useState(
+    toDateTimeLocal(candidate.interview_scheduled_at),
+  );
+  const [interviewerName, setInterviewerName] = useState(candidate.interviewer_name ?? "");
 
   function submit(formData: FormData) {
     setError("");
@@ -326,6 +330,7 @@ function CandidateScheduleEditor({
         vacancyId,
         triageScheduledAt: dateTimeLocalToIso(formData.get("triageScheduledAt")),
         interviewScheduledAt: dateTimeLocalToIso(formData.get("interviewScheduledAt")),
+        interviewerName: String(formData.get("interviewerName") ?? "") || null,
         asoScheduledAt: selected
           ? dateTimeLocalToIso(formData.get("asoScheduledAt"))
           : candidate.aso_scheduled_at,
@@ -350,7 +355,10 @@ function CandidateScheduleEditor({
     return (
       <div className="min-w-48 space-y-1 text-xs text-muted-foreground">
         <p>Triagem: {scheduleLabel(candidate.triage_scheduled_at)}</p>
-        <p>Entrevista: {scheduleLabel(candidate.interview_scheduled_at)}</p>
+        <p>
+          Entrevista: {scheduleLabel(candidate.interview_scheduled_at)}
+          {candidate.interviewer_name ? ` · Entrevistador(a): ${candidate.interviewer_name}` : ""}
+        </p>
         <p>ASO: {scheduleLabel(candidate.aso_scheduled_at)}</p>
         <p>Integração: {scheduleLabel(candidate.integration_scheduled_at)}</p>
         <p>Contratação: {candidate.hired_at ? dateLabel(candidate.hired_at) : "—"}</p>
@@ -361,6 +369,10 @@ function CandidateScheduleEditor({
   return (
     <details className="min-w-48">
       <summary className="cursor-pointer text-sm text-primary">Agendar etapas</summary>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Entrevista: {scheduleLabel(candidate.interview_scheduled_at)}
+        {candidate.interviewer_name ? ` · Entrevistador(a): ${candidate.interviewer_name}` : ""}
+      </p>
       <form action={submit} className="mt-2 grid min-w-60 gap-2 rounded-md border bg-background p-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label htmlFor={`triage-${candidate.id}`} className="text-xs">Triagem</Label>
@@ -368,7 +380,31 @@ function CandidateScheduleEditor({
         </div>
         <div className="space-y-1">
           <Label htmlFor={`interview-${candidate.id}`} className="text-xs">Entrevista</Label>
-          <Input id={`interview-${candidate.id}`} name="interviewScheduledAt" type="datetime-local" defaultValue={toDateTimeLocal(candidate.interview_scheduled_at)} disabled={pending} />
+          <Input
+            id={`interview-${candidate.id}`}
+            name="interviewScheduledAt"
+            type="datetime-local"
+            value={interviewScheduledAt}
+            onChange={(event) => {
+              setInterviewScheduledAt(event.target.value);
+              if (!event.target.value) setInterviewerName("");
+            }}
+            disabled={pending}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`interviewer-${candidate.id}`} className="text-xs">
+            Quem fará a entrevista{interviewScheduledAt ? " *" : ""}
+          </Label>
+          <Input
+            id={`interviewer-${candidate.id}`}
+            name="interviewerName"
+            value={interviewerName}
+            onChange={(event) => setInterviewerName(event.target.value)}
+            maxLength={150}
+            required={Boolean(interviewScheduledAt)}
+            disabled={pending}
+          />
         </div>
         <div className="space-y-1">
           <Label htmlFor={`aso-${candidate.id}`} className="text-xs">Agendamento ASO</Label>

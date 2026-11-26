@@ -36,9 +36,11 @@ function queue(overrides: Partial<ProcessScheduleQueue> = {}): ProcessScheduleQu
 
 describe("buildScheduleIndex", () => {
   it("calculates the chain cumulatively and uses the next business day after EXP for DP", () => {
-    const schedule = buildScheduleIndex([queue()], [
-      { id: "process-exp", code: "EXP", displayOrder: 10, durationDays: 1 },
-    ]);
+    const schedule = buildScheduleIndex(
+      [queue()],
+      [{ id: "process-exp", code: "EXP", displayOrder: 10, durationDays: 1 }],
+      { processId: "process-exp", anchorDate: "2026-10-19" },
+    );
 
     expect(schedule.windowsByOrder.o1.EXP).toEqual({
       start: "2026-10-19",
@@ -126,7 +128,7 @@ describe("buildScheduleIndex", () => {
     );
 
     expect(schedule.windowsByOrder.o1.CORTE).toEqual({
-      start: "2026-10-16",
+      start: "2026-10-21",
       end: "2026-10-21",
     });
     expect(schedule.windowsByOrder.o1.PREMONT?.start).toBe("2026-10-22");
@@ -186,6 +188,7 @@ describe("buildScheduleIndex", () => {
     const schedule = buildScheduleIndex(
       [
         queue({
+          processId: "process-ACAB",
           processCode: "ACAB",
           rows: [
             {
@@ -202,6 +205,7 @@ describe("buildScheduleIndex", () => {
         }),
       ],
       [{ id: "process-ACAB", code: "ACAB", displayOrder: 10, durationDays: 1 }],
+      { processId: "process-ACAB", anchorDate: "2026-10-19" },
     );
 
     expect(schedule.windowsByOrder.o1.ACAB).toBeUndefined();

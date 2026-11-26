@@ -34,7 +34,7 @@ import { assertOk } from "@/lib/utils/supabase-result";
 const VACANCY_COLUMNS =
   "id, title, customer, request_reason, replacement_employee_id, allocation_client_id, allocation_location_id, allocation_area_id, allocation_position_id, approved_role_id, selected_candidate_id, department, location, employment_type, quantity, description, requirements, salary_range, requester, recruiter, priority, status, opening_date, target_date, closed_reason, created_at, updated_at, created_by, updated_by";
 const CANDIDATE_COLUMNS =
-  "id, vacancy_id, name, email, phone, source, stage, notes, triage_scheduled_at, interview_scheduled_at, aso_scheduled_at, integration_scheduled_at, hired_at, created_at, updated_at, created_by, updated_by";
+  "id, vacancy_id, name, email, phone, source, stage, notes, triage_scheduled_at, interview_scheduled_at, interviewer_name, aso_scheduled_at, integration_scheduled_at, hired_at, created_at, updated_at, created_by, updated_by";
 const APPROVED_ROLE_COLUMNS = "id, client_id, name, active, created_at, updated_at, created_by, updated_by";
 
 function sameInstant(left: string | null, right: string | null): boolean {
@@ -74,9 +74,8 @@ export async function getRecruitmentFormOptions(
     getEmployeeAllocationNodes(client),
     client
       .from("employees")
-      .select("id, name, allocation_position_id")
-      .eq("status", "ATIVO")
-      .not("allocation_position_id", "is", null)
+      .select("id, name, status, allocation_position_id, last_allocation_position_id")
+      .or("allocation_position_id.not.is.null,last_allocation_position_id.not.is.null")
       .order("name", { ascending: true }),
     client
       .from("recruitment_approved_roles")
@@ -91,7 +90,8 @@ export async function getRecruitmentFormOptions(
     (employeeRows.data ?? []).map((employee) => ({
       id: employee.id,
       name: employee.name,
-      allocation_position_id: employee.allocation_position_id,
+      status: employee.status as EmployeeStatusValue,
+      allocation_position_id: employee.allocation_position_id ?? employee.last_allocation_position_id,
     })),
     (approvedRoleRows.data ?? []) as unknown as RecruitmentApprovedRoleRow[],
   );
@@ -386,16 +386,19 @@ async function assertEmployeeBelongsToClient(
 ): Promise<void> {
   const { data, error } = await client
     .from("employees")
-    .select("id, allocation_position_id, status")
+    .select("id, allocation_position_id, last_allocation_position_id, status")
     .eq("id", employeeId)
     .maybeSingle();
   assertOk(error, "Não foi possível validar o funcionário selecionado");
-  if (!data || (data.status as EmployeeStatusValue) !== "ATIVO" || !data.allocation_position_id) {
-    throw new Error("O funcionário selecionado não está ativo ou não possui alocação.");
+  const positionId = data?.status === "ATIVO"
+    ? data.allocation_position_id
+    : data?.last_allocation_position_id;
+  if (!data || !positionId) {
+    throw new Error("O funcionário selecionado não possui uma alocação atual ou histórica.");
   }
 
   const byId = new Map(allocationNodes.map((node) => [node.id, node]));
-  const position = byId.get(data.allocation_position_id);
+  const position = byId.get(positionId);
   if (!position || position.node_type !== "POSITION" || !isNodePathActive(position, byId)) {
     throw new Error("O funcionário selecionado não possui uma alocação ativa.");
   }
@@ -563,7 +566,7 @@ export async function saveRecruitmentCandidateSchedule(
 ): Promise<void> {
   const { data: candidate, error: candidateError } = await client
     .from("recruitment_candidates")
-    .select("id, vacancy_id, triage_scheduled_at, interview_scheduled_at, aso_scheduled_at, integration_scheduled_at, hired_at")
+    .select("id, vacancy_id, triage_scheduled_at, interview_scheduled_at, interviewer_name, aso_scheduled_at, integration_scheduled_at, hired_at")
     .eq("id", input.id)
     .eq("vacancy_id", input.vacancyId)
     .maybeSingle();
@@ -592,6 +595,7 @@ export async function saveRecruitmentCandidateSchedule(
     .update({
       triage_scheduled_at: input.triageScheduledAt,
       interview_scheduled_at: input.interviewScheduledAt,
+      interviewer_name: input.interviewScheduledAt ? input.interviewerName : null,
       aso_scheduled_at: input.asoScheduledAt,
       integration_scheduled_at: input.integrationScheduledAt,
       hired_at: input.hiredAt,

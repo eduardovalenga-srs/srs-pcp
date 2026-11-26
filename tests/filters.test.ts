@@ -37,6 +37,7 @@ describe("parseProductionFilters", () => {
       deliveryFrom: null,
       deliveryTo: null,
       orderCode: "",
+      orderFamilyAbbreviation: "",
       customer: "",
       family: "",
       parentItem: "",
@@ -90,12 +91,19 @@ describe("parseProductionFilters", () => {
 
   it("aceita chave de ordenação de coluna de processo", () => {
     expect(isSortableColumn("delivery_date")).toBe(true);
+    expect(isSortableColumn("product_family")).toBe(true);
     // 043: a Fábrica 2/Gestão passaram a ordenar pela coluna do cliente —
     // a chave `customer` está na whitelist da produção agora.
     expect(isSortableColumn("customer")).toBe(true);
     expect(isValidProcessSort("SOLDA")).toBe(true);
     expect(isValidProcessSort("solda")).toBe(false);
     expect(isValidProcessSort("LASER'; drop")).toBe(false);
+  });
+
+  it("lê e serializa filtro de abreviação da família vinculada à OF", () => {
+    const filters = parseProductionFilters({ familiaof: " ab " });
+    expect(filters.orderFamilyAbbreviation).toBe("ab");
+    expect(new URLSearchParams(productionQueryString(filters)).get("familiaof")).toBe("ab");
   });
 
   it("lê o primeiro valor quando o parâmetro se repete", () => {
@@ -303,6 +311,7 @@ describe("parseChildItemFilters", () => {
     expect(parseChildItemFilters({})).toEqual({
       search: "",
       orderCode: "",
+      orderFamilyAbbreviation: "",
       customer: "",
       parentItem: "",
       childItem: "",
@@ -326,6 +335,19 @@ describe("parseChildItemFilters", () => {
       page: 1,
       pageSize: CHILD_ITEMS_PAGE_SIZE,
     });
+  });
+
+  it("lê e serializa família da OF e permite ordenar por ela na Fábrica 1", () => {
+    const filters = parseChildItemFilters({
+      familiaof: " tp ",
+      ordem: "product_family",
+      direcao: "desc",
+    });
+    expect(filters.orderFamilyAbbreviation).toBe("tp");
+    expect(filters.sort).toBe("product_family");
+    const params = new URLSearchParams(childItemQueryString(filters));
+    expect(params.get("familiaof")).toBe("tp");
+    expect(params.get("ordem")).toBe("product_family");
   });
 
   it("lê os filtros de texto das colunas, aparando espaços e limitando o tamanho", () => {

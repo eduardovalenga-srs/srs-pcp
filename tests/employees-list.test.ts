@@ -60,6 +60,7 @@ function employee(overrides: Partial<EmployeeRow> = {}): EmployeeRow {
     created_by: null,
     updated_by: null,
     allocation_position_id: null,
+    last_allocation_position_id: null,
     ...overrides,
   };
 }

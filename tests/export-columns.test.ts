@@ -185,7 +185,7 @@ function order(overrides: Partial<OrderSummary> = {}): OrderSummary {
 describe("gestaoEntregasSheet", () => {
   it("espelha o cabeçalho da tela: dados fixos, DP e uma coluna por processo", () => {
     const sheet = gestaoEntregasSheet([productionOrderRow()], PROCESSES, SCHEDULE);
-    expect(sheet.headers).toEqual(["Seq.", "OF/OS", "Cli.", "Qtd.", "Peso", "Ent.", "DP", "MP", "LASER", "SERRA", "KIT", "SOLDA", "EXP"]);
+    expect(sheet.headers).toEqual(["Seq.", "OF/OS", "Fam.", "Cli.", "Qtd.", "Peso", "Ent.", "DP", "MP", "LASER", "SERRA", "KIT", "SOLDA", "EXP"]);
   });
 
   it("exporta célula agregada com contador e vazio como —", () => {
@@ -212,12 +212,12 @@ describe("gestaoEntregasSheet", () => {
   it("mantém números e datas tipadas (soma e ordenação no Excel)", () => {
     const sheet = gestaoEntregasSheet([productionOrderRow({ seq: null, weightTotal: null })], PROCESSES, SCHEDULE);
     expect(sheet.rows[0][0]).toBe("—");
-    expect(sheet.rows[0][3]).toBe(12);
-    expect(sheet.rows[0][4]).toBe("—");
-    expect(sheet.rows[0][5]).toBeInstanceOf(Date);
+    expect(sheet.rows[0][4]).toBe(12);
+    expect(sheet.rows[0][5]).toBe("—");
+    expect(sheet.rows[0][6]).toBeInstanceOf(Date);
     // DP é a coluna imediatamente após a entrega, também tipada.
-    expect(sheet.rows[0][6]).toEqual(new Date(2026, 9, 30));
-    expect(sheet.dateColumns).toEqual([5, 6]);
+    expect(sheet.rows[0][7]).toEqual(new Date(2026, 9, 30));
+    expect(sheet.dateColumns).toEqual([6, 7]);
   });
 
   it("coluna DP usa a data de expedição do sequenciamento, sem depender da MP", () => {
@@ -232,12 +232,12 @@ describe("gestaoEntregasSheet", () => {
       },
     });
     const sheet = gestaoEntregasSheet([pending], PROCESSES, SCHEDULE);
-    expect(sheet.rows[0][6]).toEqual(new Date(2026, 9, 30));
+    expect(sheet.rows[0][7]).toEqual(new Date(2026, 9, 30));
 
     const delivered = productionOrderRow({
       processes: { MP: orderProcessCell({ status: "CONCLUIDO", applicable: 1 }) },
     });
-    expect(gestaoEntregasSheet([delivered], PROCESSES, SCHEDULE).rows[0][6]).toEqual(new Date(2026, 9, 30));
+    expect(gestaoEntregasSheet([delivered], PROCESSES, SCHEDULE).rows[0][7]).toEqual(new Date(2026, 9, 30));
   });
 });
 
@@ -247,6 +247,7 @@ describe("fabrica2Sheet", () => {
     expect(sheet.headers).toEqual([
       "Seq.",
       "OF/OS",
+      "Fam.",
       "Cli.",
       "TP",
       "Item pai",
@@ -293,7 +294,7 @@ describe("fabrica2Sheet", () => {
     expect(rows[sheet.headers.indexOf("OP")]).toBe("—");
     expect(rows[sheet.headers.indexOf("Seq.")]).toBe("—");
     // Ent. e DP são as duas colunas de data, lado a lado.
-    expect(sheet.dateColumns).toEqual([8, 9]);
+    expect(sheet.dateColumns).toEqual([9, 10]);
   });
 
   it("coluna DP usa a mesma data de expedição do Sequenciamento", () => {
@@ -307,7 +308,7 @@ describe("fabrica2Sheet", () => {
       },
     });
     const sheet = fabrica2Sheet([row], PROCESSES, SCHEDULE);
-    expect(sheet.rows[0][9]).toEqual(new Date(2026, 9, 30));
+    expect(sheet.rows[0][10]).toEqual(new Date(2026, 9, 30));
   });
 });
 
@@ -317,6 +318,7 @@ describe("fabrica1Sheet", () => {
     expect(sheet.headers).toEqual([
       "Seq.",
       "OF/OS",
+      "Fam.",
       "Cli.",
       "Filho",
       "Matérias-primas",
@@ -361,13 +363,13 @@ describe("fabrica1Sheet", () => {
       SCHEDULE,
     );
 
-    expect(sheet.rows[0][4]).toBe("CH6.30; TB42.20");
-    expect(sheet.rows[1][4]).toBe("—");
+    expect(sheet.rows[0][5]).toBe("CH6.30; TB42.20");
+    expect(sheet.rows[1][5]).toBe("—");
   });
 
   it("Filho sem código cai para a descrição (mesma regra da tela)", () => {
     const sheet = fabrica1Sheet([childItemGroup({ childItem: null, description: "SUPORTE 90" })], PROCESSES, SCHEDULE);
-    expect(sheet.rows[0][3]).toBe("SUPORTE 90");
+    expect(sheet.rows[0][4]).toBe("SUPORTE 90");
   });
 
   it("coluna DP usa a mesma data de expedição do Sequenciamento", () => {
@@ -380,7 +382,7 @@ describe("fabrica1Sheet", () => {
       parentProcessStatuses: { MP: "NAO_INICIADO" },
     });
     const sheet = fabrica1Sheet([group], PROCESSES, SCHEDULE);
-    expect(sheet.rows[0][9]).toEqual(new Date(2026, 9, 30));
+    expect(sheet.rows[0][10]).toEqual(new Date(2026, 9, 30));
   });
 });
 

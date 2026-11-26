@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   deleteRecruitmentApprovedRoleSchema,
+  saveRecruitmentCandidateScheduleSchema,
   saveRecruitmentVacancySchema,
   updateRecruitmentApprovedRoleSchema,
 } from "@/lib/validators/recruitment.schema";
@@ -69,6 +70,45 @@ describe("formulário de solicitação de vaga", () => {
         ...validVacancy,
         requestReason: "REFORCO",
         replacementEmployeeId: "55555555-5555-4555-8555-555555555555",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("agendamento da entrevista", () => {
+  const validSchedule = {
+    id: "11111111-1111-4111-8111-111111111111",
+    vacancyId: "22222222-2222-4222-8222-222222222222",
+    triageScheduledAt: null,
+    interviewScheduledAt: null,
+    interviewerName: null,
+    asoScheduledAt: null,
+    integrationScheduledAt: null,
+    hiredAt: null,
+  };
+
+  it("exige e normaliza o nome do entrevistador quando há horário marcado", () => {
+    expect(saveRecruitmentCandidateScheduleSchema.safeParse(validSchedule).success).toBe(true);
+    expect(
+      saveRecruitmentCandidateScheduleSchema.safeParse({
+        ...validSchedule,
+        interviewScheduledAt: "2026-11-25T10:00:00-03:00",
+      }).success,
+    ).toBe(false);
+    expect(
+      saveRecruitmentCandidateScheduleSchema.parse({
+        ...validSchedule,
+        interviewScheduledAt: "2026-11-25T10:00:00-03:00",
+        interviewerName: "  Ana Entrevistadora  ",
+      }).interviewerName,
+    ).toBe("Ana Entrevistadora");
+  });
+
+  it("limita o nome do entrevistador a 150 caracteres", () => {
+    expect(
+      saveRecruitmentCandidateScheduleSchema.safeParse({
+        ...validSchedule,
+        interviewerName: "A".repeat(151),
       }).success,
     ).toBe(false);
   });
