@@ -227,6 +227,7 @@ describe("migrations", () => {
         admission_date: "2023-04-13",
         dismissal_date: null,
         registered_client: "GERAL/BRAFER",
+        registered_function: "AUXILIAR DE PRODUÇÃO I",
       }])],
     );
     expect(Number(rows[0]?.imported)).toBe(1);
@@ -237,10 +238,11 @@ describe("migrations", () => {
       area: string | null;
       location: string | null;
       registered_client: string | null;
+      registered_function: string | null;
       admission_date: string | null;
       dismissal_date: string | null;
     }>(
-      `select shift, area, location, registered_client, admission_date::text, dismissal_date::text
+      `select shift, area, location, registered_client, registered_function, admission_date::text, dismissal_date::text
          from public.employees
        where company_code = '752' and registration = '2'`,
     );
@@ -249,6 +251,7 @@ describe("migrations", () => {
       area: "Solda",
       location: "LOCAL DE ALOCAÇÃO",
       registered_client: "GERAL/BRAFER",
+      registered_function: "AUXILIAR DE PRODUÇÃO I",
       admission_date: "2023-04-13",
       dismissal_date: "2021-02-03",
     });
@@ -264,6 +267,7 @@ describe("migrations", () => {
         admission_date: null,
         dismissal_date: "2024-05-06",
         registered_client: null,
+        registered_function: null,
       }])],
     );
 
@@ -271,13 +275,15 @@ describe("migrations", () => {
     const { rows: updatedDates } = await db.query<{
       admission_date: string | null;
       dismissal_date: string | null;
+      registered_function: string | null;
     }>(
-      `select admission_date::text, dismissal_date::text from public.employees
+      `select admission_date::text, dismissal_date::text, registered_function from public.employees
         where company_code = '752' and registration = '2'`,
     );
     expect(updatedDates[0]).toEqual({
       admission_date: "2023-04-13",
       dismissal_date: "2024-05-06",
+      registered_function: "AUXILIAR DE PRODUÇÃO I",
     });
   });
 

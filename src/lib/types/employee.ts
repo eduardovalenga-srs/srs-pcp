@@ -26,6 +26,7 @@ export type EmployeeImportRow = Pick<
   | "admission_date"
   | "dismissal_date"
   | "registered_client"
+  | "registered_function"
 > & {
   source: "PLANILHA" | "PDF";
   warning?: string;
@@ -36,6 +37,7 @@ export type EmployeeFilters = {
   company: string;
   status: string;
   registeredClient: string;
+  registeredFunction: string;
   location: string;
   shift: string;
   area: string;

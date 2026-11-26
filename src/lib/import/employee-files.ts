@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 
 import { extractPdfText, type PdfTextItem } from "@/lib/import/pdf-text";
 import type { EmployeeImportRow } from "@/lib/types/employee";
+import { employeeImportKey } from "@/lib/utils/employee-import";
 
 const COMPANY_NAMES: Record<string, string> = {
   "752": "SRS DESENVOLVIMENTO LTDA",
@@ -12,9 +13,19 @@ export type EmployeeImportPreview = {
   rows: EmployeeImportRow[];
   spreadsheetRows: number;
   pdfRows: number;
-  matchedRegisteredClients: number;
-  pdfOnlyRows: number;
+  matchedRows: number;
+  discrepancies: EmployeeImportDiscrepancy[];
   warnings: string[];
+};
+
+export type EmployeeImportDiscrepancy = {
+  key: string;
+  company_code: string;
+  registration: string;
+  name: string;
+  source: "PLANILHA" | "PDF" | "AMBOS";
+  reason: "SOMENTE_PLANILHA" | "SOMENTE_PDF" | "NOME_DIVERGENTE";
+  otherName?: string;
 };
 
 function normalizeText(value: string): string {
@@ -68,20 +79,24 @@ function parseSpreadsheet(buffer: ArrayBuffer): EmployeeImportRow[] {
     defval: null,
     blankrows: false,
   });
+  // A planilha pode ter várias seções "Empresa:" na mesma aba; cada funcionário
+  // pertence à empresa do último cabeçalho lido antes da sua linha.
   let companyCode: string | null = null;
   let companyName: string | null = null;
-  const companyRow = matrix.find((row) => normalizeText(cleanCell(row[0])) === "EMPRESA:");
-  if (companyRow) {
-    const code = registrationText(companyRow[1]);
-    companyCode = code;
-    companyName = cleanCell(companyRow[2]) || COMPANY_NAMES[code] || null;
-  }
-  if (!companyCode || !companyName) {
-    throw new Error("Não identifiquei a empresa na planilha. Confira o relatório e tente novamente.");
-  }
+  let sawCompanyHeader = false;
 
   const records: EmployeeImportRow[] = [];
   for (const row of matrix) {
+    if (normalizeText(cleanCell(row[0])) === "EMPRESA:") {
+      sawCompanyHeader = true;
+      const code = registrationText(row[1]);
+      companyCode = code || null;
+      companyName = code ? cleanCell(row[2]) || COMPANY_NAMES[code] || null : null;
+      continue;
+    }
+
+    if (!companyCode || !companyName) continue;
+
     const registration = registrationText(row[0]);
     const name = cleanCell(row[1]);
     if (!/^\d+$/.test(registration) || !name) continue;
@@ -94,10 +109,14 @@ function parseSpreadsheet(buffer: ArrayBuffer): EmployeeImportRow[] {
       admission_date: parseExcelDate(row[5]),
       dismissal_date: parseExcelDate(row[6]),
       registered_client: null,
+      registered_function: null,
       source: "PLANILHA",
     });
   }
 
+  if (!sawCompanyHeader) {
+    throw new Error("Não identifiquei a empresa na planilha. Confira o relatório e tente novamente.");
+  }
   if (records.length === 0) {
     throw new Error("Não encontrei linhas de funcionários na planilha enviada.");
   }
@@ -128,45 +147,26 @@ function parsePdf(buffer: ArrayBuffer): Promise<EmployeeImportRow[]> {
       if (!companyCode) continue;
 
       for (const line of groupPdfRows(page.items)) {
-        const name = line
-          .filter((item) => item.x >= 55 && item.x < 290)
+        const employeeItem = line.find(
+          (item) => item.x < 215 && /^\s*\d{1,4}\s*-\s*.+/.test(item.str),
+        );
+        const match = employeeItem?.str.match(/^\s*(\d{1,4})\s*-\s*(.+?)\s*$/);
+        const registration = match?.[1]?.replace(/^0+(?=\d)/, "");
+        const name = match?.[2]?.trim() ?? "";
+        if (!registration || !name) continue;
+
+        const registeredFunction = line
+          .filter((item) => item.x >= 215 && item.x < 300)
           .map((item) => item.str)
           .join(" ")
-          .replace(/\s+\d{1,3}\s*$/, "")
-          .trim();
-        const normalizedName = normalizeText(name);
-        if (
-          !name ||
-          normalizedName.startsWith("NOME DO EMPREGADO") ||
-          normalizedName.includes("SRS DESENVOLVIMENTO LTDA") ||
-          normalizedName.includes("SRS PROJETOS E DESENVOLVIMENTOS LTDA")
-        ) continue;
-
-        const codeItem = line.find((item) => item.x < 55 && /^\s*\d{1,4}\b/.test(item.str));
-        const registration = codeItem?.str.match(/^\s*(\d{1,4})\b/)?.[1];
-        if (!registration) continue;
-
-        let registeredClient: string | null = null;
-        const locationItems = [
-          ...line.filter((item) => item.x >= 290 && item.x < 510),
-          ...(codeItem ? [codeItem] : []),
-        ];
-        for (const item of locationItems) {
-          const match = item.str.match(/\bGERAL\/(.+)/i);
-          if (!match) continue;
-          let value = `GERAL/${match[1]}`.trim();
-          value = value.replace(/\s+\d{1,3}\s*$/, "").trim();
-          const normalizedName = normalizeText(name);
-          const normalizedValue = normalizeText(value);
-          if (normalizedValue.endsWith(normalizedName)) {
-            const suffix = value.toUpperCase().lastIndexOf(name.toUpperCase());
-            if (suffix >= 0) value = value.slice(0, suffix).trim();
-          }
-          if (value.length > 6) {
-            registeredClient = value.replace(/\s+/g, " ");
-            break;
-          }
-        }
+          .replace(/\s+/g, " ")
+          .trim() || null;
+        const registeredClient = line
+          .filter((item) => item.x >= 300 && item.x < 390)
+          .map((item) => item.str)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim() || null;
 
         records.push({
           company_code: companyCode,
@@ -176,6 +176,7 @@ function parsePdf(buffer: ArrayBuffer): Promise<EmployeeImportRow[]> {
           admission_date: null,
           dismissal_date: null,
           registered_client: registeredClient,
+          registered_function: registeredFunction,
           source: "PDF",
         });
       }
@@ -192,40 +193,74 @@ export async function parseEmployeeImportFiles(
   const pdfRows = pdf ? await parsePdf(pdf) : [];
   const merged = new Map<string, EmployeeImportRow>();
   const warnings: string[] = [];
+  const discrepancies: EmployeeImportDiscrepancy[] = [];
+  const hasPdfRoster = Boolean(pdf && pdfRows.length > 0);
 
   for (const row of spreadsheetRows) {
-    merged.set(`${row.company_code}:${row.registration}`, row);
+    merged.set(employeeImportKey(row.company_code, row.registration), row);
   }
 
-  let matchedRegisteredClients = 0;
-  let pdfOnlyRows = 0;
+  let matchedRows = 0;
+  const pdfKeys = new Set(pdfRows.map((row) => employeeImportKey(row.company_code, row.registration)));
   for (const pdfRow of pdfRows) {
-    const key = `${pdfRow.company_code}:${pdfRow.registration}`;
+    const key = employeeImportKey(pdfRow.company_code, pdfRow.registration);
     const existing = merged.get(key);
     if (!existing) {
       merged.set(key, pdfRow);
-      pdfOnlyRows += 1;
+      discrepancies.push({
+        key,
+        company_code: pdfRow.company_code,
+        registration: pdfRow.registration,
+        name: pdfRow.name,
+        source: "PDF",
+        reason: "SOMENTE_PDF",
+      });
       continue;
     }
     if (normalizeText(existing.name) !== normalizeText(pdfRow.name)) {
+      discrepancies.push({
+        key,
+        company_code: pdfRow.company_code,
+        registration: existing.registration,
+        name: existing.name,
+        source: "AMBOS",
+        reason: "NOME_DIVERGENTE",
+        otherName: pdfRow.name,
+      });
       warnings.push(
-        `Matrícula ${pdfRow.registration} da empresa ${pdfRow.company_code}: os nomes divergem entre os arquivos; o Cliente Cadastrado do PDF não foi aplicado.`,
+        `Matrícula ${pdfRow.registration} da empresa ${pdfRow.company_code}: os nomes divergem; os dados do PDF não foram aplicados a esse funcionário.`,
       );
       continue;
     }
     if (pdfRow.registered_client) {
       existing.registered_client = pdfRow.registered_client;
-      matchedRegisteredClients += 1;
+    }
+    if (pdfRow.registered_function) existing.registered_function = pdfRow.registered_function;
+    matchedRows += 1;
+  }
+
+  if (hasPdfRoster) {
+    for (const row of spreadsheetRows) {
+      const key = employeeImportKey(row.company_code, row.registration);
+      if (pdfKeys.has(key)) continue;
+      discrepancies.push({
+        key,
+        company_code: row.company_code,
+        registration: row.registration,
+        name: row.name,
+        source: "PLANILHA",
+        reason: "SOMENTE_PLANILHA",
+      });
     }
   }
 
   const activeWithoutRegisteredClient = spreadsheetRows.filter((row) => {
-    const imported = merged.get(`${row.company_code}:${row.registration}`);
+    const imported = merged.get(employeeImportKey(row.company_code, row.registration));
     return !row.dismissal_date && !imported?.registered_client;
   }).length;
-  if (activeWithoutRegisteredClient > 0) {
+  if (hasPdfRoster && activeWithoutRegisteredClient > 0) {
     warnings.push(
-      `${activeWithoutRegisteredClient} funcionário(s) ativo(s) da planilha não aparecem no PDF; Cliente Cadastrado ficará vazio.`,
+      `${activeWithoutRegisteredClient} funcionário(s) ativo(s) da planilha ficaram sem Departamento associado do PDF; Cliente Cadastrado ficará vazio.`,
     );
   }
 
@@ -237,8 +272,8 @@ export async function parseEmployeeImportFiles(
     rows: [...merged.values()],
     spreadsheetRows: spreadsheetRows.length,
     pdfRows: pdfRows.length,
-    matchedRegisteredClients,
-    pdfOnlyRows,
+    matchedRows,
+    discrepancies: [...new Map(discrepancies.map((item) => [item.key, item])).values()],
     warnings,
   };
 }

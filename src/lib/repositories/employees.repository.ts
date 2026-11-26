@@ -4,7 +4,7 @@ import type { SaveEmployeeOutput } from "@/lib/validators/employee.schema";
 import { assertOk } from "@/lib/utils/supabase-result";
 
 const EMPLOYEE_COLUMNS =
-  "id, company_code, company_name, registration, name, billing_model, admission_date, dismissal_date, registered_client, location, status, shift, area, client, responsible_1, responsible_2, allocation_position_id, created_at, updated_at, created_by, updated_by";
+  "id, company_code, company_name, registration, name, billing_model, admission_date, dismissal_date, registered_client, registered_function, location, status, shift, area, client, responsible_1, responsible_2, allocation_position_id, created_at, updated_at, created_by, updated_by";
 
 export async function getEmployees(client: SupabaseServer): Promise<EmployeeRow[]> {
   const { data, error } = await client
@@ -98,6 +98,7 @@ export async function importEmployees(
     admissionDate: string | null;
     dismissalDate: string | null;
     registeredClient: string | null;
+    registeredFunction: string | null;
   }[],
 ): Promise<number> {
   const { data, error } = await client.rpc("import_employees", {
@@ -109,6 +110,7 @@ export async function importEmployees(
       admission_date: row.admissionDate || null,
       dismissal_date: row.dismissalDate || null,
       registered_client: row.registeredClient || null,
+      registered_function: row.registeredFunction || null,
     })),
   });
   assertOk(error, "Não foi possível importar os funcionários");

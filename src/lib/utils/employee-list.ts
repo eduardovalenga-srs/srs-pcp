@@ -11,6 +11,7 @@ export interface EmployeeListFilters {
   company: string;
   status: string;
   registeredClient: string;
+  registeredFunction: string;
   location: string;
   shift: string;
   area: string;
@@ -29,6 +30,7 @@ export const EMPTY_EMPLOYEE_FILTERS: EmployeeListFilters = {
   company: "",
   status: "ALL",
   registeredClient: "",
+  registeredFunction: "",
   location: "",
   shift: "",
   area: "",
@@ -56,6 +58,7 @@ export const EMPLOYEE_SORT_KEYS = [
   "dismissal_date",
   "status",
   "registered_client",
+  "registered_function",
   "client",
   "location",
   "shift",
@@ -99,6 +102,7 @@ export function filterEmployees<T extends EmployeeListRow>(
     if (filters.company && employee.company_code !== filters.company) return false;
     if (filters.status !== "ALL" && employee.status !== filters.status) return false;
     if (!matchesText(employee.registered_client, filters.registeredClient)) return false;
+    if (!matchesText(employee.registered_function, filters.registeredFunction)) return false;
     if (!matchesText(employee.location, filters.location)) return false;
     if (!matchesText(employee.shift, filters.shift)) return false;
     if (!matchesText(employee.area, filters.area)) return false;
@@ -159,6 +163,7 @@ export function parseEmployeeListFilters(params: EmployeeSearchParams): Employee
     company: paramValue(params, "company").trim(),
     status: ["ATIVO", "INATIVO", "ALL"].includes(status) ? status : "ATIVO",
     registeredClient: paramValue(params, "registeredClient").trim(),
+    registeredFunction: paramValue(params, "registeredFunction").trim(),
     location: paramValue(params, "location").trim(),
     shift: paramValue(params, "shift").trim(),
     area: paramValue(params, "area").trim(),

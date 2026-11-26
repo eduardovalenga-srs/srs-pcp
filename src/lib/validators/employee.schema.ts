@@ -32,7 +32,8 @@ export const importEmployeeRowsSchema = z
       admission_date: z.string().date().nullable(),
       dismissal_date: z.string().date().nullable(),
       registered_client: z.string().trim().max(180).nullable(),
+      registered_function: z.string().trim().max(180).nullable(),
     }),
   )
   .min(1, "Nenhum funcionário válido para importar.")
-  .max(1000, "A importação excedeu 1.000 funcionários.");
+  .max(2000, "A importação excedeu 2.000 funcionários.");

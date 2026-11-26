@@ -17,7 +17,7 @@ import type { ProcessDefinition } from "@/lib/types/production";
 import type { ProductGroupDefinition } from "@/lib/types/product-group";
 import type { MpReceiptState } from "@/lib/types/mp-receipt";
 import type { ProcessScheduleQueue, SchedulingOrderRow } from "@/lib/types/scheduling";
-import { formatDate } from "@/lib/utils/dates";
+import { formatDate, todayISODate } from "@/lib/utils/dates";
 import { formatQuantity, formatWeight } from "@/lib/utils/formatting";
 import { MP_RECEIPT_STATE_LABELS, mpReceiptClass } from "@/lib/utils/mp-receipt";
 import {
@@ -105,6 +105,8 @@ export function ProcessScheduling({
 
   const expeditionDates = chainSchedule.expeditionByOrder;
   const materialReceiptDates = chainSchedule.materialReceiptByOrder;
+  // Data corrente no fuso do negócio: base do destaque das previsões de MP vencidas.
+  const today = todayISODate();
 
   const goTo = (nextProcessId: string | null, nextFamilyId: number | null) => {
     const params = new URLSearchParams();
@@ -318,15 +320,14 @@ export function ProcessScheduling({
                 <th scope="col" className="min-w-40 border-b px-2 py-2">Cliente</th>
                 <th scope="col" className="min-w-16 border-b px-2 py-2 text-right">Qtd.</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2 text-right">Peso (kg)</th>
-                <th scope="col" className="min-w-24 border-b px-2 py-2">Entrega</th>
-                <th scope="col" className="min-w-28 border-b px-2 py-2">Data de expedição</th>
+                <th scope="col" className="min-w-24 border-b px-2 py-2">Ent. Cliente</th>
                 <th scope="col" className="min-w-28 border-b px-2 py-2">Família</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2">Processo</th>
-                <th scope="col" className="min-w-32 border-b px-2 py-2">MP / recebimento prev.</th>
+                <th scope="col" className="min-w-32 border-b px-2 py-2">Nec. MP</th>
                 <th scope="col" className="min-w-24 border-b px-2 py-2 text-right">Cap. (kg/dia)</th>
                 <th scope="col" className="min-w-20 border-b px-2 py-2 text-right">Carga (dias)</th>
-                <th scope="col" className="min-w-24 border-b px-2 py-2">Início prev.</th>
-                <th scope="col" className="min-w-24 border-b px-2 py-2">Fim prev.</th>
+                <th scope="col" className="min-w-24 border-b px-2 py-2">Ini. Processo</th>
+                <th scope="col" className="min-w-28 border-b px-2 py-2">Data de expedição</th>
               </tr>
             </thead>
             <tbody>
@@ -369,9 +370,6 @@ export function ProcessScheduling({
                     {formatWeight(row.weightKg)}
                   </td>
                   <td className="border-b px-2 py-1.5 tabular-nums">{formatDate(row.deliveryDate)}</td>
-                  <td className="border-b px-2 py-1.5 tabular-nums">
-                    {formatDate(expeditionDates[row.orderId] ?? null)}
-                  </td>
                   <td className="border-b px-2 py-1.5">
                     {row.groupType ? (
                       <span title={row.familyDescription ?? undefined}>{row.groupType}</span>
@@ -409,14 +407,11 @@ export function ProcessScheduling({
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
-                      {materialReceiptDates[row.orderId] ? (
-                        <span
-                          className="text-[11px] tabular-nums text-muted-foreground"
-                          title="Recebimento previsto: um dia útil antes do primeiro processo de fabricação aplicável."
-                        >
-                          Prev.: {formatDate(materialReceiptDates[row.orderId])}
-                        </span>
-                      ) : null}
+                      <MaterialReceiptPreview
+                        date={materialReceiptDates[row.orderId] ?? null}
+                        today={today}
+                        received={row.mpState === "TOTAL"}
+                      />
                     </div>
                   </td>
                   <td className="border-b px-2 py-1.5 text-right tabular-nums">
@@ -436,7 +431,9 @@ export function ProcessScheduling({
                     )}
                   </td>
                   <td className="border-b px-2 py-1.5 tabular-nums">{formatDate(row.startDate)}</td>
-                  <td className="border-b px-2 py-1.5 tabular-nums">{formatDate(row.endDate)}</td>
+                  <td className="border-b px-2 py-1.5 tabular-nums">
+                    {formatDate(expeditionDates[row.orderId] ?? null)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -452,6 +449,40 @@ export function ProcessScheduling({
         </p>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * Previsão de recebimento da MP na coluna Nec. MP. A data vencida (anterior
+ * ao dia corrente no fuso do negócio) fica em vermelho; hoje e datas futuras
+ * seguem no tom neutro. MP já recebida TOTALMENTE nunca fica vermelha — a
+ * data prevista deixou de ser uma pendência.
+ */
+function MaterialReceiptPreview({
+  date,
+  today,
+  received,
+}: {
+  date: string | null;
+  today: string;
+  received: boolean;
+}) {
+  if (!date) return null;
+  const overdue = !received && date < today;
+  return (
+    <span
+      className={cn(
+        "text-[11px] tabular-nums",
+        overdue ? "font-semibold text-red-600 dark:text-red-400" : "text-muted-foreground",
+      )}
+      title={
+        overdue
+          ? "Recebimento previsto vencido: um dia útil antes do primeiro processo de fabricação aplicável."
+          : "Recebimento previsto: um dia útil antes do primeiro processo de fabricação aplicável."
+      }
+    >
+      Prev.: {formatDate(date)}
+    </span>
   );
 }
 

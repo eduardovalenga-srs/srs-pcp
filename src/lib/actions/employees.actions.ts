@@ -54,6 +54,7 @@ export async function importEmployeesAction(rows: EmployeeImportRow[]): Promise<
         admission_date: row.admission_date,
         dismissal_date: row.dismissal_date,
         registered_client: row.registered_client,
+        registered_function: row.registered_function,
       })),
     );
     if (!parsed.success) return { success: false, message: firstZodMessage(parsed.error) };
@@ -69,6 +70,7 @@ export async function importEmployeesAction(rows: EmployeeImportRow[]): Promise<
         admissionDate: row.admission_date,
         dismissalDate: row.dismissal_date,
         registeredClient: row.registered_client,
+        registeredFunction: row.registered_function,
       })),
     );
     revalidatePath("/rh/funcionarios");

@@ -102,6 +102,7 @@ export type EmployeeRow = {
   admission_date: string | null;
   dismissal_date: string | null;
   registered_client: string | null;
+  registered_function: string | null;
   location: string | null;
   status: EmployeeStatusValue;
   shift: string | null;
@@ -782,6 +783,7 @@ export type Database = {
           admission_date?: string | null;
           dismissal_date?: string | null;
           registered_client?: string | null;
+          registered_function?: string | null;
           location?: string | null;
           allocation_position_id?: string | null;
           last_allocation_position_id?: string | null;
@@ -802,6 +804,7 @@ export type Database = {
           admission_date: string | null;
           dismissal_date: string | null;
           registered_client: string | null;
+          registered_function: string | null;
           location: string | null;
           allocation_position_id: string | null;
           last_allocation_position_id: string | null;

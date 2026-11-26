@@ -33,6 +33,7 @@ type TextFilterField =
   | "registration"
   | "name"
   | "registeredClient"
+  | "registeredFunction"
   | "location"
   | "shift"
   | "area"
@@ -53,6 +54,7 @@ function hasActiveFilters(filters: EmployeeListFilters): boolean {
     filters.company !== "" ||
     filters.status !== "ATIVO" ||
     filters.registeredClient !== "" ||
+    filters.registeredFunction !== "" ||
     filters.location !== "" ||
     filters.shift !== "" ||
     filters.area !== "" ||
@@ -118,7 +120,7 @@ export function EmployeesList({
   const companies = [...new Map(employees.map((employee) => [employee.company_code, employee.company_name])).entries()]
     .sort(([codeA], [codeB]) => codeA.localeCompare(codeB, "pt-BR"));
 
-  const columnCount = 7 + (restricted ? 0 : 7) + (canEdit ? 1 : 0);
+  const columnCount = 7 + (restricted ? 0 : 8) + (canEdit ? 1 : 0);
 
   function apply(overrides: Partial<EmployeeListFilters>) {
     setFilters((current) => ({ ...current, ...overrides }));
@@ -193,6 +195,7 @@ export function EmployeesList({
                 company: filters.company,
                 status: filters.status,
                 registeredClient: filters.registeredClient,
+                registeredFunction: filters.registeredFunction,
                 location: filters.location,
                 shift: filters.shift,
                 area: filters.area,
@@ -315,6 +318,14 @@ export function EmployeesList({
                   />
                 </TableHead>
               ) : null}
+              {!restricted ? (
+                <TableHead aria-sort={ariaSort(sort, "registered_function")}>
+                  <HeaderLabel
+                    sort={sortHeader("registered_function", "Função Cadastrada")}
+                    filter={textFilter("registeredFunction", "Função Cadastrada", "função cadastrada")}
+                  />
+                </TableHead>
+              ) : null}
               <TableHead aria-sort={ariaSort(sort, "client")}>
                 <HeaderLabel sort={sortHeader("client", "Cliente")} filter={textFilter("client", "Cliente", "cliente")} />
               </TableHead>
@@ -362,6 +373,7 @@ export function EmployeesList({
                   </span>
                 </TableCell>
                 {!restricted ? <TableCell>{employee.registered_client ?? "—"}</TableCell> : null}
+                {!restricted ? <TableCell>{employee.registered_function ?? "—"}</TableCell> : null}
                 <TableCell>{employee.client ?? "—"}</TableCell>
                 <TableCell>{employee.location ?? "—"}</TableCell>
                 <TableCell>{employee.shift ?? "—"}</TableCell>
