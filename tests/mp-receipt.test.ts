@@ -356,6 +356,83 @@ describe("recebimento de MP por matéria-prima (059)", () => {
     });
   });
 
+  it("seletor em lote bate com o cálculo por OF (mp_order_materials)", async () => {
+    // Referência: a MESMA conta feita OF a OF, como antes da 113.
+    const { rows: expectedRows } = await db.query<{
+      code: string;
+      pending_materials: number;
+      pending_kg: string;
+    }>(
+      `select o.code,
+              (count(*) filter (where trim_scale(round(m.balance_kg, 2)) > 0))::int
+                as pending_materials,
+              coalesce(
+                sum(greatest(trim_scale(round(m.balance_kg, 2)), 0)),
+                0
+              )::text as pending_kg
+         from public.orders o
+         cross join lateral public.mp_order_materials(o.id) m
+        where o.status <> 'CANCELADO'
+        group by o.id, o.code
+       having count(*) filter (where trim_scale(round(m.balance_kg, 2)) > 0) > 0`,
+    );
+
+    const { rows: selectorRows } = await db.query<{ ofs: unknown }>(
+      `select ofs from public.get_mp_receipt_customers()`,
+    );
+    const actual = selectorRows
+      .flatMap((row) => (Array.isArray(row.ofs) ? (row.ofs as Record<string, unknown>[]) : []))
+      .map((of) => ({
+        code: String(of.code),
+        pendingMaterials: Number(of.pending_materials ?? 0),
+        pendingKg: Number(of.pending_kg ?? 0),
+      }))
+      .sort((a, b) => a.code.localeCompare(b.code));
+
+    const expected = expectedRows
+      .map((row) => ({
+        code: row.code,
+        pendingMaterials: row.pending_materials,
+        pendingKg: Number(row.pending_kg),
+      }))
+      .sort((a, b) => a.code.localeCompare(b.code));
+
+    expect(actual).toEqual(expected);
+  });
+
+  it("converte material em gramas para kg e ignora OF cancelada", async () => {
+    await asSuperUser(db);
+
+    // Material em G entra na conta pelo peso em kg (500 g = 0,5 kg).
+    const orderD = await createOrder("OF-MP-G", "Cliente D");
+    const itemD = await createItem(orderD, null, "G-1", "Peça em gramas", 1, 2);
+    await createMaterial(itemD, "ARAME 1MM", 500, "G");
+
+    // OF cancelada não abre nota de entrada.
+    const orderE = await createOrder("OF-MP-CANCELADA", "Cliente E");
+    const itemE = await createItem(orderE, null, "C-1", "Peça cancelada", 1, 5);
+    await createMaterial(itemE, "CHAPA CANCELADA", 5);
+    await db.query(`update public.orders set status = 'CANCELADO' where id = $1`, [orderE]);
+
+    expect((await orderMaterials(orderD))[0]).toMatchObject({
+      materialKey: "ARAME 1MM::G",
+      totalKg: 0.5,
+      receivedKg: 0,
+      balanceKg: 0.5,
+    });
+
+    const rows = await customers();
+    expect(rows.find((row) => row.customerName === "Cliente D")).toMatchObject({
+      pendingMaterials: 1,
+      pendingKg: 0.5,
+    });
+    expect(rows.some((row) => row.customerName === "Cliente E")).toBe(false);
+
+    // Mantém os testes seguintes independentes deste cenário.
+    await db.query(`delete from public.orders where id = $1`, [orderD]);
+    await db.query(`delete from public.orders where id = $1`, [orderE]);
+  });
+
   it("rejeita material que não pertence à OF", async () => {
     await asUser(db, "authenticated", gestorId);
     await expect(
